@@ -1,0 +1,3 @@
+[2026-05-14 10:30:53,671][accelerate.utils.other][WARNING] - Detected kernel version 4.18.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
+[2026-05-14 10:30:53,676][accelerate.utils.other][WARNING] - Detected kernel version 4.18.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.
+[2026-05-14 10:30:53,697][accelerate.utils.other][WARNING] - Detected kernel version 4.18.0, which is below the recommended minimum of 5.5.0; this can cause the process to hang. It is recommended to upgrade the kernel to the minimum version or higher.

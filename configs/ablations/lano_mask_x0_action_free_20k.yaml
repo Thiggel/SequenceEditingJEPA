@@ -1,0 +1,53 @@
+experiment:
+  name: lano_mask_x0_b4_action_free_jepa_20k
+  seed: 11
+  device: auto
+task:
+  name: lano
+  seed: 11
+  seq_len: 128
+  max_depth: 6
+  max_target_tokens: 126
+corruptor:
+  name: mask
+  num_steps: 32
+  schedule: cosine
+model:
+  type: seq_edit_jepa
+  hidden_size: 256
+  intermediate_size: 1024
+  encoder_layers: 6
+  policy_layers: 2
+  predictor_layers: 12
+  num_heads: 8
+  dropout: 0.1
+  action_conditioned: false
+  action_conditioning: concat
+  lambda_act: 1.0
+  lambda_dyn: 1.0
+  lambda_tok: 0.5
+  lambda_sig: 0.05
+training:
+  batch_size: 128
+  max_steps: 20000
+  save_steps: 2000
+  save_total_limit: 3
+  lr: 0.0003
+  weight_decay: 0.01
+  grad_clip: 1.0
+  log_every: 100
+  bf16: true
+eval:
+  batches: 16
+  batch_size: 128
+  rollout_steps: [2, 4]
+  rollout_batches: 4
+debug:
+  enabled: true
+  every_steps: 500
+  rollout_steps: 2
+  max_actions: 24
+hydra:
+  run:
+    dir: ${oc.env:SEQ_EDIT_JEPA_WORK_ROOT}/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  output_subdir: null

@@ -1,0 +1,44 @@
+ablations:
+  experiment:
+    name: lano_mask_b1_denoising_lm
+    seed: 11
+    device: auto
+  task:
+    name: lano
+    seed: 11
+    seq_len: 128
+    max_depth: 6
+    max_target_tokens: 126
+  corruptor:
+    name: mask
+    num_steps: 16
+    schedule: cosine
+  model:
+    type: denoising_lm
+    hidden_size: 256
+    intermediate_size: 1024
+    encoder_layers: 20
+    num_heads: 8
+    dropout: 0.1
+  training:
+    batch_size: 128
+    max_steps: 8000
+    save_steps: 1000
+    save_total_limit: 3
+    lr: 0.0003
+    weight_decay: 0.01
+    grad_clip: 1.0
+    log_every: 100
+    bf16: true
+  eval:
+    batches: 16
+    batch_size: 128
+  debug:
+    enabled: true
+    every_steps: 500
+    rollout_steps: 0
+    max_actions: 24
+  hydra:
+    run:
+      dir: ${oc.env:SEQ_EDIT_JEPA_WORK_ROOT}/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    output_subdir: null

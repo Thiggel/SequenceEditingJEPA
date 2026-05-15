@@ -1,0 +1,55 @@
+experiment:
+  name: lm1b_mask_action_conditioned_jepa
+  seed: 23
+  device: auto
+task:
+  name: lm1b
+  seed: 23
+  seq_len: 128
+  prompt_tokens: 32
+  dataset_name: dvruette/lm1b
+  tokenizer_name: gpt2
+  streaming: true
+  max_examples: 200000
+corruptor:
+  name: mask
+  num_steps: 16
+  schedule: cosine
+model:
+  type: seq_edit_jepa
+  hidden_size: 512
+  intermediate_size: 2048
+  encoder_layers: 8
+  policy_layers: 2
+  predictor_layers: 12
+  num_heads: 8
+  dropout: 0.1
+  action_conditioned: true
+  action_conditioning: concat
+  predictor_type: transformer
+  lambda_act: 1.0
+  lambda_dyn: 1.0
+  lambda_tok: 0.5
+  lambda_sig: 0.02
+training:
+  batch_size: 64
+  max_steps: 50000
+  lr: 0.0002
+  weight_decay: 0.01
+  grad_clip: 1.0
+  log_every: 100
+  amp: true
+eval:
+  batches: 16
+  batch_size: 64
+  rollout_steps: [2]
+  rollout_batches: 2
+debug:
+  enabled: true
+  every_steps: 500
+  rollout_steps: 1
+  max_actions: 24
+hydra:
+  run:
+    dir: ${oc.env:SEQ_EDIT_JEPA_WORK_ROOT}/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  output_subdir: null

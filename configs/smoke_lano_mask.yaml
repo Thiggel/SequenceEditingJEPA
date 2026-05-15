@@ -1,0 +1,49 @@
+experiment:
+  name: smoke_lano_mask
+  seed: 7
+  device: auto
+task:
+  name: lano
+  seed: 7
+  seq_len: 32
+  max_depth: 3
+  max_target_tokens: 24
+corruptor:
+  name: mask
+  num_steps: 4
+  schedule: linear
+model:
+  type: seq_edit_jepa
+  hidden_size: 32
+  intermediate_size: 64
+  encoder_layers: 1
+  policy_layers: 1
+  predictor_layers: 1
+  num_heads: 4
+  dropout: 0.0
+  lambda_act: 1.0
+  lambda_dyn: 1.0
+  lambda_tok: 0.5
+  lambda_sig: 0.01
+training:
+  batch_size: 8
+  max_steps: 3
+  lr: 0.001
+  weight_decay: 0.0
+  grad_clip: 1.0
+  log_every: 1
+  amp: false
+eval:
+  batches: 2
+  batch_size: 8
+  rollout_steps: [2]
+  rollout_batches: 1
+debug:
+  enabled: true
+  every_steps: 1
+  rollout_steps: 2
+  max_actions: 12
+hydra:
+  run:
+    dir: ${oc.env:SEQ_EDIT_JEPA_WORK_ROOT}/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  output_subdir: null

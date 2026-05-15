@@ -1,0 +1,52 @@
+experiment:
+  name: igsm_causal_lm
+  seed: 103
+  device: auto
+task:
+  name: igsm
+  seed: 103
+  seq_len: 256
+  max_abs_value: 512
+  num_registers: 3
+  train_min_ops: 1
+  train_max_ops: 15
+  eval_min_ops: 1
+  eval_max_ops: 15
+  ood_op_values:
+  - 20
+  - 21
+  - 22
+  - 23
+  modulus: 23
+  ood_modulus: 23
+model:
+  type: causal_lm
+  hidden_size: 256
+  intermediate_size: 1024
+  encoder_layers: 20
+  num_heads: 8
+  dropout: 0.1
+training:
+  batch_size: 128
+  max_steps: 10000
+  save_steps: 1000
+  save_total_limit: 3
+  lr: 0.0003
+  weight_decay: 0.01
+  grad_clip: 1.0
+  log_every: 100
+  bf16: true
+eval:
+  batches: 32
+  batch_size: 128
+  every_steps: 10000
+  periodic_batches: 4
+  extra_splits:
+  - name: ood_ops
+    split: eval_ood
+    batches: 64
+    periodic_batches: 8
+hydra:
+  run:
+    dir: ${oc.env:SEQ_EDIT_JEPA_WORK_ROOT}/hydra/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  output_subdir: null
