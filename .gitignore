@@ -3,3 +3,4 @@ __pycache__/
 *.py[cod]
 unsloth_compiled_cache/
 logs/
+outputs/

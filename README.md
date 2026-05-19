@@ -40,3 +40,17 @@ docs/DENOISING_LITERATURE.md
 docs/RUNBOOK.md
 docs/sequence_edit_jepa_report.tex
 ```
+
+Latest submitted experiment batch:
+
+```text
+3621296_[0-7]  objective/capacity ablations
+3624400_[0-7]  objective/capacity ablation resume
+3621300_[0-1]  dependent LeWM-like latent-MPC eval after resume
+```
+
+The ablation batch covers higher action/token CE, contextual decoder heads,
+detached decoder readout, deeper policy heads, differentiable soft predicted
+action conditioning, LeWM-like no-decoder-CE objectives with and without a value
+head, and a large deep-decoder denoising-LM baseline. See
+`docs/EXPERIMENT_PLAN.md` and `docs/RUNBOOK.md` for the exact array mapping.

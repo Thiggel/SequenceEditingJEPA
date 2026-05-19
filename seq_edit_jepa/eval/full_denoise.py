@@ -163,7 +163,7 @@ def _predict_tokens_and_scores(
                 torch.full_like(pred_tokens, int(model.config.pad_token_id)),
             )
             hidden_pred = model.predictor(hidden, pred_ops, pred_tokens, n, attention_mask)
-            token_logits = suppress_token_logits(model.decoder(hidden_pred), [model.config.mask_token_id])
+            token_logits = suppress_token_logits(model.decoder(hidden_pred, attention_mask=attention_mask), [model.config.mask_token_id])
         else:
             raise ValueError(
                 "jepa_inference_mode must be 'predictor_decoder' or 'policy_head', "
@@ -174,7 +174,7 @@ def _predict_tokens_and_scores(
         return token_logits, replace_prob * token_prob
     if isinstance(model, DenoisingLM):
         hidden = model.encoder(input_ids, n, attention_mask, segment_ids)
-        token_logits = model.decoder(hidden)
+        token_logits = model.decoder(hidden, attention_mask=attention_mask)
         token_logits = suppress_token_logits(token_logits, [model.config.mask_token_id])
         return token_logits, token_logits.softmax(dim=-1).amax(dim=-1)
     raise TypeError(f"Full denoising is defined for SequenceEditJEPA and DenoisingLM, got {type(model).__name__}.")

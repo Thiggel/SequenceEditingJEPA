@@ -1,6 +1,6 @@
 # Denoising Diffusion Literature Notes
 
-Last updated: 2026-05-15
+Last updated: 2026-05-19
 
 ## Implementation Status
 
@@ -19,15 +19,24 @@ Implemented on 2026-05-14:
 Submitted validation runs:
 
 ```text
-3606650_[0-1]  iGSM x0 JEPA/denoising, num_steps=64; running
+3606650_[0-1]  iGSM x0 JEPA/denoising, num_steps=64; timed out before 200k
 3606651        LANO replacement x0 JEPA; completed
 3606652_[0-3]  LANO x0 matched-step mask ablations; completed
-3607175_[0-1]  iGSM x0 resume continuation; afterany:3606650
-3607176        dependent iGSM x0 latest full-denoise eval
-3612686_[0-5]  x0 inference-mode/commit-k ablation
-3612683_[0-3]  stepwise iGSM JEPA mask/replacement ablation
-3612684_[0-3]  dependent stepwise resume
-3612685_[0-4]  dependent stepwise commit-k eval
+3607175_[0-1]  iGSM x0 resume continuation; completed to checkpoint-200000
+3607176        iGSM x0 latest full-denoise eval; completed
+3612686_[0-5]  x0 inference-mode/commit-k ablation; completed
+3612683_[0-3]  stepwise iGSM JEPA mask/replacement ablation; timed out after 120k
+3612684_[0-3]  dependent stepwise resume; completed to checkpoint-200000
+3612685_[0-4]  dependent stepwise commit-k eval; pending priority
+3614356_[0-7]  partial stepwise latest-checkpoint commit/inference sweep; completed
+3614357_[0-5]  partial stepwise oracle-goal latent MPC diagnostic; completed
+3615623_[0-2]  proposal/factorized/DLM-proposer diagnostics; completed
+3615624_[0-15] larger oracle-MPC grid; completed
+3615625_[0-1]  oracle-goal value-head training; completed
+3615643_[0-1]  rollout-repair continuation; completed
+3621296_[0-7]  objective/capacity ablations; all tasks running after throttle raised to %8
+3624400_[0-7]  objective/capacity ablation resume; afterany:3621296
+3621300_[0-1]  LeWM-like MPC posthoc eval; afterany:3624400, throttle raised to %2
 ```
 
 Implemented on 2026-05-15:
@@ -52,6 +61,20 @@ The stronger masked diffusion language models instead train a clean-token
 predictor: given a partially masked sequence `x_t`, predict `x0` on masked
 positions only. The sampler, not the network token head, decides how many
 positions remain masked at the next denoising level.
+
+The iGSM x0 result validates the first part of that diagnosis: the x0 denoising
+LM improves from `22.7%` ID answer accuracy under the corrected old sampler to
+`42.2%` ID answer accuracy at `checkpoint-200000`. It is now the strongest
+denoising-style baseline. The x0 JEPA predictor-decoder result is weaker
+(`32.8%` ID), so the current evidence does not show that the action-conditioned
+latent predictor helps on iGSM generation.
+
+The stepwise JEPA diagnostics sharpen the next question. Partial commit sweeps
+remain weak, but oracle-token latent MPC can solve small ID/OOD diagnostics.
+Proposal coverage is often good at top-k, especially for T50, and factorized
+oracles show that model positions plus oracle tokens are strong while oracle
+positions plus model tokens are weak. The active bottleneck is therefore exact
+token choice/action scoring more than the cosine noising schedule alone.
 
 ## Pre-Fix Implementation
 
@@ -258,6 +281,44 @@ action target identifiable from `x_t` and position. A later variant can replace
 this with a visible priority signal or with a learned proposal/action search, but
 we should avoid a hidden random reveal order as the supervised label.
 
+The first planning diagnostic is deliberately oracle-scored. Given current
+state latent `h_t`, candidate action `a_t`, and predicted latent
+`P(h_t, a_t, t)`, `seq_edit_jepa/eval/oracle_mpc.py` scores actions by negative
+MSE to the EMA target encoding of the clean sequence. This is not deployable
+because it uses `x0`, but it answers whether the latent predictor contains
+useful planning signal. If oracle MPC improves while greedy/full-denoise does
+not, the next target is a learned goal-conditioned energy or value scorer. If it
+does not improve, the JEPA dynamics/objective need retraining changes before
+more elaborate planning.
+
+2026-05-18 implementation update: the JEPA objective now supports split
+operation/action-token CE weights, optional Transformer decoder layers before
+the LM head, soft predicted-action conditioning for the latent predictor, and a
+joint oracle-latent value loss. The soft predicted-action path avoids a
+Gumbel-softmax dependency: it feeds expected op/token embeddings into the
+predictor, with the token embedding gated by the predicted `REPLACE`
+probability. This is the simplest differentiable test of the train-inference
+mismatch where the predictor previously saw only gold actions during training.
+
+The submitted `3621296` ablations instantiate those ideas as follows:
+
+- `3621296_0`: higher op CE, action-token CE, decoder CE, and SIGReg.
+- `3621296_1`: 12-layer contextual decoder before the LM head.
+- `3621296_2`: same contextual decoder, but detached from the latent state.
+- `3621296_3`: 12-layer policy head so action selection has predictor-scale
+  capacity.
+- `3621296_4`: soft model-predicted actions feed the predictor during training,
+  letting latent MSE gradients reach the policy through expected action
+  embeddings.
+- `3621296_5`: LeWM-like no decoder CE, with action-token CE retained as the
+  discrete token proposer.
+- `3621296_6`: LeWM-like no decoder CE plus an oracle-goal value head.
+- `3621296_7`: a large x0 denoising-LM baseline with an 18-layer encoder and
+  12-layer decoder.
+
+The dependent `3621300` MPC eval compares oracle-goal latent scoring against the
+learned value-head score on the two LeWM-like runs.
+
 ### Priority 2: Schedules And Step Counts
 
 After the objective is fixed, compare:
@@ -294,15 +355,17 @@ Once the baseline no longer leaves masks:
 
 ## Suggested Next Experiments
 
-1. Complete `3607176` and `3612686` to compare x0 denoising LM, x0 JEPA
-   `policy_head`, x0 JEPA `predictor_decoder`, and `commit_k=1/2/5/10`.
-2. Complete `3612683`/`3612684`/`3612685` to compare stepwise JEPA with
+1. Read `3614356` to determine whether stepwise collapse is caused by committing
+   too many tokens per inference step or by the predictor-decoder path itself.
+2. Read `3614357` to determine whether oracle latent planning helps current
+   partial stepwise checkpoints.
+3. Complete `3612683`/`3612684`/`3612685` to compare stepwise JEPA with
    `num_steps=20/50/64` and the same commit-k sampler sweep.
-3. If x0 denoising remains weak, sweep `num_steps=32/64/128` for the denoising
+4. If x0 denoising remains weak, sweep `num_steps=32/64/128` for the denoising
    LM with the fixed objective and sampler.
-4. If stepwise JEPA improves action ordering, add action-free and policy-only
+5. If stepwise JEPA improves action ordering, add action-free and policy-only
    stepwise controls.
-5. Design the variable-length edit MDP for `REPLACE`, `KEEP`, `DELETE`, and
+6. Design the variable-length edit MDP for `REPLACE`, `KEEP`, `DELETE`, and
    `INSERT_AFTER`; this needs gap/action supervision and cannot be represented
    faithfully by the current fixed-length action tensors alone.
 

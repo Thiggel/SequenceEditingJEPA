@@ -81,9 +81,46 @@ class LatentPredictor(nn.Module):
             raise ValueError(f"Input length {length} exceeds max_length={self.max_length}.")
         if n.ndim == 0:
             n = n.expand(batch)
-        update = self.time_embedding(n.clamp(0, self.num_steps)).unsqueeze(1)
+        action_update = None
         if self.action_conditioned:
-            update = update + self.op_embedding(action_ops.clamp_min(0)) + self.token_embedding(action_tokens.clamp_min(0))
+            action_update = self.op_embedding(action_ops.clamp_min(0)) + self.token_embedding(action_tokens.clamp_min(0))
+        return self._predict_with_action_update(hidden_states, action_update, n, attention_mask)
+
+    def forward_soft(
+        self,
+        hidden_states: torch.Tensor,
+        op_probs: torch.Tensor,
+        token_probs: torch.Tensor,
+        n: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        replace_op_id: int | None = None,
+    ) -> torch.Tensor:
+        batch, length, _ = hidden_states.shape
+        if length > self.max_length:
+            raise ValueError(f"Input length {length} exceeds max_length={self.max_length}.")
+        if n.ndim == 0:
+            n = n.expand(batch)
+        action_update = None
+        if self.action_conditioned:
+            op_update = op_probs @ self.op_embedding.weight
+            token_update = token_probs @ self.token_embedding.weight
+            if replace_op_id is not None:
+                replace_prob = op_probs[..., int(replace_op_id)].unsqueeze(-1)
+                pad = self.token_embedding.weight[self.token_embedding.padding_idx].view(1, 1, -1)
+                token_update = replace_prob * token_update + (1.0 - replace_prob) * pad
+            action_update = op_update + token_update
+        return self._predict_with_action_update(hidden_states, action_update, n, attention_mask)
+
+    def _predict_with_action_update(
+        self,
+        hidden_states: torch.Tensor,
+        action_update: torch.Tensor | None,
+        n: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        update = self.time_embedding(n.clamp(0, self.num_steps)).unsqueeze(1)
+        if action_update is not None:
+            update = update + action_update
         if self.action_conditioning == "concat":
             x = self.condition_projection(torch.cat([hidden_states, update.expand_as(hidden_states)], dim=-1))
         else:

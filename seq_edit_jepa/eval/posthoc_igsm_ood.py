@@ -174,7 +174,16 @@ def _allow_rope_length_extrapolation(model, seq_len: int) -> None:
 
 
 def _checkpoint_dirs(run_dir: Path, glob_pattern: str) -> list[Path]:
-    checkpoints = sorted((path for path in run_dir.glob(glob_pattern) if path.is_dir()), key=_checkpoint_step)
+    checkpoints = sorted(
+        (
+            path
+            for path in run_dir.glob(glob_pattern)
+            if path.is_dir()
+            and (path / "config.json").is_file()
+            and ((path / "model.safetensors").is_file() or (path / "pytorch_model.bin").is_file())
+        ),
+        key=_checkpoint_step,
+    )
     if not checkpoints:
         raise FileNotFoundError(f"No checkpoints matching {glob_pattern!r} under {run_dir}")
     return checkpoints

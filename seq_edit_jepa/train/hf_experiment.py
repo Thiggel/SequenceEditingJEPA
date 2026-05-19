@@ -48,6 +48,22 @@ def run_experiment_from_config(config: dict[str, Any], source_config_path: str |
     seq_len = int(config.get("task", {}).get("seq_len", config.get("model", {}).get("max_length", 128)))
     corruptor = build_corruptor(dict(config.get("corruptor", {})), tokenizer)
     model = build_model(dict(config.get("model", {})), tokenizer, num_steps=corruptor.num_steps, max_length=seq_len)
+    init_from_checkpoint = config.get("experiment", {}).get("init_from_checkpoint") or config.get("model", {}).get("init_from_checkpoint")
+    if init_from_checkpoint and not resume_from_checkpoint:
+        pretrained = type(model).from_pretrained(str(init_from_checkpoint))
+        missing, unexpected = model.load_state_dict(pretrained.state_dict(), strict=False)
+        if missing or unexpected:
+            print(
+                json.dumps(
+                    {
+                        "init_from_checkpoint": str(init_from_checkpoint),
+                        "missing_keys": missing,
+                        "unexpected_keys": unexpected,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
 
     training = dict(config.get("training", {}))
     eval_cfg = dict(config.get("eval", {}))

@@ -14,6 +14,8 @@ def action_loss(
     target_tokens: torch.Tensor,
     mask: torch.Tensor,
     forbidden_token_ids: list[int] | tuple[int, ...] | None = None,
+    op_weight: float = 1.0,
+    token_weight: float = 1.0,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     valid = mask.bool()
     if valid.any():
@@ -31,9 +33,13 @@ def action_loss(
     else:
         tok_loss = token_logits.sum() * 0.0
         tok_acc = tok_loss.detach()
-    return op_loss + tok_loss, {
+    weighted = float(op_weight) * op_loss + float(token_weight) * tok_loss
+    return weighted, {
+        "loss/action": weighted.detach(),
         "loss/action_op_ce": op_loss.detach(),
         "loss/action_token_ce": tok_loss.detach(),
+        "loss/action_op_ce_weighted": (float(op_weight) * op_loss).detach(),
+        "loss/action_token_ce_weighted": (float(token_weight) * tok_loss).detach(),
         "metric/action_op_acc": op_acc.detach(),
         "metric/action_token_acc": tok_acc.detach(),
     }
