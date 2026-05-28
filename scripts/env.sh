@@ -9,6 +9,6 @@ source "$SCRIPT_DIR/../env.sh"
 export VIRTUAL_ENV="${VIRTUAL_ENV:-$WORK/.venv}"
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 case ":${PYTHONPATH:-}:" in
-  *":$SEQ_EDIT_JEPA_REPO_ROOT:"*) ;;
-  *) export PYTHONPATH="$SEQ_EDIT_JEPA_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" ;;
+  *":$PUZZLE_JEPA_REPO_ROOT:"*) ;;
+  *) export PYTHONPATH="$PUZZLE_JEPA_REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" ;;
 esac

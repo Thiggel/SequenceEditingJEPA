@@ -1,0 +1,44 @@
+seed: 209
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/maze_jepa_5m_mix70_30
+data:
+  oracle_probability: 0.7
+task:
+  name: maze
+  repo_id: sapientinc/maze-30x30-hard-1k
+  train_split: train
+  eval_split: test
+  puzzle_column: question
+  solution_column: answer
+  height: 30
+  width: 30
+model:
+  hidden_size: 256
+  intermediate_size: 512
+  encoder_layers: 5
+  predictor_layers: 3
+  num_heads: 8
+  max_height: 30
+  max_width: 30
+  task_vocab_size: 2
+  action_value_vocab_size: 5
+  dropout: 0.0
+  target_momentum: 0.99
+training:
+  max_steps: 5000
+  batch_size: 16
+  learning_rate: 1.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  bf16: true
+  eval_every_steps: 1000
+  save_every_steps: 1000
+eval:
+  oracle_probability: 1.0
+  num_batches: 1
+  batch_size: 16
+  rank_examples: 2
+  planning_examples: 1
+  max_plan_steps: 16
+  planning_horizons: [1, 2, 4]
+  planning_branching: 2
+  distance_examples: 4

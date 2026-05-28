@@ -1,56 +1,47 @@
-# Sequence-Edit JEPA
+# Puzzle JEPA
 
-This branch implements a minimal action-conditioned latent world model for sequence editing:
+This repo is now focused on objective puzzle-world reasoning for Sudoku-Extreme
+and Maze-Hard. The previous sequence-editing/iGSM work was archived outside the
+repo at `../legacy-sequence-editing` and summarized in [`legacy.md`](legacy.md).
 
-```text
-whole sequence state -> edit action -> latent transition -> revised sequence
-```
+The active scaffold has four pieces:
 
-The first fully runnable experiments are fixed-length demasking and replacement correction on controlled LANO/CFG-style strings and synthetic iGSM-style arithmetic traces. Variable-length insert/delete editing is implemented at the symbolic action layer and exposed for later model extensions.
+- `puzzle_jepa.data`: Sudoku and maze state/action worlds, Hugging Face string
+  adapters, oracle transition sampling, and tensor collation.
+- `puzzle_jepa.models`: minimal HRM, TRM, PTRM sampler, and a decoder-free
+  action-conditioned JEPA world model.
+- `puzzle_jepa.planning`: symbolic action enumeration plus latent action scoring
+  against an oracle goal state.
+- `configs/puzzle`: Hydra smoke configs for JEPA, HRM, TRM, and PTRM.
 
-Use the shared cluster environment:
+## Setup
 
 ```bash
-source ./scripts/env.sh
-python -m pytest
-python -m seq_edit_jepa.train.hydra_train --config-name smoke_lano_mask
+source scripts/env.sh
+python -m pytest -q tests
 ```
 
-Training uses Hydra config names, a Hugging Face `Trainer` subclass, and HF-compatible `PreTrainedModel` checkpoints. Each run saves:
+## Smoke Runs
 
-```text
-$SEQ_EDIT_JEPA_WORK_ROOT/runs/<experiment>/
-  config.yaml
-  metrics.json
-  checkpoint.pt          # compatibility checkpoint
-  model/                 # save_pretrained directory
-  tokenizer/
+```bash
+python -m puzzle_jepa.train.hydra_train --config-name jepa_sudoku_smoke
+python -m puzzle_jepa.train.hydra_train --config-name jepa_maze_smoke
+python -m puzzle_jepa.train.hydra_train --config-name hrm_sudoku_smoke
+python -m puzzle_jepa.train.hydra_train --config-name trm_sudoku_smoke
+python -m puzzle_jepa.train.hydra_train --config-name ptrm_sudoku_smoke
 ```
 
-The default architecture is a bidirectional sequence-edit Transformer with RoPE, RMSNorm, QK-norm self-attention, SwiGLU MLPs, sinusoidal timestep conditioning, an edit-policy MLP head, and an action-conditioned latent predictor. Debug sequence prints are controlled by the `debug:` config block.
+## Current Training Direction
 
-SLURM launchers live under `scripts/slurm/` and use the same `$WORK/.venv`, proxy, and cache settings copied from `../T-JEPA`. Runtime outputs go under `SEQ_EDIT_JEPA_WORK_ROOT`, defaulting to `$WORK/sequence-editing`.
+Start with valid oracle partial states:
 
-Current experiment tracking:
+1. Sample a puzzle and its oracle solution/path.
+2. Sample a valid partial state from the solution manifold.
+3. Enumerate a legal action `(row, col, value)`.
+4. Train the JEPA predictor to map `(state, action)` to the target-encoder latent
+   of the next state.
+5. Plan by scoring legal actions by predicted latent distance to the oracle goal
+   latent.
 
-```text
-docs/EXPERIMENT_PLAN.md
-docs/RESULTS.md
-docs/DENOISING_LITERATURE.md
-docs/RUNBOOK.md
-docs/sequence_edit_jepa_report.tex
-```
-
-Latest submitted experiment batch:
-
-```text
-3621296_[0-7]  objective/capacity ablations
-3624400_[0-7]  objective/capacity ablation resume
-3621300_[0-1]  dependent LeWM-like latent-MPC eval after resume
-```
-
-The ablation batch covers higher action/token CE, contextual decoder heads,
-detached decoder readout, deeper policy heads, differentiable soft predicted
-action conditioning, LeWM-like no-decoder-CE objectives with and without a value
-head, and a large deep-decoder denoising-LM baseline. See
-`docs/EXPERIMENT_PLAN.md` and `docs/RUNBOOK.md` for the exact array mapping.
+Invalid states should be added later as verifier/value-head negatives, not mixed
+silently into the world-model transition loss.

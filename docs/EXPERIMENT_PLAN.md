@@ -1,256 +1,264 @@
 # Experiment Plan
 
-Last updated: 2026-05-19
+Last updated: 2026-05-28
 
-## Current Priority
+## Pivot
 
-The immediate goal is now to separate three questions cleanly:
+The project has pivoted from denoising free-form reasoning traces to objective
+puzzle worlds: Sudoku-Extreme and Maze-Hard first, with ARC left for later. The
+legacy sequence-editing code is archived at `../legacy-sequence-editing` and the
+method/results summary is in [`../legacy.md`](../legacy.md).
 
-1. Does the x0 masked-diffusion baseline work when evaluated with the corrected
-   sampler?
-2. Does JEPA help when its latent predictor is actually used at inference time?
-3. Does stepwise JEPA training improve action selection compared with direct x0
-   JEPA?
-4. Is the current stepwise JEPA failure caused by greedy/chunked inference, or
-   are the latent dynamics themselves not useful for planning?
+## Paper And Code Read
 
-The x0 masked-diffusion fix has been implemented for mask/replacement
-corruptors, the denoising LM, and action-conditioned JEPA:
+| Line | Source | Implementation read |
+| --- | --- | --- |
+| HRM | arXiv `2506.21734`, `https://github.com/sapientinc/HRM` | Two recurrent modules (`z_H`, `z_L`), deep supervision, detached recurrent carry between segments, ACT/Q head, dataset builders for `sapientinc/sudoku-extreme` and `sapientinc/maze-30x30-hard-1k`. |
+| TRM | arXiv `2510.04871`, `https://github.com/SamsungSAILMontreal/TinyRecursiveModels` | One tiny recurrent network updates latent `z` and answer `y`; full local recursion; EMA; simplified Q/halting head. TRM-MLP is strongest for Sudoku-Extreme, TRM-Att for Maze-Hard/ARC. |
+| PTRM | arXiv `2605.19943`, `https://amins01.github.io/ptrm/` | Code was not available from the project page. Method is inference-only: inject Gaussian noise into TRM latent recursions, run K rollouts, select by Q head or mode. |
 
-- corrupted examples now target clean `x0`;
-- token CE is restricted to corrupted editable positions;
-- `[MASK]` is suppressed as an editable token prediction;
-- JEPA action conditioning is preserved, but actions now describe explicit
-  REPLACE operations for the currently corrupted positions;
-- mask/replacement training samples uniform corruption counts and uses larger
-  denoising step counts in the new configs.
+## JEPA Training Plan
 
-Additional 2026-05-15 fixes:
+Train the JEPA world model on objective transitions, not text traces.
 
-- JEPA full-denoise inference now defaults to `predictor_decoder`, i.e. policy
-  actions condition the latent predictor and the decoder reads tokens from the
-  predicted next latent state.
-- The old JEPA policy-token path remains available as
-  `jepa_inference_mode=policy_head` for ablation only.
-- Full-denoise eval now supports fixed commit counts with `commit_k=1/2/5/10`
-  in addition to the scheduled high-confidence commit sampler.
-- Stepwise mask/replacement corruptors can use `target_mode: step`, where the
-  next target is one visible deterministic reveal chunk rather than clean `x0`.
+For Sudoku:
 
-The previous full-denoise eval remains the trusted baseline snapshot, but the
-new x0 eval changes the denoising conclusion:
+1. Sample a puzzle and solution.
+2. Sample a valid partial board by keeping clues and a random subset of solution
+   cells.
+3. Pick a mutable cell. Clue cells are immutable; non-clue cells may be empty or
+   overwritten.
+4. Use action `(row, col, digit)`.
+5. Target the next board with that mutable cell set to `digit`.
 
-- causal LM is the strongest iGSM baseline;
-- old JEPA beat the old plain denoising LM under full denoising, but this was
-  partly because the old denoising objective/sampler were wrong;
-- x0 denoising LM is now the strongest denoising-style iGSM baseline;
-- x0 JEPA with predictor-decoder inference does not yet beat x0 denoising LM;
-- LANO replacement exposes an edit-recall/objective issue.
+For Maze:
 
-Detailed denoising literature notes and proposed changes are in
-`docs/DENOISING_LITERATURE.md`.
+1. Sample a maze and oracle shortest path.
+2. Sample a partial path state by revealing a subset of oracle path cells.
+3. Pick a remaining path cell.
+4. Use action `(row, col, PATH)`.
+5. Target the next maze with that path cell marked.
 
-## Submitted Jobs
+Training should be staged by question:
 
-| Job ID | Purpose | Dependency | Notes |
-| --- | --- | --- | --- |
-| `3605092_[0-2]` | iGSM resume training | none | Completed; trained from `checkpoint-120000` to `checkpoint-200000`. |
-| `3605200` | Latest-checkpoint iGSM full-denoise eval | none | Completed; trusted latest full-denoise eval. |
-| `3605201_[0-2]` | Resume iGSM training with fixed eval/sample logging | `afterany:3605092` | Completed, effectively no-op because runs were already at `checkpoint-200000`. |
-| `3605202` | Latest-checkpoint iGSM full-denoise eval after fixed resume | `afterany:3605201` | Completed; same causal/JEPA as `3605200`, denoising LM becomes nonzero under corrected sampler path. |
-| `3605203` | All-checkpoints iGSM full-denoise eval after fixed resume | `afterany:3605201` | Completed; all-checkpoint curve artifact is available. |
-| `3605204` | LANO replacement JEPA | none | Completed; poor edit recall, do not move to iGSM replacement yet. |
-| `3605205_[0-3]` | LANO mask ablations | none | Completed; comparison confounded by unequal step counts. |
-| `3606650_[0-1]` | iGSM x0 JEPA and denoising LM | none | Timed out before 200k; continued by `3607175`. |
-| `3606651` | LANO replacement x0 JEPA | none | Completed; much higher edit recall than pre-fix replacement, but exact/grammar still weak. |
-| `3606652_[0-3]` | LANO x0 matched-step mask ablations | none | Completed; all four ablations used `20k` steps. |
-| `3607175_[0-1]` | iGSM x0 resume continuation | `afterany:3606650` | Completed; produced `checkpoint-200000` for x0 JEPA and x0 denoising LM. |
-| `3607176` | Latest-checkpoint iGSM x0 full-denoise eval | `afterok:3607175` | Completed; x0 denoising LM beats x0 JEPA, causal remains strongest. |
-| `3612683_[0-3]` | Stepwise iGSM JEPA training | none | All four timed out cleanly; latest saved checkpoint is `120000`. |
-| `3612684_[0-3]` | Stepwise iGSM JEPA resume | `afterany:3612683` | Completed; produced `checkpoint-200000` for T20/T50/T64 mask and T64 replacement. |
-| `3612685_[0-4]` | Stepwise mask JEPA commit-k eval | `afterok:3612684` | Dependency cleared; pending on priority for `commit_k=schedule/1/2/5/10`. |
-| `3612686_[0-5]` | x0 JEPA/DLM inference-mode and commit-k eval | `afterok:3607175` | Completed. `policy_head` helps JEPA ID but hurts long OOD; `commit_k=1` is most interesting for DLM long-op splits. |
-| `3614356_[0-7]` | Partial stepwise latest-checkpoint inference sweep | none | Completed. Small-k and `policy_head` help slightly but do not rescue long fixed-op generation. |
-| `3614357_[0-5]` | Oracle-goal latent MPC diagnostic | none | Completed. Oracle-token injection solves small ID/OOD diagnostics, pointing to proposal/token bottlenecks. |
-| `3615623_[0-2]` | Stepwise proposal/factorized diagnostics | none | Completed. Position coverage is decent; token choice is the larger bottleneck. |
-| `3615624_[0-15]` | Larger oracle-MPC grid | none | Completed; re-encode MPC helps small T20 ID/OOD diagnostics but does not solve long fixed-op rows. |
-| `3615625_[0-1]` | Oracle-goal value-head training | none | Completed; value heads fit the oracle latent-energy target, deployable MPC eval is still pending later jobs. |
-| `3615643_[0-1]` | Stepwise rollout-repair continuation | none | Completed. T20 ID improved, fixed long-op OOD remains weak. |
-| `3621296_[0-7]` | Objective/capacity ablations | none | All eight tasks are running as of 2026-05-19 15:54 CEST after raising the array throttle from `%2` to `%8`. Covers high CE, deep decoder, deep policy, soft-action dynamics, LeWM-like no-decoder CE/value, and deep DLM baseline. |
-| `3624400_[0-7]` | Objective/capacity ablation resume | `afterany:3621296` | Submitted because the first allocation will not reach 200k for the slower variants. Resumes each run from its latest complete checkpoint. |
-| `3621300_[0-1]` | LeWM-like MPC posthoc eval | `afterany:3624400` | Pending dependency. Uses oracle-goal scoring for no-value and learned value-head scoring for value run. |
-| `3615630_[0-1]` | Stepwise rollout-repair continuation | none | Cancelled/replaced after confirming the original 80k-step budget was too slow for one allocation. |
-| `3615626_[0-1]` | Stepwise rollout-repair continuation | none | Failed immediately due to a Hydra override path; replaced by `3615630`, then by `3615643`. |
+1. **Oracle dynamics.** Train on valid oracle-improving transitions only. This
+   answers whether the architecture can learn clean objective state dynamics and
+   whether latent planning works when all rollouts stay on the solution manifold.
+2. **Full mutable dynamics.** Add random valid actions on mutable cells,
+   including actions that create row/column/block conflicts or overwrite a prior
+   model-written cell. These are real environment transitions, not invalid
+   transitions. This answers whether the world model predicts off-trajectory
+   states rather than only memorizing solution prefixes.
+3. **Preference/energy shaping.** Add a value, verifier, or contrastive latent
+   energy objective so states closer to an oracle goal score better than
+   constraint-violating or farther states. This answers whether latent distance
+   or a learned scalar can guide search, rather than only predict next states.
+4. **Hard invalid actions.** Keep clue-cell overwrites and out-of-range actions
+   outside inference by action masking. If used in training, use them only as
+   explicit negative validity examples because they have no environment
+   transition.
 
-## iGSM Baseline Table
+The main distinction is that constraint-violating Sudoku boards can still be
+valid *states* under a mutable-cell environment, while clue overwrites are not
+valid *actions*. Pure dynamics training can include the former; search guidance
+still needs latent/energy shaping because next-state prediction alone does not
+guarantee that Euclidean latent distance is monotonic with distance to the goal.
 
-The first table to trust should compare:
+## First Run Matrix
 
-```text
-causal LM generation
-denoising LM full denoise from masked solution + answer
-Sequence-Edit JEPA full denoise from masked solution + answer
-```
+### Grid 0: Local/Single-GPU Pipeline Proof
 
-For each model report:
+Submitted on 2026-05-26 as Slurm array `3664581_[0-1]` with recurring oversight
+`3664583`. Completed successfully with exit `0:0` at `2026-05-26 16:23:58 CEST`.
+It is not for a paper number; it proves the train/eval loop, checkpointing, and
+metric schema.
 
-```text
-ID answer accuracy
-OOD op=20 answer accuracy
-OOD op=21 answer accuracy
-OOD op=22 answer accuracy
-OOD op=23 answer accuracy
-trace token accuracy
-sample generations/traces
-```
+| Run | Model | Data mix | Train budget | Batch | LR | Eval |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| `grid0_sudoku_jepa_5m_oracle_smoke` | JEPA, 5.26M trainable params | 100% oracle mutable transitions | `1000` steps | `1024` | `1e-4` | one-step latent MSE, oracle-action rank, greedy H=1 planning on 8 puzzles |
+| `grid0_maze_jepa_5m_oracle_smoke` | attention JEPA, 5.28M trainable params | 100% oracle path transitions | `1000` steps | `16` | `1e-4` | one-step latent MSE, oracle-action rank, greedy H=1 planning on 1 maze |
 
-The main gate was passed only weakly: JEPA improves over the plain denoising
-model under full denoising, but both results point to sampler/objective
-debugging before adding planning.
+Result: no OOMs, final checkpoints exist, and one-step prediction improved from
+initialization on both datasets. H=1 greedy planning still had `0.0` solve rate,
+so this is only a pipeline pass. Maze action ranking improved substantially;
+Sudoku action ranking remains weak/noisy.
 
-The x0 rerun changes this read. The fairer denoising LM is now stronger than
-JEPA:
+### Grid 1: Core Data Curriculum
 
-| Model | ID | OOD ops | op20 | op21 | op22 | op23 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Causal LM | `88.3%` | `86.7%` | `25.8%` | `27.3%` | `15.6%` | `15.6%` |
-| x0 JEPA predictor-decoder | `32.8%` | `28.9%` | `3.9%` | `5.5%` | `3.9%` | `7.8%` |
-| x0 Denoising LM | `42.2%` | `29.7%` | `9.4%` | `8.6%` | `6.2%` | `9.4%` |
+This is the first real grid. Keep size fixed at about 5M and test the central
+question: does off-policy mutable dynamics help planning or just make the latent
+space harder?
 
-This means the next JEPA claim must come from the stepwise action-selection and
-planning experiments, not from the current x0 JEPA result.
+| Run | Model | Data mix | Batch | LR | Main question |
+| --- | --- | --- | ---: | ---: | --- |
+| `sudoku_jepa_5m_oracle` | JEPA | 100% oracle transitions | `1024-2048` | `1e-4` | Clean dynamics baseline. |
+| `sudoku_jepa_5m_mix70_30` | JEPA | 70% oracle, 30% random mutable actions | `1024-2048` | `1e-4` | Does off-trajectory coverage improve recovery/search? |
+| `sudoku_jepa_5m_mix50_50` | JEPA | 50% oracle, 50% random mutable actions | `1024-2048` | `1e-4` | How much random dynamics can we add before target-trajectory quality drops? |
+| `maze_jepa_5m_oracle` | attention JEPA | 100% oracle path transitions | `128-256` | `1e-4` | Clean maze dynamics baseline. |
+| `maze_jepa_5m_mix70_30` | attention JEPA | 70% oracle, 30% random mutable path/non-path marks if enabled | `128-256` | `1e-4` | Does off-path coverage improve planning? |
 
-## Denoising Debug Ablations
+Evaluate H=1/2/4 fixed-horizon planning with oracle goal latents. Also report
+latent distance monotonicity along oracle trajectories and after random bad
+actions.
 
-The first six objective/sampler fixes are implemented for the x0 configs. The
-next submitted diagnostic is `3612686`, which compares:
+Implemented, submitted, and completed on 2026-05-26 as Slurm array
+`3665018_[0-4]`; all five tasks ran on `a0932` from
+`2026-05-26 20:29:34 CEST` and exited `0:0`. Configs:
+`grid1_sudoku_jepa_5m_oracle`, `grid1_sudoku_jepa_5m_mix70_30`,
+`grid1_sudoku_jepa_5m_mix50_50`, `grid1_maze_jepa_5m_oracle`, and
+`grid1_maze_jepa_5m_mix70_30`.
 
-```text
-JEPA policy_head + scheduled commit
-JEPA predictor_decoder + scheduled commit
-JEPA/DLM predictor_decoder eval with commit_k = 1, 2, 5, 10
-```
+Implementation notes:
 
-`3607176` and `3612686` are complete. The ablation did not rescue x0 JEPA:
-`policy_head` improved JEPA ID (`35.9%`) but reduced long-op OOD, and
-`predictor_decoder + schedule` remains the best JEPA OOD setting (`28.9%`).
-For the denoising LM, `commit_k=1` is worth following up because it improved
-several fixed long-op splits. If JEPA or denoising still fail from fully masked
-traces after the larger follow-up:
+- Sudoku random mutable transitions keep clue cells fixed, allow any digit in
+  mutable cells, and allow overwrites of prior mutable-cell values.
+- Maze random mutable transitions mark arbitrary original empty cells as `PATH`,
+  so the 70/30 mix includes off-path marks.
+- Evaluation now logs `planning_h1`, `planning_h2`, and `planning_h4` solve
+  rates/mean steps plus `oracle_latent_delta` and `random_latent_delta`.
+- Submitted configs use `5000` steps. Sudoku batch is `1024`. Maze batch is
+  conservatively `16` because Grid 0 already used about `22.3 GiB` at batch
+  `16`; the original `128-256` target is deferred until memory behavior is
+  optimized or gradient accumulation is added.
 
-1. Compare `num_steps=32/64/128` and high-confidence commit vs random remasking.
-2. Compare uniform exact-count masking with log-linear, cosine, and linear
-   timestep sampling.
-3. Re-run easier starts (`n=12`, `n=8`) as diagnostics, not as the main fix.
-4. Add classifier-free guidance by sometimes dropping or masking the prompt.
-5. Try block/semi-autoregressive diffusion for long iGSM traces.
+Final result:
 
-## JEPA Ablations
+| Run | Eval loss | Top1 | Mean rank | H1/H2/H4 solve | Oracle delta | Random delta |
+| --- | ---: | ---: | ---: | --- | ---: | ---: |
+| `sudoku_jepa_5m_oracle` | `0.0085` | `0.0625` | `36.50` | `0.0`/`0.0`/`0.0` | `0.0084` | `-0.0008` |
+| `sudoku_jepa_5m_mix70_30` | `0.0084` | `0.03125` | `28.16` | `0.0`/`0.0`/`0.0` | `0.0087` | `-0.0022` |
+| `sudoku_jepa_5m_mix50_50` | `0.0074` | `0.03125` | `49.03` | `0.0`/`0.0`/`0.0` | `0.0079` | `-0.0001` |
+| `maze_jepa_5m_oracle` | `0.0021` | `0.0` | `16.00` | `0.0`/`0.0`/`0.0` | `0.0014` | `-0.0003` |
+| `maze_jepa_5m_mix70_30` | `0.0019` | `0.0` | `245.50` | `0.0`/`0.0`/`0.0` | `0.0009` | `-0.0005` |
 
-The next JEPA-specific ablation is already submitted in `3612683`:
+Grid 1 is a clean infrastructure pass but does not identify a solver-ready data
+mix. The best Sudoku rank is the 70/30 mix, but the 50/50 mix has lower eval
+loss and worse ranking. Maze oracle is much better ranked than Maze 70/30.
+Capacity sweeps should wait until planner/scorer diagnostics produce a
+measurable planning signal.
 
-```text
-stepwise mask JEPA, num_steps=20
-stepwise mask JEPA, num_steps=50
-stepwise mask JEPA, num_steps=64
-stepwise replacement JEPA, num_steps=64
-```
+### Grid 2: Size Ablation
 
-The stepwise mask runs should answer whether explicit KEEP/REPLACE supervision
-helps the policy learn an edit order. Replacement is an intermediate test for
-visible-token correction; it is not yet the full variable-length insert/delete
-MDP.
+Run this only after a follow-up diagnostic identifies a data mix or scorer with
+measurable planning signal. Do not sweep LR yet unless the chosen setup is
+unstable.
 
-Early 50k periodic logs show that stepwise one-step edit learning is healthy
-(`edit_f1` about `0.98` for `T=20` and `0.93` for `T=50`), but full-denoise
-answer accuracy is still near zero. Do not over-interpret one-step iGSM answer
-accuracy for stepwise runs, because the target is a partially denoised next
-state rather than a full clean solution.
+| Run | Model | Data mix | Batch | LR | Main question |
+| --- | --- | --- | ---: | ---: | --- |
+| `sudoku_jepa_5m_bestmix` | JEPA | best Grid-1 mix | `1024-2048` | `1e-4` | Small baseline. |
+| `sudoku_jepa_10m_bestmix` | JEPA | best Grid-1 mix | `512-1024` | `1e-4` | Does capacity improve latent planning? |
+| `sudoku_jepa_20m_bestmix` | JEPA | best Grid-1 mix | `256-512` | `1e-4` | Does performance saturate or overfit? |
+| `maze_jepa_5m_bestmix` | attention JEPA | best Grid-1 mix | `128-256` | `1e-4` | Small maze baseline. |
+| `maze_jepa_10m_bestmix` | attention JEPA | best Grid-1 mix | `64-128` | `1e-4` | Capacity test under 900-token attention. |
+| `maze_jepa_20m_bestmix` | attention JEPA | best Grid-1 mix | `32-64` | `1e-4` | Upper bound before larger compute. |
 
-Two posthoc diagnostics were added on 2026-05-16 instead of waiting passively
-for 200k:
+### Grid 3: Search/Test-Time Compute
 
-- `3614356`: latest partial-checkpoint sweep of `commit_k=schedule/1/2/5` and
-  `jepa_inference_mode=predictor_decoder/policy_head` on T20/T50. This tests
-  whether stepwise collapse is mainly chunked inference or predictor-decoder
-  corruption.
-- `3614357`: oracle-goal latent MPC. It scores candidate one-action rollouts by
-  distance to the EMA target encoding of the clean sequence. This is not a
-  deployable sampler; it is a diagnostic for whether the JEPA dynamics contain
-  useful planning signal.
+Run on the best checkpoints from Grid 2. This grid may be eval-only.
 
-The first diagnostic set is now clearer. The partial commit sweep does not
-rescue stepwise JEPA. Oracle-MPC shows latent-energy selection can help when the
-correct token is in the candidate set. Proposal coverage shows top-k candidate
-sets often contain the correct action, especially for T50. Factorized oracles
-show that using the model position with the oracle token gives high ID/OOD
-accuracy, while using the model token with oracle position remains weak. The
-deployable bottleneck is therefore token choice and action scoring, not just
-position proposal.
+| Eval | Horizon | Branching | Scorer | Main question |
+| --- | ---: | ---: | --- | --- |
+| `horizon_sweep_latent_distance` | `1,2,4,8,16` | top `8-64` actions | distance to oracle goal latent | Does more test-time compute improve solve rate? |
+| `horizon_sweep_reencode` | `1,2,4,8,16` | top `8-64` actions | re-encode symbolic next states | Is latent-only rollout error the bottleneck? |
+| `oracle_action_rank_curve` | n/a | all legal actions | oracle action rank | Does the model know the correct next move locally? |
+| `bad_action_distance_curve` | n/a | sampled random mutable actions | latent distance and true Hamming distance | Are bad states farther from the goal in representation space? |
 
-The next seven diagnostics are implemented/submitted:
+### Grid 4: Energy/Verifier Shaping
 
-| # | Experiment | Purpose | Job |
-| ---: | --- | --- | --- |
-| 1 | Proposal coverage | Does the policy put the oracle position in top-M and the oracle token in top-K? | `3615623_0` |
-| 2 | Factorized oracle | Separate position errors from token errors: model/model, oracle-position/model-token, model-position/oracle-token, oracle/oracle. | `3615623_1` |
-| 3 | Larger candidate MPC | Test whether more positions/tokens and longer horizons expose useful latent planning signal. | `3615624` |
-| 4 | Re-encode vs latent rollout | Compare pure latent rollout against materializing actions and re-encoding after each simulated step. | `3615624` |
-| 5 | Learned value/energy head | Train a small value head to estimate oracle-goal latent energy. | `3615625` |
-| 6 | Rollout repair | Continue stepwise training with multi-step latent rollout loss, initialized from latest T20/T50. | `3615643` |
-| 7 | Stronger token proposer | Use the x0 denoising LM as a token proposer under the stepwise JEPA position/action policy. | `3615623_2` |
+Only run this if Grid 3 shows that raw latent distance is not monotonic enough
+for search.
 
-2026-05-18 objective/capacity ablations were submitted as `3621296_[0-7]` to
-test the current token bottleneck hypotheses directly:
+| Run | Base | Extra objective | Negatives | Main question |
+| --- | --- | --- | --- | --- |
+| `sudoku_jepa_energyrank_5m` | best 5M JEPA | margin rank: oracle next closer than random next | random mutable actions, conflict states | Can headless latent distance be shaped enough? |
+| `sudoku_jepa_value_5m` | best 5M JEPA | scalar value/energy head `V(state, goal)` | random mutable actions, conflict states | Does a learned scorer beat raw latent distance? |
+| `maze_jepa_value_5m` | best maze 5M JEPA | scalar value/energy head | off-path partial paths | Is Maze limited by verifier/scorer quality? |
 
-| Array | Config suffix | Exact change |
-| ---: | --- | --- |
-| `0` | `T20_high_ce` | Keep T20 stepwise JEPA; set `lambda_action_op=2.0`, `lambda_action_token=4.0`, `lambda_tok=2.0`, `lambda_sig=0.1`. |
-| `1` | `T20_deep_decoder` | Keep T20 stepwise JEPA; add `decoder_layers=12`, set `lambda_tok=1.0`, `lambda_sig=0.1`. |
-| `2` | `T20_deep_decoder_detach` | Same as array `1`, plus `detach_token_head=true`, so decoder CE trains only the decoder readout. |
-| `3` | `T20_deep_policy` | Keep T20 stepwise JEPA; set `policy_layers=12` to match predictor depth, and `lambda_sig=0.1`. |
-| `4` | `T20_soft_action_dyn` | Keep T20 stepwise JEPA; set `predictor_action_source=predicted_soft`, `predictor_action_temperature=1.0`, `lambda_action_token=2.0`, `lambda_sig=0.1`. |
-| `5` | `T20_lewm_no_dec` | LeWM-like JEPA: set `lambda_tok=0.0`, `lambda_sig=0.2`, keep action-token CE, and evaluate via `policy_head`. |
-| `6` | `T20_lewm_value` | Same as array `5`, plus joint oracle-latent value training with `lambda_val=1.0`, `lambda_value_token=0.25`, `detach_value_head=true`. |
-| `7` | `x0_denoising_lm_deep_decoder` | Denoising baseline, not JEPA: `target_mode=x0`, `num_steps=64`, `encoder_layers=18`, `decoder_layers=12`. |
+### Grid 5: Recursive Baselines
 
-Dependent posthoc job `3621300_[0-1]` evaluates the LeWM-like runs with latent
-MPC:
+Run in parallel with Grid 2 or after Grid 2 if compute is tight. These reproduce
+the relevant baselines for the same data/eval split.
 
-| Array | Source run | Scoring |
-| ---: | --- | --- |
-| `0` | `T20_lewm_no_dec` | Oracle-goal latent energy, horizon `2`, top `8` positions, top `5` tokens, latent rollout, max `220` actions. |
-| `1` | `T20_lewm_value` | Learned value-head score with the same MPC grid. |
+| Run | Model | Size | Dataset | Main metric |
+| --- | --- | ---: | --- | --- |
+| `sudoku_hrm_repro` | HRM | paper-like, about 27M if feasible | Sudoku-Extreme | exact solve |
+| `sudoku_trm_mlp_repro` | TRM-MLP | about 5M | Sudoku-Extreme | exact solve |
+| `sudoku_ptrm_repro` | PTRM over TRM | about 5M, K sweep | Sudoku-Extreme | best-Q@K / mode@K |
+| `maze_hrm_repro` | HRM | paper-like | Maze-Hard | exact path |
+| `maze_trm_att_repro` | TRM-Att | about 7M | Maze-Hard | exact path |
+| `maze_ptrm_repro` | PTRM over TRM-Att | about 7M, K sweep | Maze-Hard | best-Q@K / mode@K |
 
-Still useful after these finish:
+Use AdamW, bf16, gradient clipping `1.0`, target-encoder EMA `0.99-0.995`, and
+weight decay `0.05-0.1` for JEPA. Start with `1e-4` and sweep `3e-4`/`3e-5`
+only after the data/eval path is stable.
 
-```text
-action-conditioned JEPA vs action-free JEPA
-policy/token only, lambda_dyn = 0
-no SIGReg, lambda_sig = 0
-full insert/delete MDP after replacement is healthy
-```
+## Evaluation
 
-Primary question:
+Primary JEPA evaluation:
 
-```text
-Does action-conditioned latent prediction improve OOD iGSM and LANO rollout
-metrics compared with action-free denoising?
-```
+1. Encode the oracle goal state.
+2. Enumerate all legal symbolic actions from the current state.
+3. Predict the next latent for each `(state, action)`.
+4. Score actions by distance to the oracle goal latent.
+5. Apply the best action symbolically and repeat.
 
-## LANO Next Steps
+Report:
 
-LANO is the clean diagnostic task. The next LANO runs are:
+- exact solve rate;
+- per-step oracle-action rank;
+- invalid-action rate if invalid proposals are ever allowed;
+- planning depth until solved;
+- latent distance curves for solved versus failed examples.
 
-```text
-LANO replacement correction
-LANO action-conditioned vs action-free
-LANO policy-only vs JEPA dynamics
-```
+Also run fixed-horizon planning sweeps. For horizon `H=1..N`, unroll the world
+model under candidate action sequences, score the final predicted latent against
+the oracle goal latent or value head, and apply the best first action. This tests
+whether test-time compute improves solve rate and whether latent/energy distance
+is monotonic along successful trajectories.
 
-Only move to iGSM replacement after LANO replacement shows that the model can
-detect wrong visible tokens, not only fill masks.
+## Next Implementation Work
 
-Immediate LANO follow-up: rerun the mask ablations with matched step counts and
-then fix replacement recall by training/evaluating on corrupted-position CE/F1
-rather than letting visible-token copying dominate.
+Current operational status as of 2026-05-28 09:55 CEST: no puzzle training or
+diagnostics jobs are active. Grid 0 and Grid 1 remain complete with final
+metrics and checkpoints. Grid 1 preliminary diagnostics `3666870_[0-4]`
+completed and found non-monotonic predicted goal energy under oracle latent
+unrolls. Corrected diagnostics `3667044_[0-4]` completed with clue-mask mutable
+Sudoku actions, terminal LeWM-style beam planning, and latent-energy plots.
+Oversight `3669988` completed cleanly after submitting recurring oversight
+`3670421`, pending for 2026-05-28 12:12:52 CEST.
+The Grid 1 diagnostic report is available as
+`docs/puzzle_jepa_diagnostics_report.tex` with local figure assets in
+`docs/assets/puzzle-diagnostics/`.
+
+Corrected diagnostics identify two concrete bottlenecks:
+
+- Predicted latent rollouts drift badly. True re-encoded oracle trajectories
+  have monotonic goal energy (`0.999-1.000` monotone rate), but predicted latent
+  rollouts are non-monotonic (`0.287-0.436` monotone rate) and still sit about
+  `1.7-2.0` MSE from the goal at true oracle terminal states.
+- Local action ranking is weak in the full mutable action space. Sudoku top1 is
+  `0.0088-0.0127`; Maze top1 is `0.0078-0.0195`. Rank improves late in
+  trajectories but early decisions are poor, and bounded step-energy and
+  terminal-energy beam planning reach no terminal boards or paths.
+
+Do not submit Grid 2 capacity ablations until at least one 5M checkpoint has a
+nonzero final planning signal, or until a concrete planner/evaluation bug is
+fixed.
+
+1. Run the next eval-only diagnostic as a targeted Grid 3 slice: compare
+   latent-only rollouts with re-encoding symbolic candidate states after each
+   step. If re-encoding recovers rank/planning, rollout drift is the blocker; if
+   it does not, the scorer/action-ranking objective is the blocker.
+2. Compare step-energy beam planning against terminal-energy reranking only
+   after the beam can reach terminal states. Current terminal reranking has no
+   opportunity to help because terminal rate is `0.0`.
+3. For the next training grid, remove task-id conditioning and the selected-cell
+   marker because this project trains one model per task and action `(row, col,
+   value)` already identifies the changed cell. Do not evaluate old checkpoints
+   with those pieces removed because they were trained with them active.
+4. Inspect why H=4 planning had a transient `0.125` solve rate at Grid 1 step 1
+   for Sudoku oracle but `0.0` at later checkpoints; this may be small-sample
+   noise, tie behavior, or a scorer regression.
+5. Add value/verifier heads if re-encoded rollout diagnostics confirm that raw
+   oracle-goal latent distance is the bottleneck rather than a rollout bug.
+6. Add baseline reproduction configs for HRM, TRM, and PTRM.

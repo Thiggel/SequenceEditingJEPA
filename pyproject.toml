@@ -3,23 +3,20 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "seq-edit-jepa"
+name = "puzzle-jepa"
 version = "0.1.0"
-description = "Action-conditioned latent world models over sequence-edit trajectories."
+description = "Action-conditioned latent world models for objective puzzle reasoning."
 requires-python = ">=3.10"
 dependencies = [
   "torch",
   "numpy",
-  "pyyaml",
   "hydra-core",
   "omegaconf",
-  "transformers",
   "datasets",
-  "accelerate",
 ]
 
 [tool.setuptools.packages.find]
-include = ["seq_edit_jepa*"]
+include = ["puzzle_jepa*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,36 @@
+seed: 101
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/grid0_sudoku_jepa_5m_oracle_smoke
+task:
+  name: sudoku
+  repo_id: sapientinc/sudoku-extreme
+  train_split: train[:20000]
+  eval_split: test[:512]
+  puzzle_column: question
+  solution_column: answer
+model:
+  hidden_size: 256
+  intermediate_size: 512
+  encoder_layers: 5
+  predictor_layers: 3
+  num_heads: 8
+  max_height: 9
+  max_width: 9
+  task_vocab_size: 2
+  action_value_vocab_size: 10
+  dropout: 0.0
+  target_momentum: 0.99
+training:
+  max_steps: 1000
+  batch_size: 1024
+  learning_rate: 1.0e-4
+  weight_decay: 0.05
+  grad_clip: 1.0
+  bf16: true
+  eval_every_steps: 250
+  save_every_steps: 250
+eval:
+  num_batches: 2
+  batch_size: 128
+  rank_examples: 16
+  planning_examples: 8
+  max_plan_steps: 64

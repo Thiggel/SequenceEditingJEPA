@@ -1,0 +1,18 @@
+seed: 13
+batch_size: 2
+task:
+  name: sudoku
+model:
+  type: hrm
+  hidden_size: 32
+  intermediate_size: 64
+  input_layers: 1
+  h_layers: 1
+  l_layers: 1
+  h_cycles: 2
+  l_cycles: 2
+  num_heads: 4
+  max_height: 9
+  max_width: 9
+  task_vocab_size: 2
+  dropout: 0.0
