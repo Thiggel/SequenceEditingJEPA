@@ -45,3 +45,4 @@ Start with valid oracle partial states:
 
 Invalid states should be added later as verifier/value-head negatives, not mixed
 silently into the world-model transition loss.
+# sequence-editing-report
