@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-29 12:38 CEST
+Last updated: 2026-05-29 17:41 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -27,24 +27,23 @@ Runtime outputs default to:
 
 | Job | State | Notes |
 | --- | --- | --- |
-| `3674778_0` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_uniform`; latest step `4000`, H1/H2/H4 solve `1.0`. |
-| `3674778_1` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_weighted`; latest step `4000`, H1/H2/H4 solve `1.0`. |
-| `3674778_2` | RUNNING | Grid 3A `sudoku_jepa_5m_local_residual_weighted`; latest step `3000`, H1/H2/H4 solve `0.0`. |
-| `3674778_3` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_changed_only`; latest step `3000`, H1/H2/H4 solve `0.0`. |
-| `3674779_[0-3]` | PENDING | Dependent Grid 3A diagnostics, `afterok:3674778`. |
-| `3674780` | RUNNING | Current oversight job; submitted next begin-time oversight `3675734`. |
-| `3675734` | PENDING | Recurring oversight, begin time `2026-05-29 16:35:10 CEST`. |
+| `3674778_[0-3]` | COMPLETED | Grid 3A training complete; all four roots have `metrics.json` and `checkpoint.pt`. |
+| `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
+| `3676904_[0-3]` | RUNNING | Resubmitted Grid 3A diagnostics after wrapper fix; started `2026-05-29 17:41:20 CEST`. |
+| `3675734` | RUNNING | Current oversight job; next begin-time oversight `3676879` is pending. |
+| `3676879` | PENDING | Recurring oversight, begin time `2026-05-29 21:36:14 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3674778,3674779,3674780,3675734 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3674778,3674779,3674780,3675734 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3674778,3674779,3675734,3676879,3676904 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3674778,3674779,3675734,3676879,3676904 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
 
-Grid 3A is the active branch and is still making progress toward step `5000`.
-Local value-only action injection is the first clearly positive JEPA planning
-signal. Leave `3674778_[0-3]` running and do not start 10M/20M sweeps until
-`3674779_[0-3]` diagnostics finish and the report backlog is updated.
+Grid 3A training finished. The direct local-injection variants retained online
+H1/H2/H4 solve `1.0` at step `5000`; residual and changed-only variants stayed
+at solve `0.0`. Treat this as an online-eval result only until resubmitted
+diagnostics `3676904_[0-3]` finish and `goal_rank`/drift/planning traces are
+interpreted. Do not start 10M/20M sweeps or Maze follow-ups before that gate.

@@ -1,26 +1,28 @@
 # Results
 
-Last updated: 2026-05-29 12:38 CEST
+Last updated: 2026-05-29 17:41 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
 
 ## Current Key Result
 
-Grid 3A local value-only action injection is running and already strongly
-outperforms the old global-broadcast action conditioning on the small online
-Sudoku planning eval.
+Grid 3A local value-only action injection finished. Direct local injection
+strongly outperformed the old global-broadcast action conditioning on the small
+online Sudoku planning eval.
 
 | Run | Step | Eval loss | Mean rank | H1/H2/H4 solve |
 | --- | ---: | ---: | ---: | --- |
-| `sudoku_jepa_5m_local_direct_uniform` | 4000 | 0.000235 | 14.8125 | 1.0 / 1.0 / 1.0 |
-| `sudoku_jepa_5m_local_direct_weighted` | 4000 | 0.000100 | 13.15625 | 1.0 / 1.0 / 1.0 |
-| `sudoku_jepa_5m_local_residual_weighted` | 3000 | 0.00538 | 33.75 | 0.0 / 0.0 / 0.0 |
-| `sudoku_jepa_5m_local_direct_changed_only` | 3000 | 0.12825 | 232.25 | 0.0 / 0.0 / 0.0 |
+| `sudoku_jepa_5m_local_direct_uniform` | 5000 | 0.000187 | 15.96875 | 1.0 / 1.0 / 1.0 |
+| `sudoku_jepa_5m_local_direct_weighted` | 5000 | 0.0000639 | 16.25 | 1.0 / 1.0 / 1.0 |
+| `sudoku_jepa_5m_local_residual_weighted` | 5000 | 0.00234 | 115.96875 | 0.0 / 0.0 / 0.0 |
+| `sudoku_jepa_5m_local_direct_changed_only` | 5000 | 0.11818 | 246.53125 | 0.0 / 0.0 / 0.0 |
 
-Treat this as preliminary until dependent diagnostics `3674779_[0-3]` complete.
-Grid 3A is still running; these values are from logs/`metrics.jsonl`, and final
-`metrics.json` files are not expected until training exits.
+All four roots have final `metrics.json`, `metrics.jsonl`, and `checkpoint.pt`.
+The first dependent diagnostics array `3674779_[0-3]` failed because the wrapper
+passed comma-separated `--horizons`; after a local fix and smoke test,
+diagnostics were resubmitted as `3676904_[0-3]`. Treat the online solve signal
+as preliminary until those diagnostics finish.
 
 ## Prior Read
 

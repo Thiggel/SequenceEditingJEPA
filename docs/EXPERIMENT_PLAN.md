@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-05-29 12:38 CEST
+Last updated: 2026-05-29 17:41 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -10,13 +10,15 @@ Grid 3A Sudoku local-edit ablation:
 
 | Run | Prediction | Loss | Status |
 | --- | --- | --- | --- |
-| `sudoku_jepa_5m_local_direct_uniform` | direct next latent | uniform | Running as `3674778_0`, latest step `4000` |
-| `sudoku_jepa_5m_local_direct_weighted` | direct next latent | changed cell high, row/col/block medium | Running as `3674778_1`, latest step `4000` |
-| `sudoku_jepa_5m_local_residual_weighted` | `z_next = z_current + delta` | same weighted loss | Running as `3674778_2`, latest step `3000` |
-| `sudoku_jepa_5m_local_direct_changed_only` | direct next latent | changed-cell token only | Running as `3674778_3`, latest step `3000` |
+| `sudoku_jepa_5m_local_direct_uniform` | direct next latent | uniform | Completed as `3674778_0`, step `5000`, online solve `1.0 / 1.0 / 1.0` |
+| `sudoku_jepa_5m_local_direct_weighted` | direct next latent | changed cell high, row/col/block medium | Completed as `3674778_1`, step `5000`, online solve `1.0 / 1.0 / 1.0` |
+| `sudoku_jepa_5m_local_residual_weighted` | `z_next = z_current + delta` | same weighted loss | Completed as `3674778_2`, step `5000`, online solve `0.0 / 0.0 / 0.0` |
+| `sudoku_jepa_5m_local_direct_changed_only` | direct next latent | changed-cell token only | Completed as `3674778_3`, step `5000`, online solve `0.0 / 0.0 / 0.0` |
 
-Dependent diagnostics `3674779_[0-3]` will compare single-oracle rank,
-`goal_rank`, latent drift, and planning traces.
+Dependent diagnostics `3674779_[0-3]` failed on CLI argument formatting before
+model load. The wrapper is fixed and diagnostics were resubmitted as
+`3676904_[0-3]`; they will compare single-oracle rank, `goal_rank`, latent
+drift, and planning traces.
 
 ## Gate
 

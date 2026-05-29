@@ -29,7 +29,7 @@ python -m puzzle_jepa.eval.diagnostics \
   --trace-examples 4 \
   --planning-examples 8 \
   --max-unroll-steps 64 \
-  --horizons 1,2,4,10,20 \
-  --depth-fractions 0.0,0.25,0.5,0.75 \
+  --horizons 1 2 4 10 20 \
+  --depth-fractions 0.0 0.25 0.5 0.75 \
   --planning-beam-size 4 \
   --planning-branch-size 8
