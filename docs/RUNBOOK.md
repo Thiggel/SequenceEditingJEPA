@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-29 12:30 CEST
+Last updated: 2026-05-29 12:33 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -30,7 +30,7 @@ Runtime outputs default to:
 | `3674778_0` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_uniform`; latest step `4000`, H1/H2/H4 solve `1.0`. |
 | `3674778_1` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_weighted`; latest step `4000`, H1/H2/H4 solve `1.0`. |
 | `3674778_2` | RUNNING | Grid 3A `sudoku_jepa_5m_local_residual_weighted`; latest step `3000`, H1/H2/H4 solve `0.0`. |
-| `3674778_3` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_changed_only`; latest step `2000`, H1/H2/H4 solve `0.0`. |
+| `3674778_3` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_changed_only`; latest step `3000`, H1/H2/H4 solve `0.0`. |
 | `3674779_[0-3]` | PENDING | Dependent Grid 3A diagnostics, `afterok:3674778`. |
 | `3674780` | PENDING | Updated recurring oversight, begin time `2026-05-29 12:34:53 CEST`. |
 

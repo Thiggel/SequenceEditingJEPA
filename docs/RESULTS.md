@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-29 12:30 CEST
+Last updated: 2026-05-29 12:33 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -16,7 +16,7 @@ Sudoku planning eval.
 | `sudoku_jepa_5m_local_direct_uniform` | 4000 | 0.000235 | 14.8125 | 1.0 / 1.0 / 1.0 |
 | `sudoku_jepa_5m_local_direct_weighted` | 4000 | 0.000100 | 13.15625 | 1.0 / 1.0 / 1.0 |
 | `sudoku_jepa_5m_local_residual_weighted` | 3000 | 0.00538 | 33.75 | 0.0 / 0.0 / 0.0 |
-| `sudoku_jepa_5m_local_direct_changed_only` | 2000 | 0.13316 | 188.75 | 0.0 / 0.0 / 0.0 |
+| `sudoku_jepa_5m_local_direct_changed_only` | 3000 | 0.12825 | 232.25 | 0.0 / 0.0 / 0.0 |
 
 Treat this as preliminary until dependent diagnostics `3674779_[0-3]` complete.
 

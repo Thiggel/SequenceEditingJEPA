@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-05-29 12:30 CEST
+Last updated: 2026-05-29 12:33 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
