@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-29 12:33 CEST
+Last updated: 2026-05-29 12:38 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -32,17 +32,19 @@ Runtime outputs default to:
 | `3674778_2` | RUNNING | Grid 3A `sudoku_jepa_5m_local_residual_weighted`; latest step `3000`, H1/H2/H4 solve `0.0`. |
 | `3674778_3` | RUNNING | Grid 3A `sudoku_jepa_5m_local_direct_changed_only`; latest step `3000`, H1/H2/H4 solve `0.0`. |
 | `3674779_[0-3]` | PENDING | Dependent Grid 3A diagnostics, `afterok:3674778`. |
-| `3674780` | PENDING | Updated recurring oversight, begin time `2026-05-29 12:34:53 CEST`. |
+| `3674780` | RUNNING | Current oversight job; submitted next begin-time oversight `3675734`. |
+| `3675734` | PENDING | Recurring oversight, begin time `2026-05-29 16:35:10 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3674778,3674779,3674780 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3674778,3674779,3674780 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3674778,3674779,3674780,3675734 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3674778,3674779,3674780,3675734 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
 
-Grid 3A is the active branch. Local value-only action injection is the first
-clearly positive JEPA planning signal. Do not start 10M/20M sweeps until
+Grid 3A is the active branch and is still making progress toward step `5000`.
+Local value-only action injection is the first clearly positive JEPA planning
+signal. Leave `3674778_[0-3]` running and do not start 10M/20M sweeps until
 `3674779_[0-3]` diagnostics finish and the report backlog is updated.

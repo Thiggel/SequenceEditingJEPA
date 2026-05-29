@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-29 12:33 CEST
+Last updated: 2026-05-29 12:38 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -19,6 +19,8 @@ Sudoku planning eval.
 | `sudoku_jepa_5m_local_direct_changed_only` | 3000 | 0.12825 | 232.25 | 0.0 / 0.0 / 0.0 |
 
 Treat this as preliminary until dependent diagnostics `3674779_[0-3]` complete.
+Grid 3A is still running; these values are from logs/`metrics.jsonl`, and final
+`metrics.json` files are not expected until training exits.
 
 ## Prior Read
 
