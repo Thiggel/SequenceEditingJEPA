@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-05-29 17:41 CEST
+Last updated: 2026-05-29 21:40 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -16,19 +16,22 @@ Grid 3A Sudoku local-edit ablation:
 | `sudoku_jepa_5m_local_direct_changed_only` | direct next latent | changed-cell token only | Completed as `3674778_3`, step `5000`, online solve `0.0 / 0.0 / 0.0` |
 
 Dependent diagnostics `3674779_[0-3]` failed on CLI argument formatting before
-model load. The wrapper is fixed and diagnostics were resubmitted as
-`3676904_[0-3]`; they will compare single-oracle rank, `goal_rank`, latent
-drift, and planning traces.
+model load. The wrapper was fixed and diagnostics were resubmitted as
+`3676904_[0-3]`; they completed successfully.
 
 ## Gate
 
-After diagnostics finish:
+Grid 3A diagnostic decision:
 
-1. If direct local injection remains strong under `goal_rank` and drift
-   diagnostics, carry the best direct variant to rollout `N=2`.
-2. If residual catches up and reduces drift, include residual in the rollout
-   follow-up.
-3. If changed-only remains poor, do not use changed-cell-only loss except as a
-   diagnostic negative control.
-4. Do not move to Maze or size sweeps until Sudoku Grid 3A final diagnostics are
-   interpreted in the report repo.
+1. Direct local injection passes the action-grounding gate: direct uniform and
+   direct weighted both have diagnostic `goal_rank` mean/top1 `1.0`.
+2. Direct weighted is the preferred follow-up seed: it has lower short drift
+   than uniform and better terminal-planning proximity, despite slightly worse
+   single-oracle rank.
+3. Residual is rejected for the next branch because rollout drift explodes
+   (`drift@20 103`, terminal `1940`).
+4. Changed-cell-only loss is rejected except as a negative control because
+   `goal_rank` and planning are poor.
+5. Next safe experiment: a short Sudoku local-direct weighted rollout `N=2` to
+   target the remaining long-horizon drift / closed-loop exactness bottleneck.
+   Do not move to Maze or size sweeps until that local rollout is diagnosed.

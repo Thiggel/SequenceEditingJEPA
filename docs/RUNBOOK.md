@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-29 17:41 CEST
+Last updated: 2026-05-29 21:40 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -29,21 +29,31 @@ Runtime outputs default to:
 | --- | --- | --- |
 | `3674778_[0-3]` | COMPLETED | Grid 3A training complete; all four roots have `metrics.json` and `checkpoint.pt`. |
 | `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
-| `3676904_[0-3]` | RUNNING | Resubmitted Grid 3A diagnostics after wrapper fix; started `2026-05-29 17:41:20 CEST`. |
-| `3675734` | RUNNING | Current oversight job; next begin-time oversight `3676879` is pending. |
-| `3676879` | PENDING | Recurring oversight, begin time `2026-05-29 21:36:14 CEST`. |
+| `3676904_[0-3]` | COMPLETED | Resubmitted Grid 3A diagnostics completed; all four roots have `diagnostics/diagnostics.json`. |
+| `3675734` | COMPLETED | Previous puzzle oversight. |
+| `3676879` | RUNNING | Current puzzle oversight, started `2026-05-29 21:36:21 CEST`. |
+| `3677391` | PENDING | Recurring oversight, begin time `2026-05-30 01:36:23 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3674778,3674779,3675734,3676879,3676904 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3674778,3674779,3675734,3676879,3676904 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3674778,3674779,3675734,3676879,3676904,3677391 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3674778,3674779,3675734,3676879,3676904,3677391 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
 
-Grid 3A training finished. The direct local-injection variants retained online
-H1/H2/H4 solve `1.0` at step `5000`; residual and changed-only variants stayed
-at solve `0.0`. Treat this as an online-eval result only until resubmitted
-diagnostics `3676904_[0-3]` finish and `goal_rank`/drift/planning traces are
-interpreted. Do not start 10M/20M sweeps or Maze follow-ups before that gate.
+Grid 3A diagnostics finished. Direct local value injection fixed sampled
+goal-action grounding: both direct variants have `goal_rank` mean/top1 `1.0`.
+Direct weighted is the current lead because it has lower short drift than
+uniform (`drift@10 0.078` vs `0.119`) and better closed-loop terminal planning
+proximity (`terminal_rate 0.125`, mean remaining Hamming `4.25` vs `5.625`),
+though terminal solve remains `0.0`.
+
+Residual prediction and changed-cell-only loss are rejected for the next branch:
+residual has explosive rollout drift (`drift@20 103`, terminal `1940`), and
+changed-only has poor goal rank (`15.49`) plus poor planning. The concrete
+bottleneck is now long-horizon drift / closed-loop exactness after strong local
+one-step grounding. Next safe experiment is a short local-direct weighted
+rollout `N=2`; do not start Maze, 10M/20M sweeps, or broad controls before that
+follow-up is implemented, run, and diagnosed.
