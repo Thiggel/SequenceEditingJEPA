@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-29 21:40 CEST
+Last updated: 2026-05-30 01:50 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -31,14 +31,15 @@ Runtime outputs default to:
 | `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
 | `3676904_[0-3]` | COMPLETED | Resubmitted Grid 3A diagnostics completed; all four roots have `diagnostics/diagnostics.json`. |
 | `3675734` | COMPLETED | Previous puzzle oversight. |
-| `3676879` | RUNNING | Current puzzle oversight, started `2026-05-29 21:36:21 CEST`. |
-| `3677391` | PENDING | Recurring oversight, begin time `2026-05-30 01:36:23 CEST`. |
+| `3676879` | COMPLETED | Previous puzzle oversight completed at `2026-05-29 21:48:10 CEST`. |
+| `3677391` | RUNNING | Current puzzle oversight, started `2026-05-30 01:36:48 CEST`. |
+| `3678050` | PENDING | Recurring oversight, begin time `2026-05-30 05:36:49 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3674778,3674779,3675734,3676879,3676904,3677391 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3674778,3674779,3675734,3676879,3676904,3677391 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3674778,3674779,3675734,3676879,3676904,3677391,3678050 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3674778,3674779,3675734,3676879,3676904,3677391,3678050 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -57,3 +58,7 @@ bottleneck is now long-horizon drift / closed-loop exactness after strong local
 one-step grounding. Next safe experiment is a short local-direct weighted
 rollout `N=2`; do not start Maze, 10M/20M sweeps, or broad controls before that
 follow-up is implemented, run, and diagnosed.
+
+No Grid 0, Grid 1, Grid 2A, Grid 3A, or diagnostics jobs are active as of the
+2026-05-30 01:50 CEST oversight check. All documented output roots still have
+their expected checkpoints, metrics, and diagnostics artifacts.
