@@ -27,6 +27,25 @@ class TransitionBatch:
     clue_masks: torch.Tensor | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RolloutTransition:
+    state: np.ndarray
+    actions: list[WorldAction]
+    target_states: list[np.ndarray]
+    goal: np.ndarray
+    task_id: int
+    clue_mask: np.ndarray | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RolloutBatch:
+    states: torch.Tensor
+    actions: torch.Tensor
+    target_states: torch.Tensor
+    goals: torch.Tensor
+    clue_masks: torch.Tensor | None = None
+
+
 def sample_oracle_transition(
     world: PuzzleWorld,
     example: PuzzleExample,
@@ -72,3 +91,39 @@ def collate_transitions(transitions: list[Transition], device: str | torch.devic
         device=device,
     )
     return TransitionBatch(states=states, actions=actions, next_states=next_states, goals=goals, clue_masks=clue_masks)
+
+
+def collate_rollouts(transitions: list[RolloutTransition], device: str | torch.device = "cpu") -> RolloutBatch:
+    if not transitions:
+        raise ValueError("Cannot collate an empty rollout list.")
+    length = len(transitions[0].actions)
+    if length <= 0:
+        raise ValueError("Rollout transitions must contain at least one action.")
+    if any(len(item.actions) != length or len(item.target_states) != length for item in transitions):
+        raise ValueError("All rollout transitions must have the same sequence length.")
+    states = torch.as_tensor(np.stack([item.state for item in transitions]), dtype=torch.long, device=device)
+    target_states = torch.as_tensor(
+        np.stack([np.stack(item.target_states) for item in transitions]),
+        dtype=torch.long,
+        device=device,
+    )
+    goals = torch.as_tensor(np.stack([item.goal for item in transitions]), dtype=torch.long, device=device)
+    actions = torch.as_tensor(
+        np.stack([[action.as_array(item.task_id) for action in item.actions] for item in transitions]),
+        dtype=torch.long,
+        device=device,
+    )
+    clue_masks = None
+    if all(item.clue_mask is not None for item in transitions):
+        clue_masks = torch.as_tensor(
+            np.stack([item.clue_mask for item in transitions if item.clue_mask is not None]),
+            dtype=torch.bool,
+            device=device,
+        )
+    return RolloutBatch(
+        states=states,
+        actions=actions,
+        target_states=target_states,
+        goals=goals,
+        clue_masks=clue_masks,
+    )

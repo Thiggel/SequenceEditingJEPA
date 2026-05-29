@@ -1,7 +1,14 @@
 import numpy as np
 import torch
 
-from puzzle_jepa.data import MazeWorld, SudokuWorld, collate_transitions, sample_oracle_transition
+from puzzle_jepa.data import (
+    MazeWorld,
+    SudokuWorld,
+    collate_rollouts,
+    collate_transitions,
+    sample_oracle_rollout_transition,
+    sample_oracle_transition,
+)
 from puzzle_jepa.data.worlds import PuzzleExample
 from puzzle_jepa.eval.diagnostics import evaluate_latent_drift, oracle_action_sequence
 from puzzle_jepa.models import ActionConditionedWorldModel, HRMReasoner, PTRMSampler, TRMReasoner
@@ -112,6 +119,107 @@ def test_predict_latent_from_latent_matches_state_path():
     encoded = model.encoder(batch.states, task_ids=batch.actions[:, 0])
     latent_path = model.predict_latent_from_latent(encoded, batch.actions, height=9, width=9)
     assert torch.allclose(direct, latent_path)
+
+
+def test_rollout_loss_backpropagates_through_predictor():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    rollouts = [
+        sample_oracle_rollout_transition(world, example, np.random.default_rng(seed), steps=3)
+        for seed in range(2)
+    ]
+    batch = collate_rollouts(rollouts)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        dropout=0.0,
+        use_task_embedding=False,
+        use_selected_cell_marker=False,
+    )
+    output = model.rollout_loss(batch.states, batch.actions, batch.target_states)
+    assert torch.isfinite(output.loss)
+    assert output.pred_latents.shape == output.target_latents.shape == (2, 81, 32)
+    output.loss.backward()
+    assert model.predictor.layers[0].attn.in_proj_weight.grad is not None
+
+
+def test_optional_task_and_selected_cell_conditioning_preserve_shapes():
+    world, batch = _sudoku_batch()
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        use_task_embedding=False,
+        use_selected_cell_marker=False,
+    )
+    output = model(batch.states, batch.actions, batch.next_states)
+    assert output.pred_latents.shape == (2, 81, 32)
+
+
+def test_local_value_action_injection_uses_selected_position_without_row_col_embeddings():
+    world, batch = _sudoku_batch()
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_task_embedding=False,
+        use_selected_cell_marker=False,
+    )
+    output = model(batch.states, batch.actions, batch.next_states)
+    assert torch.isfinite(output.loss)
+    output.loss.backward()
+    assert model.value_embedding.weight.grad is not None
+    assert model.row_embedding.weight.grad is None
+    assert model.col_embedding.weight.grad is None
+
+
+def test_residual_prediction_and_weighted_loss_backpropagate():
+    world, batch = _sudoku_batch()
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        predict_residual=True,
+    )
+    weights = torch.zeros_like(batch.states, dtype=torch.float32)
+    rows = batch.actions[:, 1]
+    cols = batch.actions[:, 2]
+    weights[torch.arange(batch.states.shape[0]), rows, cols] = 1.0
+    output = model(batch.states, batch.actions, batch.next_states, loss_weights=weights)
+    assert torch.isfinite(output.loss)
+    output.loss.backward()
+    assert model.predictor.layers[0].attn.in_proj_weight.grad is not None
 
 
 def test_diagnostics_oracle_sequence_and_drift_smoke():

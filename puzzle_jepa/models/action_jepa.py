@@ -35,10 +35,20 @@ class ActionConditionedWorldModel(nn.Module):
         action_value_vocab_size: int = 16,
         dropout: float = 0.0,
         target_momentum: float = 0.99,
+        use_task_embedding: bool = True,
+        use_selected_cell_marker: bool = True,
+        action_injection: str = "global",
+        predict_residual: bool = False,
     ):
         super().__init__()
         self.max_width = int(max_width)
         self.target_momentum = float(target_momentum)
+        self.use_task_embedding = bool(use_task_embedding)
+        self.use_selected_cell_marker = bool(use_selected_cell_marker)
+        if action_injection not in {"global", "local_value"}:
+            raise ValueError("action_injection must be 'global' or 'local_value'.")
+        self.action_injection = action_injection
+        self.predict_residual = bool(predict_residual)
         self.encoder = GridEncoder(
             vocab_size=vocab_size,
             hidden_size=hidden_size,
@@ -85,6 +95,7 @@ class ActionConditionedWorldModel(nn.Module):
         actions: torch.Tensor,
         next_states: torch.Tensor,
         loss_mask: torch.Tensor | None = None,
+        loss_weights: torch.Tensor | None = None,
     ) -> ActionConditionedJEPAOutput:
         task_ids = actions[:, 0]
         pred_latents = self.predict_latent(states, actions)
@@ -95,12 +106,57 @@ class ActionConditionedWorldModel(nn.Module):
         else:
             mask = self._flatten_mask(loss_mask, pred_latents.shape[1])
         per_token = F.mse_loss(pred_latents, target_latents, reduction="none").mean(dim=-1)
-        loss = per_token[mask].mean()
+        if loss_weights is None:
+            loss = per_token[mask].mean()
+        else:
+            weights = self._flatten_weights(loss_weights, pred_latents.shape[1])
+            weights = weights * mask.to(dtype=weights.dtype)
+            loss = (per_token * weights).sum() / weights.sum().clamp_min(1.0e-12)
         return ActionConditionedJEPAOutput(
             loss=loss,
             pred_latents=pred_latents,
             target_latents=target_latents,
             components={"loss/world_model_mse": loss.detach()},
+        )
+
+    def rollout_loss(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        target_states: torch.Tensor,
+    ) -> ActionConditionedJEPAOutput:
+        if actions.ndim != 3 or actions.shape[-1] != 4:
+            raise ValueError("rollout actions must have shape [batch, steps, 4].")
+        if target_states.ndim != 4:
+            raise ValueError("target_states must have shape [batch, steps, height, width].")
+        if actions.shape[:2] != target_states.shape[:2]:
+            raise ValueError("actions and target_states must agree on batch and step dimensions.")
+        if states.shape[0] != actions.shape[0]:
+            raise ValueError("states and actions must agree on batch size.")
+        batch, steps = actions.shape[:2]
+        height, width = int(states.shape[-2]), int(states.shape[-1])
+        task_ids = actions[:, 0, 0]
+        latent = self.encoder(states, task_ids=task_ids)
+        losses = []
+        final_target = None
+        for step in range(steps):
+            step_actions = actions[:, step]
+            latent = self.predict_latent_from_latent(latent, step_actions, height=height, width=width)
+            with torch.no_grad():
+                target = self.target_encoder(target_states[:, step], task_ids=step_actions[:, 0])
+            final_target = target
+            losses.append(F.mse_loss(latent, target, reduction="none").mean(dim=-1).mean())
+        loss = torch.stack(losses).mean()
+        components = {"loss/rollout_mse": loss.detach()}
+        for index, step_loss in enumerate(losses, start=1):
+            components[f"loss/rollout_step_{index}_mse"] = step_loss.detach()
+        if final_target is None:
+            raise ValueError("rollout actions must contain at least one step.")
+        return ActionConditionedJEPAOutput(
+            loss=loss,
+            pred_latents=latent,
+            target_latents=final_target,
+            components=components,
         )
 
     def predict_latent(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
@@ -128,11 +184,24 @@ class ActionConditionedWorldModel(nn.Module):
             raise ValueError("actions batch size must match latents batch size.")
         if latents.shape[1] != int(height) * int(width):
             raise ValueError("height*width must match latent token length.")
-        action_context = self._action_embedding(actions).unsqueeze(1)
-        marker = torch.zeros_like(latents)
-        positions = actions[:, 1].clamp(0, int(height) - 1) * int(width) + actions[:, 2].clamp(0, int(width) - 1)
-        marker[torch.arange(batch, device=latents.device), positions] = self.selected_cell
-        return self.predictor(latents + action_context + marker)
+        if self.action_injection == "global":
+            conditioned = latents + self._action_embedding(actions).unsqueeze(1)
+            if self.use_selected_cell_marker:
+                marker = torch.zeros_like(latents)
+                positions = self._action_positions(actions, height=height, width=width)
+                marker[torch.arange(batch, device=latents.device), positions] = self.selected_cell
+                conditioned = conditioned + marker
+        else:
+            conditioned = latents.clone()
+            positions = self._action_positions(actions, height=height, width=width)
+            value_context = self.action_norm(self.value_embedding(actions[:, 3]))
+            conditioned[torch.arange(batch, device=latents.device), positions] = (
+                conditioned[torch.arange(batch, device=latents.device), positions] + value_context
+            )
+        predicted = self.predictor(conditioned)
+        if self.predict_residual:
+            return latents + predicted
+        return predicted
 
     @torch.no_grad()
     def score_actions_to_goal(
@@ -181,12 +250,14 @@ class ActionConditionedWorldModel(nn.Module):
 
     def _action_embedding(self, actions: torch.Tensor) -> torch.Tensor:
         task, row, col, value = actions.unbind(dim=-1)
-        return self.action_norm(
-            self.task_embedding(task)
-            + self.row_embedding(row)
-            + self.col_embedding(col)
-            + self.value_embedding(value)
-        )
+        action = self.row_embedding(row) + self.col_embedding(col) + self.value_embedding(value)
+        if self.use_task_embedding:
+            action = action + self.task_embedding(task)
+        return self.action_norm(action)
+
+    @staticmethod
+    def _action_positions(actions: torch.Tensor, *, height: int, width: int) -> torch.Tensor:
+        return actions[:, 1].clamp(0, int(height) - 1) * int(width) + actions[:, 2].clamp(0, int(width) - 1)
 
     @staticmethod
     def _flatten_mask(mask: torch.Tensor, length: int) -> torch.Tensor:
@@ -195,3 +266,11 @@ class ActionConditionedWorldModel(nn.Module):
         if mask.shape[-1] != length:
             raise ValueError(f"loss_mask length {mask.shape[-1]} does not match latent length {length}.")
         return mask.bool()
+
+    @staticmethod
+    def _flatten_weights(weights: torch.Tensor, length: int) -> torch.Tensor:
+        if weights.ndim == 3:
+            weights = weights.reshape(weights.shape[0], -1)
+        if weights.shape[-1] != length:
+            raise ValueError(f"loss_weights length {weights.shape[-1]} does not match latent length {length}.")
+        return weights.float()

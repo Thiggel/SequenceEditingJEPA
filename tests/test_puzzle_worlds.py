@@ -6,9 +6,11 @@ from puzzle_jepa.data import (
     PuzzleExample,
     SudokuWorld,
     WorldAction,
+    collate_rollouts,
     collate_transitions,
     example_from_strings,
     sample_curriculum_transition,
+    sample_oracle_rollout_transition,
     sample_oracle_transition,
     sample_random_mutable_transition,
 )
@@ -187,6 +189,37 @@ def test_transition_collation_shapes_and_action_fields():
     assert batch.clue_masks.shape == (3, 9, 9)
     assert batch.actions.shape == (3, 4)
     assert batch.actions[:, 0].tolist() == [world.task_id] * 3
+
+
+def test_sudoku_oracle_rollout_has_symbolic_targets_and_clue_masks():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    rollout = sample_oracle_rollout_transition(world, example, np.random.default_rng(0), steps=4)
+    assert len(rollout.actions) == 4
+    assert len(rollout.target_states) == 4
+    assert rollout.clue_mask is not None
+    current = rollout.state.copy()
+    for action, target in zip(rollout.actions, rollout.target_states, strict=True):
+        current = world.apply(current, action, clue_mask=rollout.clue_mask, allow_overwrite=True)
+        assert np.array_equal(current, target)
+        assert target[action.row, action.col] == rollout.goal[action.row, action.col]
+    batch = collate_rollouts([rollout, rollout])
+    assert batch.states.shape == (2, 9, 9)
+    assert batch.actions.shape == (2, 4, 4)
+    assert batch.target_states.shape == (2, 4, 9, 9)
+    assert batch.clue_masks is not None
+
+
+def test_maze_oracle_rollout_marks_path_targets():
+    world = MazeWorld(height=5, width=5)
+    state = world.from_lines(["S   #", "### #", "#   #", "# ###", "#   G"])
+    goal = world.from_lines(["Sooo#", "###o#", "#ooo#", "#o###", "#oooG"])
+    rollout = sample_oracle_rollout_transition(world, PuzzleExample(state, goal), np.random.default_rng(0), steps=3)
+    current = rollout.state.copy()
+    for action, target in zip(rollout.actions, rollout.target_states, strict=True):
+        current = world.apply(current, action)
+        assert np.array_equal(current, target)
+        assert target[action.row, action.col] == world.PATH
 
 
 def test_symbolic_oracle_planner_solves_one_action_sudoku_gap():

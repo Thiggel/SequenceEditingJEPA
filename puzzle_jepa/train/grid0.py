@@ -16,10 +16,12 @@ from puzzle_jepa.data import (
     MazeWorld,
     PuzzleExample,
     SudokuWorld,
+    collate_rollouts,
     collate_transitions,
     iter_hf_examples,
     sample_curriculum_transition,
     sample_random_mutable_transition,
+    sample_oracle_rollout_transition,
     sample_oracle_partial_transition,
 )
 from puzzle_jepa.data.worlds import PuzzleWorld, WorldAction
@@ -56,6 +58,9 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     eval_every = int(train_cfg.get("eval_every_steps", max_steps))
     save_every = int(train_cfg.get("save_every_steps", eval_every))
     grad_clip = float(train_cfg.get("grad_clip", 1.0))
+    rollout_steps = int(train_cfg.get("rollout_steps", 1))
+    rollout_weight = float(train_cfg.get("rollout_weight", 1.0 if rollout_steps > 1 else 0.0))
+    rollout_batch_size = int(train_cfg.get("rollout_batch_size", batch_size))
     latest_metrics: dict[str, Any] = {}
 
     with (output_dir / "config.json").open("w") as handle:
@@ -64,10 +69,22 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     for step in range(1, max_steps + 1):
         model.train()
         batch = _sample_batch(world, train_examples, rng, batch_size, device, train_oracle_probability)
+        loss_weights = _build_transition_loss_weights(world, batch.actions, batch.states.shape[-2:], train_cfg)
         optimizer.zero_grad(set_to_none=True)
         with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-            output = model(batch.states, batch.actions, batch.next_states)
-        output.loss.backward()
+            output = model(batch.states, batch.actions, batch.next_states, loss_weights=loss_weights)
+            loss = output.loss
+            rollout_loss = None
+            if rollout_steps > 1 and rollout_weight > 0.0:
+                rollout_batch = _sample_rollout_batch(world, train_examples, rng, rollout_batch_size, rollout_steps, device)
+                rollout_output = model.rollout_loss(
+                    rollout_batch.states,
+                    rollout_batch.actions,
+                    rollout_batch.target_states,
+                )
+                rollout_loss = rollout_output.loss
+                loss = loss + rollout_weight * rollout_loss
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
         model.sync_target()
@@ -85,7 +102,15 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
             latest_metrics.update(
                 {
                     "step": step,
-                    "train_loss": float(output.loss.detach().cpu().item()),
+                    "train_loss": float(loss.detach().cpu().item()),
+                    "train_one_step_loss": float(output.loss.detach().cpu().item()),
+                    "train_rollout_loss": (
+                        0.0 if rollout_loss is None else float(rollout_loss.detach().cpu().item())
+                    ),
+                    "rollout_steps": rollout_steps,
+                    "rollout_weight": rollout_weight,
+                    "rollout_batch_size": rollout_batch_size if rollout_steps > 1 else 0,
+                    "loss_weighting": str(train_cfg.get("loss_weighting", "uniform")),
                     "param_count": _param_count(model),
                     "trainable_param_count": _param_count(model, trainable_only=True),
                     "train_oracle_probability": train_oracle_probability,
@@ -158,6 +183,73 @@ def _sample_batch(
         for _ in range(batch_size)
     ]
     return collate_transitions(transitions, device=device)
+
+
+def _sample_rollout_batch(
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    batch_size: int,
+    steps: int,
+    device: torch.device,
+):
+    rollouts = [
+        sample_oracle_rollout_transition(
+            world,
+            examples[int(rng.integers(0, len(examples)))],
+            rng,
+            steps=steps,
+        )
+        for _ in range(batch_size)
+    ]
+    return collate_rollouts(rollouts, device=device)
+
+
+def _build_transition_loss_weights(
+    world: PuzzleWorld,
+    actions: torch.Tensor,
+    shape: torch.Size | tuple[int, int],
+    train_cfg: dict[str, Any],
+) -> torch.Tensor | None:
+    mode = str(train_cfg.get("loss_weighting", "uniform"))
+    if mode == "uniform":
+        return None
+    height, width = int(shape[0]), int(shape[1])
+    base = float(train_cfg.get("base_cell_weight", 1.0))
+    changed = float(train_cfg.get("changed_cell_weight", 8.0))
+    context = float(train_cfg.get("context_cell_weight", 2.0))
+    rows = actions[:, 1].clamp(0, height - 1)
+    cols = actions[:, 2].clamp(0, width - 1)
+    batch = actions.shape[0]
+    weights = torch.full((batch, height, width), base, dtype=torch.float32, device=actions.device)
+    batch_indices = torch.arange(batch, device=actions.device)
+    if mode == "changed_only":
+        weights.zero_()
+        weights[batch_indices, rows, cols] = 1.0
+        return weights
+    if mode != "local_context":
+        raise ValueError(f"Unknown loss_weighting mode {mode!r}.")
+    if isinstance(world, SudokuWorld):
+        for index in range(batch):
+            row = int(rows[index].item())
+            col = int(cols[index].item())
+            block_row = 3 * (row // 3)
+            block_col = 3 * (col // 3)
+            weights[index, row, :] = context
+            weights[index, :, col] = context
+            weights[index, block_row : block_row + 3, block_col : block_col + 3] = context
+    else:
+        radius = int(train_cfg.get("context_radius", 1))
+        for index in range(batch):
+            row = int(rows[index].item())
+            col = int(cols[index].item())
+            row_start = max(0, row - radius)
+            row_end = min(height, row + radius + 1)
+            col_start = max(0, col - radius)
+            col_end = min(width, col + radius + 1)
+            weights[index, row_start:row_end, col_start:col_end] = context
+    weights[batch_indices, rows, cols] = changed
+    return weights
 
 
 @torch.no_grad()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from puzzle_jepa.data.worlds import MazeWorld, PuzzleExample, PuzzleWorld, SudokuWorld, WorldAction
-from puzzle_jepa.data.trajectories import Transition
+from puzzle_jepa.data.trajectories import RolloutTransition, Transition
 
 
 def sample_oracle_partial_transition(
@@ -43,6 +43,21 @@ def sample_random_mutable_transition(
     raise TypeError(f"Unsupported world type {type(world).__name__}.")
 
 
+def sample_oracle_rollout_transition(
+    world: PuzzleWorld,
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    steps: int,
+) -> RolloutTransition:
+    if steps <= 0:
+        raise ValueError("steps must be positive.")
+    if isinstance(world, SudokuWorld):
+        return _sample_sudoku_oracle_rollout(world, example, rng, int(steps))
+    if isinstance(world, MazeWorld):
+        return _sample_maze_oracle_rollout(world, example, rng, int(steps))
+    raise TypeError(f"Unsupported world type {type(world).__name__}.")
+
+
 def _sample_sudoku_oracle_partial(
     world: SudokuWorld,
     example: PuzzleExample,
@@ -71,6 +86,47 @@ def _sample_sudoku_oracle_partial(
         goal=goal.copy(),
         task_id=world.task_id,
         clue_mask=world.clue_mask_from_puzzle(puzzle),
+    )
+
+
+def _sample_sudoku_oracle_rollout(
+    world: SudokuWorld,
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    steps: int,
+) -> RolloutTransition:
+    puzzle = world.validate_state(example.state)
+    goal = world.validate_state(example.goal)
+    mutable_positions = np.argwhere(puzzle == 0)
+    if len(mutable_positions) < steps:
+        raise ValueError(f"Sudoku example has fewer than {steps} mutable cells.")
+    reveal_count = int(rng.integers(0, len(mutable_positions) - steps + 1))
+    state = puzzle.copy()
+    if reveal_count:
+        revealed_indices = rng.choice(len(mutable_positions), size=reveal_count, replace=False)
+        revealed = mutable_positions[revealed_indices]
+        state[revealed[:, 0], revealed[:, 1]] = goal[revealed[:, 0], revealed[:, 1]]
+
+    clue_mask = world.clue_mask_from_puzzle(puzzle)
+    actions: list[WorldAction] = []
+    target_states: list[np.ndarray] = []
+    current = state.copy()
+    for _ in range(steps):
+        remaining = np.argwhere((puzzle == 0) & (current != goal))
+        if len(remaining) == 0:
+            raise ValueError("Sampled solved Sudoku partial state before rollout completed.")
+        row, col = (int(x) for x in remaining[int(rng.integers(0, len(remaining)))])
+        action = WorldAction(row, col, int(goal[row, col]))
+        current = world.apply(current, action, clue_mask=clue_mask, allow_overwrite=True, allow_conflicts=False)
+        actions.append(action)
+        target_states.append(current.copy())
+    return RolloutTransition(
+        state=state,
+        actions=actions,
+        target_states=target_states,
+        goal=goal.copy(),
+        task_id=world.task_id,
+        clue_mask=clue_mask,
     )
 
 
@@ -109,6 +165,45 @@ def _sample_sudoku_random_mutable(
         goal=goal.copy(),
         task_id=world.task_id,
         clue_mask=clue_mask,
+    )
+
+
+def _sample_maze_oracle_rollout(
+    world: MazeWorld,
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    steps: int,
+) -> RolloutTransition:
+    puzzle = world.validate_state(example.state)
+    goal = world.validate_state(example.goal)
+    path_positions = np.argwhere((puzzle == world.EMPTY) & (goal == world.PATH))
+    if len(path_positions) < steps:
+        raise ValueError(f"Maze example has fewer than {steps} oracle path cells.")
+    reveal_count = int(rng.integers(0, len(path_positions) - steps + 1))
+    state = puzzle.copy()
+    if reveal_count:
+        revealed_indices = rng.choice(len(path_positions), size=reveal_count, replace=False)
+        revealed = path_positions[revealed_indices]
+        state[revealed[:, 0], revealed[:, 1]] = world.PATH
+
+    actions: list[WorldAction] = []
+    target_states: list[np.ndarray] = []
+    current = state.copy()
+    for _ in range(steps):
+        remaining = np.argwhere((puzzle == world.EMPTY) & (goal == world.PATH) & (current != world.PATH))
+        if len(remaining) == 0:
+            raise ValueError("Sampled solved Maze partial state before rollout completed.")
+        row, col = (int(x) for x in remaining[int(rng.integers(0, len(remaining)))])
+        action = WorldAction(row, col, world.PATH)
+        current = world.apply(current, action)
+        actions.append(action)
+        target_states.append(current.copy())
+    return RolloutTransition(
+        state=state,
+        actions=actions,
+        target_states=target_states,
+        goal=goal.copy(),
+        task_id=world.task_id,
     )
 
 

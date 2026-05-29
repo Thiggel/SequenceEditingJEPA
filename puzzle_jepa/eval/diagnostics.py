@@ -28,6 +28,18 @@ class RankRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class GoalRankRecord:
+    depth_fraction: float
+    prefix_steps: int
+    trajectory_length: int
+    best_goal_rank: int
+    goal_actions: int
+    legal_actions: int
+    best_goal_score: float
+    best_score: float
+
+
+@dataclass(frozen=True, slots=True)
 class DriftRecord:
     example_index: int
     step: int
@@ -78,6 +90,14 @@ def run_diagnostics(
         num_examples=rank_examples,
         depth_fractions=depth_fractions,
     )
+    goal_rank_records = evaluate_goal_action_ranks(
+        model,
+        world,
+        examples,
+        rng,
+        num_examples=rank_examples,
+        depth_fractions=depth_fractions,
+    )
     drift_records, drift_summary = evaluate_latent_drift(
         model,
         world,
@@ -111,6 +131,7 @@ def run_diagnostics(
         "checkpoint_step": int(checkpoint.get("step", -1)),
         "task": world.name,
         "rank": summarize_rank_records(rank_records),
+        "goal_rank": summarize_goal_rank_records(goal_rank_records),
         "drift": drift_summary,
         "planning": planning,
         "planner_traces": traces,
@@ -120,6 +141,9 @@ def run_diagnostics(
     (destination / "diagnostics.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     with (destination / "rank_records.jsonl").open("w") as handle:
         for record in rank_records:
+            handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
+    with (destination / "goal_rank_records.jsonl").open("w") as handle:
+        for record in goal_rank_records:
             handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
     with (destination / "drift_records.jsonl").open("w") as handle:
         for record in drift_records:
@@ -157,6 +181,42 @@ def evaluate_action_ranks(
                 continue
             records.append(
                 RankRecord(
+                    depth_fraction=float(fraction),
+                    prefix_steps=prefix_steps,
+                    trajectory_length=len(actions),
+                    **rank,
+                )
+            )
+    return records
+
+
+@torch.no_grad()
+def evaluate_goal_action_ranks(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    num_examples: int,
+    depth_fractions: list[float],
+) -> list[GoalRankRecord]:
+    records: list[GoalRankRecord] = []
+    if num_examples <= 0:
+        return records
+    for _ in range(num_examples):
+        example = examples[int(rng.integers(0, len(examples)))]
+        actions = oracle_action_sequence(world, example, rng)
+        if not actions:
+            continue
+        for fraction in depth_fractions:
+            prefix_steps = min(int(round(float(fraction) * (len(actions) - 1))), len(actions) - 1)
+            clue_mask = clue_mask_for_planning(world, example.state)
+            state = apply_prefix(world, example.state, actions, prefix_steps, clue_mask)
+            rank = rank_goal_action_set(model, world, state, example.goal, clue_mask)
+            if rank is None:
+                continue
+            records.append(
+                GoalRankRecord(
                     depth_fraction=float(fraction),
                     prefix_steps=prefix_steps,
                     trajectory_length=len(actions),
@@ -498,6 +558,54 @@ def rank_action(
     }
 
 
+def rank_goal_action_set(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    state: np.ndarray,
+    goal: np.ndarray,
+    clue_mask: np.ndarray | None,
+) -> dict[str, Any] | None:
+    legal = legal_planning_actions(world, state, clue_mask)
+    if not legal:
+        return None
+    goal_indices = goal_action_indices(world, state, goal, legal)
+    if not goal_indices:
+        return None
+    scores = model.score_actions_to_goal(
+        torch.as_tensor(state, dtype=torch.long),
+        legal,
+        torch.as_tensor(goal, dtype=torch.long),
+        world.task_id,
+    )
+    order = scores.argsort(descending=True).detach().cpu().tolist()
+    ranks = [order.index(index) + 1 for index in goal_indices]
+    best_index = max(goal_indices, key=lambda index: float(scores[index].detach().cpu().item()))
+    return {
+        "best_goal_rank": int(min(ranks)),
+        "goal_actions": len(goal_indices),
+        "legal_actions": len(legal),
+        "best_goal_score": float(scores[best_index].detach().cpu().item()),
+        "best_score": float(scores[order[0]].detach().cpu().item()),
+    }
+
+
+def goal_action_indices(
+    world: PuzzleWorld,
+    state: np.ndarray,
+    goal: np.ndarray,
+    legal: list[WorldAction],
+) -> list[int]:
+    state_arr = world.validate_state(state)
+    goal_arr = world.validate_state(goal)
+    indices = []
+    for index, action in enumerate(legal):
+        if state_arr[action.row, action.col] == goal_arr[action.row, action.col]:
+            continue
+        if action.value == int(goal_arr[action.row, action.col]):
+            indices.append(index)
+    return indices
+
+
 def build_world(task_cfg: dict[str, Any]) -> PuzzleWorld:
     name = str(task_cfg["name"])
     if name == "sudoku":
@@ -660,6 +768,34 @@ def summarize_rank_records(records: list[RankRecord]) -> dict[str, Any]:
             "mean_score_margin": mean([record.best_score - record.oracle_score for record in depth_records]),
         }
     ranks = [record.rank for record in records]
+    return {
+        "count": len(records),
+        "top1": mean([float(rank == 1) for rank in ranks]),
+        "top5": mean([float(rank <= 5) for rank in ranks]),
+        "mrr": mean([1.0 / rank for rank in ranks]),
+        "mean_rank": mean(ranks),
+        "median_rank": median(ranks),
+        "by_depth_fraction": by_depth,
+    }
+
+
+def summarize_goal_rank_records(records: list[GoalRankRecord]) -> dict[str, Any]:
+    by_depth: dict[str, dict[str, float]] = {}
+    for depth in sorted({record.depth_fraction for record in records}):
+        depth_records = [record for record in records if record.depth_fraction == depth]
+        ranks = [record.best_goal_rank for record in depth_records]
+        by_depth[str(depth)] = {
+            "count": len(ranks),
+            "top1": mean([float(rank == 1) for rank in ranks]),
+            "top5": mean([float(rank <= 5) for rank in ranks]),
+            "mrr": mean([1.0 / rank for rank in ranks]),
+            "mean_rank": mean(ranks),
+            "median_rank": median(ranks),
+            "mean_goal_actions": mean([record.goal_actions for record in depth_records]),
+            "mean_legal_actions": mean([record.legal_actions for record in depth_records]),
+            "mean_score_margin": mean([record.best_score - record.best_goal_score for record in depth_records]),
+        }
+    ranks = [record.best_goal_rank for record in records]
     return {
         "count": len(records),
         "top1": mean([float(rank == 1) for rank in ranks]),

@@ -1,9 +1,37 @@
 # Agent Handoff Rules
 
-- Keep the handoff docs current. Whenever a new job is submitted, an implementation is changed or extended, or a new insight/analysis result is received, update the relevant handoff markdown docs in the same turn.
-- Primary handoff docs are `docs/RUNBOOK.md`, `docs/RESULTS.md`, and `docs/EXPERIMENT_PLAN.md`.
-- For Slurm work, include job IDs, config/run names, state, output roots, checkpoints, and the latest meaningful metrics or failure reason.
-- Prefer updating the existing top-level handoff snapshot and current branch sections instead of appending scattered notes.
+- The long-form handoff source of truth lives outside this repo at
+  `../sequence-editing-report`.
+- Always update `../sequence-editing-report/report.tex`,
+  `../sequence-editing-report/BACKLOG.md`,
+  `../sequence-editing-report/STATUS.md`,
+  `../sequence-editing-report/RESULTS.md`, and/or
+  `../sequence-editing-report/LOG.md` whenever experiments, implementation,
+  Slurm state, results, or interpretation change.
+- Keep this repo's `docs/RUNBOOK.md`, `docs/RESULTS.md`, and
+  `docs/EXPERIMENT_PLAN.md` concise. They should point to the report repo and
+  hold only the latest operational snapshot needed by an agent starting in this
+  repo.
+- For Slurm work, include job IDs, config/run names, state, output roots,
+  checkpoints, latest meaningful metrics, and failure reasons in the report repo
+  and in the compact in-repo snapshot.
+- Maintain `../sequence-editing-report/BACKLOG.md` as the experiment backlog.
+  Add new experiments when they are proposed, update their status when submitted
+  or completed, and record the gate/decision that determines the next run.
+- Maintain `../sequence-editing-report/LOG.md` as a short chronological log of
+  useful events: submissions, cancellations, fixes, failures, final results, and
+  interpretation changes.
+- During housekeeping of pending Slurm jobs, check whether other suitable GPU
+  partitions appear freer. When appropriate, try broadening pending jobs with
+  `scontrol update JobId=<jobid> Partition=<partition1,partition2>` to reduce
+  wait time. Do not do this for dependency- or begin-time-blocked jobs where it
+  cannot help.
+- After successful verification, commit and push changes in both this repo and
+  `../sequence-editing-report` to GitHub. If pushing fails, report the exact
+  reason and leave the commits locally.
+- Do not delete active Slurm job logs or cancel active jobs unless explicitly
+  asked. It is OK to cancel stale superseded oversight jobs and delete ignored
+  local clutter/logs after preserving useful results in the report repo.
 
 # CLAUDE.md
 

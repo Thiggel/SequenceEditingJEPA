@@ -2,7 +2,12 @@
 
 This repo is now focused on objective puzzle-world reasoning for Sudoku-Extreme
 and Maze-Hard. The previous sequence-editing/iGSM work was archived outside the
-repo at `../legacy-sequence-editing` and summarized in [`legacy.md`](legacy.md).
+repo at `../legacy-sequence-editing` and summarized in
+`../sequence-editing-report/notes/legacy.md`.
+
+Long-form status, backlog, results, and the ongoing LaTeX report live in
+`../sequence-editing-report`. The `docs/` files in this repo are compact
+operational pointers only.
 
 The active scaffold has four pieces:
 
