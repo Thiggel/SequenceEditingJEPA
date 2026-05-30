@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 17:31 CEST
+Last updated: 2026-05-30 21:32 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -49,14 +49,16 @@ repo snapshot.
 | `3679094` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 09:44:26 CEST`. |
 | `3679877` | CANCELLED | Stale pending oversight cancelled after replacing the prompt with the enhanced template. |
 | `3680033` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 13:41:13 CEST`. |
-| `3680652` | RUNNING | Current enhanced recurring oversight, started `2026-05-30 17:26:00 CEST`. |
-| `3681711` | PENDING | Next enhanced recurring oversight, begin time `2026-05-30 21:26:03 CEST`. |
+| `3680652` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 17:42:01 CEST`. |
+| `3681711` | RUNNING | Current enhanced recurring oversight, started `2026-05-30 21:26:28 CEST` on `a0537`. |
+| `3682864` | PENDING | Next enhanced recurring oversight, begin time `2026-05-31 01:26:31 CEST`. |
+| `3682924` | RUNNING | Grid 3C reset-cadence diagnostics for rollout `N=2`, started `2026-05-30 21:32:01 CEST` on `a0537`. |
 
 Check live state:
 
 ```bash
-squeue -j 3680019,3680020,3680021,3680033,3680652,3681711 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3680019,3680020,3680021,3680033,3680652,3681711 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3680019,3680020,3680021,3680033,3680652,3681711,3682864,3682924 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3680019,3680020,3680021,3680033,3680652,3681711,3682864,3682924 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -85,13 +87,21 @@ analysis artifacts live under `../sequence-editing-report/assets/grid3b/`,
 including rollout `N=2` planning, drift, remaining-Hamming, mismatch heatmap,
 training curve, and concrete terminal board examples.
 
-Partition housekeeping at 17:31 CEST: only repo job `3680652` is running, and
-the only later repo job `3681711` is begin-time-blocked, so no
-`scontrol update ... Partition=...` was useful.
+Grid 3C reset-cadence diagnostics were submitted as `3682924` and are running
+against
+`$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_local_direct_weighted_rollout_n2`,
+writing `diagnostics_reset_cadence/`. This diagnostic compares latent no-reset,
+reset every 2/4/8/16 actions, and full re-encoded planning on the same 64
+sampled boards. Launch smoke and tests passed before submission.
+
+Partition housekeeping at 21:32 CEST: repo job `3682924` started on `a100`, the
+current oversight `3681711` is running, and the only later oversight `3682864`
+is begin-time-blocked. `sinfo` showed idle `a100` nodes before `3682924`
+started, so no partition broadening was useful.
 
 Oversight now uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
 concrete planner examples, question assumptions, add useful report figures and
 tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive. The next safe experiment is a small reset/re-encoding diagnostic or
-ablation, not Maze or broad capacity sweeps.
+alive. The next safe step is to analyze `3682924` when it completes, not Maze
+or broad capacity sweeps.

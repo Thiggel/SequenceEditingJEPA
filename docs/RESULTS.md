@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-30 17:31 CEST
+Last updated: 2026-05-30 21:32 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -61,9 +61,14 @@ diagnostic terminal planning as the stricter Sudoku-solve read.
 Grid 3B rollout `N=2` completed as `3680020` and diagnostics completed as
 `3680021`. Final online metrics at step `5000` were eval loss `0.000138`,
 oracle mean rank `12.34375`, and H1/H2/H4 solve `1.0 / 1.0 / 1.0`, but the
-larger diagnostics show exact latent solve remains weak. Current oversight
-`3680652` is running, and exactly one successor, `3681711`, is pending for
-`2026-05-30 21:26:03 CEST`.
+larger diagnostics show exact latent solve remains weak.
+
+Grid 3C reset-cadence diagnostics were implemented and submitted as `3682924`
+for the rollout `N=2` checkpoint. The job compares latent no-reset, reset every
+2/4/8/16 actions, and full re-encoded planning on the same 64 sampled boards,
+writing `diagnostics_reset_cadence/`. Current oversight `3681711` is running,
+and exactly one successor, `3682864`, is pending for `2026-05-31 01:26:31
+CEST`.
 
 ## Grid 3A Diagnostics
 

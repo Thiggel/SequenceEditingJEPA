@@ -26,12 +26,13 @@ Core loop for every oversight run:
 - Ensure the oversight chain continues every 4 hours. The Slurm wrapper should submit the next run automatically; still verify that exactly one later `puzzle_oversight` job is pending or scheduled. If none exists, submit `scripts/slurm/puzzle_oversight.slurm` with `--begin=now+4hours`. If duplicate stale oversight jobs exist, cancel only stale superseded oversight jobs and record it.
 
 Current active focus:
-- Check `puzzle_grid3b`, `puzzle_diag3b_large`, `puzzle_diag3b_n2`, and `puzzle_oversight` jobs first.
+- Check `puzzle_diag3c_reset`, `puzzle_grid3b`, `puzzle_diag3b_large`, `puzzle_diag3b_n2`, and `puzzle_oversight` jobs first.
 - Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted` completed as `3680019`: latent rollout planning solved `0/64`, re-encoded symbolic-state planning solved `64/64`, and terminal-only scoring only changed latent terminal fill rate from `1/64` to `4/64`. Treat this as evidence that the lead checkpoint's remaining oracle-goal failure is latent rollout drift / stale latent state, not the local action scorer.
 - Grid 3B rollout `N=2` completed as `3680020`; dependent diagnostics `3680021` completed. Final online H1/H2/H4 solve stayed `1.0`, but larger diagnostics found latent terminal-energy solve only `4/64`, terminal fill `26/64`, mean remaining Hamming `2.453`, and re-encoded symbolic-state planning `64/64`.
 - Reuse `../sequence-editing-report/assets/grid3b/` when interpreting Grid 3B: it now contains lead and rollout `N=2` planning comparisons, drift curves, remaining-Hamming distributions, mismatch heatmaps, training curves, CSV summaries, and concrete latent examples.
 - Treat rollout `N=2` as a partial proximity improvement, not a passed gate. It preserves `goal_rank=1.0` and improves 10/20-step drift, but terminal weighted drift remains about `2.16` and exact latent solve is too weak.
-- Do not start Maze, 10M/20M size sweeps, or broad controls yet. The next safe branch is the smallest diagnostic/ablation that periodically re-encodes candidate symbolic states or resets stale latent planner state.
+- Grid 3C reset-cadence diagnostics were implemented and submitted as `3682924` for `sudoku_jepa_5m_local_direct_weighted_rollout_n2`. The job writes `diagnostics_reset_cadence/` and compares latent no-reset, reset every 2/4/8/16 actions, and full re-encoded planning on the same 64 sampled boards.
+- Do not start Maze, 10M/20M size sweeps, or broad controls yet. The next safe step is to analyze `3682924` when it completes, then decide whether periodic resets recover enough of the `64/64` re-encoded solve rate to justify a planner-state reset/re-encoding branch.
 
 Historical checks to preserve:
 - Grid 0 was infrastructure only.

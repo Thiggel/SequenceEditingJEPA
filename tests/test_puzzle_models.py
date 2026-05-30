@@ -10,7 +10,13 @@ from puzzle_jepa.data import (
     sample_oracle_transition,
 )
 from puzzle_jepa.data.worlds import PuzzleExample
-from puzzle_jepa.eval.diagnostics import evaluate_latent_drift, evaluate_latent_planning, evaluate_reencoded_planning, oracle_action_sequence
+from puzzle_jepa.eval.diagnostics import (
+    evaluate_latent_drift,
+    evaluate_latent_planning,
+    evaluate_paired_reset_planning,
+    evaluate_reencoded_planning,
+    oracle_action_sequence,
+)
 from puzzle_jepa.models import ActionConditionedWorldModel, HRMReasoner, PTRMSampler, TRMReasoner
 
 
@@ -261,10 +267,24 @@ def test_diagnostics_return_latent_and_reencoded_planning_records():
         branch_size=1,
         beam_size=1,
     )
+    reset_summary, reset_records = evaluate_paired_reset_planning(
+        model,
+        world,
+        [example],
+        rng,
+        num_examples=1,
+        max_steps=2,
+        branch_size=1,
+        beam_size=1,
+        reset_cadences=[2],
+    )
     assert latent_summary["step_energy"]["count"] == 1.0
     assert reencoded_summary["terminal_energy"]["count"] == 1.0
+    assert reset_summary["reset_every_2"]["terminal_energy"]["count"] == 1.0
     assert latent_records[0]["planner"] == "latent"
     assert reencoded_records[0]["planner"] == "reencoded"
+    assert {record["variant"] for record in reset_records} == {"latent_no_reset", "reset_every_2", "reencoded"}
+    assert {record["example_index"] for record in reset_records} == {0}
     assert len(latent_records[0]["final_state"]) == 9
     assert {"row", "col", "pred", "goal"} <= set(latent_records[0]["mismatches"][0])
 

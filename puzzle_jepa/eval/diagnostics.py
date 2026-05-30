@@ -64,6 +64,7 @@ def run_diagnostics(
     depth_fractions: list[float],
     trace_examples: int,
     seed: int,
+    reset_cadences: list[int] | None = None,
     output_dir: Path | None = None,
 ) -> dict[str, Any]:
     rng = np.random.default_rng(seed)
@@ -127,6 +128,20 @@ def run_diagnostics(
         branch_size=planning_branch_size,
         beam_size=planning_beam_size,
     )
+    paired_reset_planning: dict[str, Any] = {}
+    paired_reset_planning_records: list[dict[str, Any]] = []
+    if reset_cadences:
+        paired_reset_planning, paired_reset_planning_records = evaluate_paired_reset_planning(
+            model,
+            world,
+            examples,
+            rng,
+            num_examples=planning_examples,
+            max_steps=max_unroll_steps,
+            branch_size=planning_branch_size,
+            beam_size=planning_beam_size,
+            reset_cadences=reset_cadences,
+        )
     traces = collect_planner_failure_traces(
         model,
         world,
@@ -145,6 +160,7 @@ def run_diagnostics(
         "drift": drift_summary,
         "planning": planning,
         "reencoded_planning": reencoded_planning,
+        "paired_reset_planning": paired_reset_planning,
         "planner_traces": traces,
     }
     destination = output_dir or (run_root / "diagnostics")
@@ -165,6 +181,10 @@ def run_diagnostics(
     with (destination / "reencoded_planning_records.jsonl").open("w") as handle:
         for record in reencoded_planning_records:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if paired_reset_planning_records:
+        with (destination / "paired_reset_planning_records.jsonl").open("w") as handle:
+            for record in paired_reset_planning_records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
     write_drift_plot(destination / "latent_energy_mse.png", drift_records)
     print(json.dumps(result, indent=2, sort_keys=True), flush=True)
     return result
@@ -409,6 +429,73 @@ def evaluate_reencoded_planning(
 
 
 @torch.no_grad()
+def evaluate_paired_reset_planning(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    num_examples: int,
+    max_steps: int,
+    branch_size: int,
+    beam_size: int,
+    reset_cadences: list[int],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if num_examples <= 0:
+        return {}, []
+    cadences = sorted({int(cadence) for cadence in reset_cadences if int(cadence) > 0})
+    if not cadences:
+        return {}, []
+    variants: list[tuple[str, str, int | None]] = [("latent_no_reset", "latent", None)]
+    variants.extend((f"reset_every_{cadence}", "latent_reset", cadence) for cadence in cadences)
+    variants.append(("reencoded", "reencoded", None))
+    summaries: dict[str, dict[str, list[dict[str, Any]]]] = {
+        name: {"step_energy": [], "terminal_energy": []}
+        for name, _, _ in variants
+    }
+    sampled_examples = [examples[int(rng.integers(0, len(examples)))] for _ in range(num_examples)]
+    for example_index, example in enumerate(sampled_examples):
+        for mode in ("step_energy", "terminal_energy"):
+            terminal_only_score = mode == "terminal_energy"
+            for variant, planner, cadence in variants:
+                if planner == "reencoded":
+                    plan = reencoded_beam_plan(
+                        model,
+                        world,
+                        example,
+                        max_steps=max_steps,
+                        branch_size=branch_size,
+                        beam_size=beam_size,
+                        terminal_only_score=terminal_only_score,
+                    )
+                else:
+                    plan = latent_beam_plan(
+                        model,
+                        world,
+                        example,
+                        max_steps=max_steps,
+                        branch_size=branch_size,
+                        beam_size=beam_size,
+                        terminal_only_score=terminal_only_score,
+                        reset_cadence=cadence,
+                    )
+                plan["example_index"] = int(example_index)
+                plan["mode"] = mode
+                plan["variant"] = variant
+                plan["planner"] = planner
+                plan["reset_cadence"] = cadence
+                summaries[variant][mode].append(plan)
+    summary = {
+        variant: {
+            mode: summarize_plan_summaries(items)
+            for mode, items in modes.items()
+        }
+        for variant, modes in summaries.items()
+    }
+    return summary, flatten_paired_plan_records(summaries)
+
+
+@torch.no_grad()
 def latent_beam_plan(
     model: ActionConditionedWorldModel,
     world: PuzzleWorld,
@@ -418,6 +505,7 @@ def latent_beam_plan(
     branch_size: int,
     beam_size: int,
     terminal_only_score: bool,
+    reset_cadence: int | None = None,
 ) -> dict[str, Any]:
     device = next(model.parameters()).device
     start = world.validate_state(example.state).copy()
@@ -472,11 +560,15 @@ def latent_beam_plan(
                     height=world.height,
                     width=world.width,
                 )
+                next_steps = int(beam["steps"]) + 1
+                if reset_cadence is not None and next_steps % int(reset_cadence) == 0:
+                    next_tensor = torch.as_tensor(next_state[None, ...], dtype=torch.long, device=device)
+                    next_latent = model.encoder(next_tensor, task_ids=task_ids)
                 energy = float(F.mse_loss(next_latent, goal_latent).detach().cpu().item())
                 next_beam = {
                     "state": next_state,
                     "latent": next_latent,
-                    "steps": int(beam["steps"]) + 1,
+                    "steps": next_steps,
                     "energy": energy,
                 }
                 if is_terminal_state(world, next_state, goal, clue_mask):
@@ -629,6 +721,30 @@ def flatten_plan_records(summaries: dict[str, list[dict[str, Any]]], *, planner:
                 "mismatches": item["mismatches"],
             }
             records.append(record)
+    return records
+
+
+def flatten_paired_plan_records(summaries: dict[str, dict[str, list[dict[str, Any]]]]) -> list[dict[str, Any]]:
+    records = []
+    for _variant, modes in summaries.items():
+        for mode, items in modes.items():
+            for item in items:
+                record = {
+                    "planner": item["planner"],
+                    "variant": item["variant"],
+                    "mode": mode,
+                    "reset_cadence": item["reset_cadence"],
+                    "example_index": int(item["example_index"]),
+                    "solved": float(item["solved"]),
+                    "terminal": float(item["terminal"]),
+                    "steps": float(item["steps"]),
+                    "energy": float(item["energy"]),
+                    "remaining_hamming": float(item["remaining_hamming"]),
+                    "final_state": item["final_state"],
+                    "goal_state": item["goal_state"],
+                    "mismatches": item["mismatches"],
+                }
+                records.append(record)
     return records
 
 
@@ -954,6 +1070,8 @@ def apply_planning_action(
 
 
 def summarize_rank_records(records: list[RankRecord]) -> dict[str, Any]:
+    if not records:
+        return {"count": 0}
     by_depth: dict[str, dict[str, float]] = {}
     for depth in sorted({record.depth_fraction for record in records}):
         depth_records = [record for record in records if record.depth_fraction == depth]
@@ -981,6 +1099,8 @@ def summarize_rank_records(records: list[RankRecord]) -> dict[str, Any]:
 
 
 def summarize_goal_rank_records(records: list[GoalRankRecord]) -> dict[str, Any]:
+    if not records:
+        return {"count": 0}
     by_depth: dict[str, dict[str, float]] = {}
     for depth in sorted({record.depth_fraction for record in records}):
         depth_records = [record for record in records if record.depth_fraction == depth]
@@ -1101,6 +1221,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-unroll-steps", type=int, default=256)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 4, 10, 20])
     parser.add_argument("--depth-fractions", type=float, nargs="+", default=[0.0, 0.25, 0.5, 0.75])
+    parser.add_argument("--reset-cadences", type=int, nargs="*", default=[])
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args()
 
@@ -1119,6 +1240,7 @@ def main() -> None:
         depth_fractions=args.depth_fractions,
         trace_examples=args.trace_examples,
         seed=args.seed,
+        reset_cadences=args.reset_cadences,
         output_dir=args.output_dir,
     )
 
