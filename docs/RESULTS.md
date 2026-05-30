@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-29 21:40 CEST
+Last updated: 2026-05-30 09:50 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -23,6 +23,12 @@ All four roots have final `metrics.json`, `metrics.jsonl`, and `checkpoint.pt`.
 The first dependent diagnostics array `3674779_[0-3]` failed because the wrapper
 passed comma-separated `--horizons`; after a local fix and smoke test,
 diagnostics were resubmitted as `3676904_[0-3]` and completed.
+
+`H1/H2/H4 solve` is an online training metric over only 8 eval examples. It is
+not the final solver metric: H1 scores legal one-step actions by predicted
+next-latent distance to the goal latent; H2/H4 expand exact symbolic board
+states for a short horizon and re-encode candidate terminal states. Treat
+diagnostic terminal planning as the stricter Sudoku-solve read.
 
 ## Grid 3A Diagnostics
 
@@ -49,3 +55,6 @@ closed-loop miss to about four cells, but long-horizon drift remains high
 - Local action injection fixes a major action grounding failure caused by global
   action broadcast. The remaining bottleneck is long-horizon drift /
   closed-loop exactness after locally grounded one-step predictions.
+- The residual/delta variant is not currently a win. It predicts an additive
+  correction to a contextual latent and accumulates errors under closed-loop
+  rollout; its drift explodes by 20/terminal steps.
