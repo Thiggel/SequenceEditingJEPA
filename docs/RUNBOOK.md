@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 13:31 CEST
+Last updated: 2026-05-30 17:31 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -41,60 +41,57 @@ repo snapshot.
 | `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
 | `3676904_[0-3]` | COMPLETED | Resubmitted Grid 3A diagnostics completed; all four roots have `diagnostics/diagnostics.json`. |
 | `3680019` | COMPLETED | Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted`; latent rollout solve `0.0`, re-encoded symbolic-state planning solve `1.0`. |
-| `3680020` | RUNNING | Grid 3B `local_direct_weighted` rollout `N=2`; latest checkpoint at step `3000` as of 13:26 CEST. |
-| `3680021` | PENDING | Dependent Grid 3B rollout `N=2` diagnostics, `afterok:3680020`. |
+| `3680020` | COMPLETED | Grid 3B `local_direct_weighted` rollout `N=2`; final checkpoint step `5000`, exit `0:0`. |
+| `3680021` | COMPLETED | Dependent Grid 3B rollout `N=2` diagnostics; latent terminal-energy solve `4/64`, re-encoded planning `64/64`. |
 | `3676879` | COMPLETED | Previous puzzle oversight completed at `2026-05-29 21:48:10 CEST`. |
 | `3677391` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 01:43:35 CEST`. |
 | `3678050` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 05:48:59 CEST`. |
 | `3679094` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 09:44:26 CEST`. |
 | `3679877` | CANCELLED | Stale pending oversight cancelled after replacing the prompt with the enhanced template. |
-| `3680033` | RUNNING | Enhanced recurring oversight, started `2026-05-30 13:24:55 CEST`. |
-| `3680652` | PENDING | Next enhanced recurring oversight, begin time `2026-05-30 17:25:44 CEST`. |
+| `3680033` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 13:41:13 CEST`. |
+| `3680652` | RUNNING | Current enhanced recurring oversight, started `2026-05-30 17:26:00 CEST`. |
+| `3681711` | PENDING | Next enhanced recurring oversight, begin time `2026-05-30 21:26:03 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3680019,3680020,3680021,3680033,3680652 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3680019,3680020,3680021,3680033,3680652 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3680019,3680020,3680021,3680033,3680652,3681711 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3680019,3680020,3680021,3680033,3680652,3681711 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
 
-Grid 3B large diagnostics completed for the current lead checkpoint. Latent
-rollout planning still has exact solve `0.0` on 64 examples, with mean remaining
-Hamming `4.734` under step-energy scoring and `4.672` under terminal-only
-scoring. Re-encoded symbolic-state planning solved all 64 examples under both
-scoring modes (`solve_rate=1.0`, mean remaining Hamming `0.0`). Terminal-only
-scoring therefore does not change the conclusion; it only raises the latent
-filled-board terminal rate from `1/64` to `4/64`.
+Grid 3B rollout `N=2` completed and improved proximity, but it did not satisfy
+the exact-solve gate. Final online metrics at step `5000` were eval loss
+`0.000138`, oracle mean rank `12.34375`, and H1/H2/H4 solve
+`1.0 / 1.0 / 1.0`; the larger diagnostics are the meaningful read. Job
+`3680021` reports latent terminal-energy planning solve `4/64`, filled-board
+terminal rate `26/64`, and mean remaining Hamming `2.453`. Re-encoded
+symbolic-state planning still solves `64/64`.
 
-Interpretation: under oracle-goal diagnostics, action scoring is sufficient when
-candidate symbolic states are re-encoded exactly. The lead failure is latent
-rollout drift / stale latent state, not the local action scorer. This is not a
-deployable solve metric because the diagnostic still uses the oracle goal state
-and because the latent and re-encoded planners sampled separate eval examples,
-but the `0/64` versus `64/64` split is large enough to set the current gate.
+Compared with the lead large diagnostics (`3680019`), rollout `N=2` cuts
+terminal-energy mismatches from 299 to 157 and reduces drift at 10/20 oracle
+steps from `0.079/1.742` to `0.041/1.495`. Terminal weighted latent drift is
+not fixed (`2.014 -> 2.163`), so the main interpretation still holds: under
+oracle-goal diagnostics, the action scorer is sufficient when candidate boards
+are re-encoded, while stale latent rollout remains the bottleneck. The result
+is not deployable because it still uses the oracle goal and because latent and
+re-encoded planner samples are not paired example-by-example.
 
-Concrete latent terminal errors are mostly a few blank or wrong cells: the
-terminal-energy latent records have 299 mismatches across 64 boards, including
-189 blanks left as `0` and 110 wrong nonzero values. Hotspots are concentrated
-in columns `8`, `2`, and `7` and rows `3`, `7`, `2`, `0`, and `5`. Generated
-analysis artifacts live under `../sequence-editing-report/assets/grid3b/`.
+Planning intentionally allows overwrites/conflicts on mutable Sudoku cells for
+diagnosis, so terminal boards can be fully filled but wrong. Treat online
+H1/H2/H4 and terminal fill rate as sanity checks, not solve quality. Generated
+analysis artifacts live under `../sequence-editing-report/assets/grid3b/`,
+including rollout `N=2` planning, drift, remaining-Hamming, mismatch heatmap,
+training curve, and concrete terminal board examples.
 
-Grid 3B rollout `N=2` remains active. At 13:26 CEST, job `3680020` had written
-`checkpoint-3000.pt` and `checkpoint.pt`; online metrics were eval loss
-`0.000186`, oracle mean rank `17.0625`, and H1/H2/H4 solve `1.0 / 1.0 / 1.0`.
-Do not accept that as final solve quality: wait for dependent diagnostics
-`3680021` after training completes, then compare `goal_rank`, drift, latent vs
-re-encoded planning, terminal solve, remaining Hamming, mismatch concentration,
-and training curves against Grid 3A direct weighted.
-
-Partition housekeeping at 13:26 CEST: `3680020` and `3680033` are already
-running on `a100`; `3680021` is dependency-blocked and `3680652` is
-begin-time-blocked, so no `scontrol update ... Partition=...` was applied.
+Partition housekeeping at 17:31 CEST: only repo job `3680652` is running, and
+the only later repo job `3681711` is begin-time-blocked, so no
+`scontrol update ... Partition=...` was useful.
 
 Oversight now uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
 concrete planner examples, question assumptions, add useful report figures and
 tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive.
+alive. The next safe experiment is a small reset/re-encoding diagnostic or
+ablation, not Maze or broad capacity sweeps.

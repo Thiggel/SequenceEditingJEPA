@@ -28,9 +28,10 @@ Core loop for every oversight run:
 Current active focus:
 - Check `puzzle_grid3b`, `puzzle_diag3b_large`, `puzzle_diag3b_n2`, and `puzzle_oversight` jobs first.
 - Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted` completed as `3680019`: latent rollout planning solved `0/64`, re-encoded symbolic-state planning solved `64/64`, and terminal-only scoring only changed latent terminal fill rate from `1/64` to `4/64`. Treat this as evidence that the lead checkpoint's remaining oracle-goal failure is latent rollout drift / stale latent state, not the local action scorer.
-- Reuse `../sequence-editing-report/assets/grid3b/` when interpreting the lead diagnostics: planning comparison, drift curve, terminal mismatch heatmap, CSV summaries, and concrete latent failure examples are already there.
-- If Grid 3B rollout `N=2` finishes, ensure dependent diagnostics `3680021` ran or are submitted. When diagnostics finish, compare against Grid 3A `local_direct_weighted` and Grid 3B lead large diagnostics on `goal_rank`, 10/20/terminal drift, latent-vs-reencoded planning, terminal solve, remaining Hamming, mismatch concentration, and training curves.
-- Do not start Maze, 10M/20M size sweeps, or broad controls until the Grid 3B rollout `N=2` diagnostics finish, unless the evidence clearly shows the current Sudoku branch is blocked.
+- Grid 3B rollout `N=2` completed as `3680020`; dependent diagnostics `3680021` completed. Final online H1/H2/H4 solve stayed `1.0`, but larger diagnostics found latent terminal-energy solve only `4/64`, terminal fill `26/64`, mean remaining Hamming `2.453`, and re-encoded symbolic-state planning `64/64`.
+- Reuse `../sequence-editing-report/assets/grid3b/` when interpreting Grid 3B: it now contains lead and rollout `N=2` planning comparisons, drift curves, remaining-Hamming distributions, mismatch heatmaps, training curves, CSV summaries, and concrete latent examples.
+- Treat rollout `N=2` as a partial proximity improvement, not a passed gate. It preserves `goal_rank=1.0` and improves 10/20-step drift, but terminal weighted drift remains about `2.16` and exact latent solve is too weak.
+- Do not start Maze, 10M/20M size sweeps, or broad controls yet. The next safe branch is the smallest diagnostic/ablation that periodically re-encodes candidate symbolic states or resets stale latent planner state.
 
 Historical checks to preserve:
 - Grid 0 was infrastructure only.
