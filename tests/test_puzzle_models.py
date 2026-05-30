@@ -10,7 +10,7 @@ from puzzle_jepa.data import (
     sample_oracle_transition,
 )
 from puzzle_jepa.data.worlds import PuzzleExample
-from puzzle_jepa.eval.diagnostics import evaluate_latent_drift, oracle_action_sequence
+from puzzle_jepa.eval.diagnostics import evaluate_latent_drift, evaluate_latent_planning, evaluate_reencoded_planning, oracle_action_sequence
 from puzzle_jepa.models import ActionConditionedWorldModel, HRMReasoner, PTRMSampler, TRMReasoner
 
 
@@ -220,6 +220,53 @@ def test_residual_prediction_and_weighted_loss_backpropagate():
     assert torch.isfinite(output.loss)
     output.loss.backward()
     assert model.predictor.layers[0].attn.in_proj_weight.grad is not None
+
+
+def test_diagnostics_return_latent_and_reencoded_planning_records():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_task_embedding=False,
+        use_selected_cell_marker=False,
+    )
+    rng = np.random.default_rng(0)
+    latent_summary, latent_records = evaluate_latent_planning(
+        model,
+        world,
+        [example],
+        rng,
+        num_examples=1,
+        max_steps=2,
+        branch_size=1,
+        beam_size=1,
+    )
+    reencoded_summary, reencoded_records = evaluate_reencoded_planning(
+        model,
+        world,
+        [example],
+        rng,
+        num_examples=1,
+        max_steps=2,
+        branch_size=1,
+        beam_size=1,
+    )
+    assert latent_summary["step_energy"]["count"] == 1.0
+    assert reencoded_summary["terminal_energy"]["count"] == 1.0
+    assert latent_records[0]["planner"] == "latent"
+    assert reencoded_records[0]["planner"] == "reencoded"
+    assert len(latent_records[0]["final_state"]) == 9
+    assert {"row", "col", "pred", "goal"} <= set(latent_records[0]["mismatches"][0])
 
 
 def test_diagnostics_oracle_sequence_and_drift_smoke():

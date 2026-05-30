@@ -1,10 +1,18 @@
 # Experiment Plan
 
-Last updated: 2026-05-29 21:40 CEST
+Last updated: 2026-05-30 10:18 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
-## Active Experiment
+## Active Experiments
+
+Grid 3B Sudoku follow-up:
+
+| Run | Purpose | Status |
+| --- | --- | --- |
+| `sudoku_jepa_5m_local_direct_weighted` large diagnostics | Increase eval sample size and compare latent rollout planning with re-encoded symbolic-state planning; write terminal board records. | Running as `3680019`. |
+| `sudoku_jepa_5m_local_direct_weighted_rollout_n2` | Train direct local weighted JEPA with rollout loss `N=2`. | Running as `3680020`. |
+| Grid 3B rollout `N=2` diagnostics | Same larger diagnostics after rollout training. | Pending as `3680021`, dependency `afterok:3680020`. |
 
 Grid 3A Sudoku local-edit ablation:
 
@@ -32,6 +40,7 @@ Grid 3A diagnostic decision:
    (`drift@20 103`, terminal `1940`).
 4. Changed-cell-only loss is rejected except as a negative control because
    `goal_rank` and planning are poor.
-5. Next safe experiment: a short Sudoku local-direct weighted rollout `N=2` to
-   target the remaining long-horizon drift / closed-loop exactness bottleneck.
-   Do not move to Maze or size sweeps until that local rollout is diagnosed.
+5. Current Grid 3B gate: use `3680019` to decide whether terminal failure is
+   mostly latent rollout drift or action scoring under exact re-encoding. Use
+   `3680020`/`3680021` to test whether short rollout `N=2` reduces
+   20/terminal drift while preserving `goal_rank=1.0`.

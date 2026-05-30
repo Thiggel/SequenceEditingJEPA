@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-30 09:50 CEST
+Last updated: 2026-05-30 10:18 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -29,6 +29,13 @@ not the final solver metric: H1 scores legal one-step actions by predicted
 next-latent distance to the goal latent; H2/H4 expand exact symbolic board
 states for a short horizon and re-encode candidate terminal states. Treat
 diagnostic terminal planning as the stricter Sudoku-solve read.
+
+## Active Follow-Up
+
+Grid 3B is running now. Job `3680019` runs larger diagnostics for the current
+lead checkpoint and adds re-encoded symbolic-state planning records. Job
+`3680020` trains `sudoku_jepa_5m_local_direct_weighted_rollout_n2`; dependent
+job `3680021` will run the same larger diagnostics after training succeeds.
 
 ## Grid 3A Diagnostics
 

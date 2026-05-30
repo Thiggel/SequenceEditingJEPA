@@ -107,7 +107,17 @@ def run_diagnostics(
         horizons=horizons,
         max_unroll_steps=max_unroll_steps,
     )
-    planning = evaluate_latent_planning(
+    planning, planning_records = evaluate_latent_planning(
+        model,
+        world,
+        examples,
+        rng,
+        num_examples=planning_examples,
+        max_steps=max_unroll_steps,
+        branch_size=planning_branch_size,
+        beam_size=planning_beam_size,
+    )
+    reencoded_planning, reencoded_planning_records = evaluate_reencoded_planning(
         model,
         world,
         examples,
@@ -134,6 +144,7 @@ def run_diagnostics(
         "goal_rank": summarize_goal_rank_records(goal_rank_records),
         "drift": drift_summary,
         "planning": planning,
+        "reencoded_planning": reencoded_planning,
         "planner_traces": traces,
     }
     destination = output_dir or (run_root / "diagnostics")
@@ -148,6 +159,12 @@ def run_diagnostics(
     with (destination / "drift_records.jsonl").open("w") as handle:
         for record in drift_records:
             handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
+    with (destination / "latent_planning_records.jsonl").open("w") as handle:
+        for record in planning_records:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+    with (destination / "reencoded_planning_records.jsonl").open("w") as handle:
+        for record in reencoded_planning_records:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
     write_drift_plot(destination / "latent_energy_mse.png", drift_records)
     print(json.dumps(result, indent=2, sort_keys=True), flush=True)
     return result
@@ -318,31 +335,77 @@ def evaluate_latent_planning(
     max_steps: int,
     branch_size: int,
     beam_size: int,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if num_examples <= 0:
-        return {}
+        return {}, []
     summaries = {
         "step_energy": [],
         "terminal_energy": [],
     }
-    for _ in range(num_examples):
+    for example_index in range(num_examples):
         example = examples[int(rng.integers(0, len(examples)))]
         for mode in summaries:
-            summaries[mode].append(
-                latent_beam_plan(
-                    model,
-                    world,
-                    example,
-                    max_steps=max_steps,
-                    branch_size=branch_size,
-                    beam_size=beam_size,
-                    terminal_only_score=(mode == "terminal_energy"),
-                )
+            plan = latent_beam_plan(
+                model,
+                world,
+                example,
+                max_steps=max_steps,
+                branch_size=branch_size,
+                beam_size=beam_size,
+                terminal_only_score=(mode == "terminal_energy"),
             )
-    return {
-        mode: summarize_plan_summaries(items)
-        for mode, items in summaries.items()
+            plan["example_index"] = int(example_index)
+            plan["mode"] = mode
+            summaries[mode].append(plan)
+    return (
+        {
+            mode: summarize_plan_summaries(items)
+            for mode, items in summaries.items()
+        },
+        flatten_plan_records(summaries, planner="latent"),
+    )
+
+
+@torch.no_grad()
+def evaluate_reencoded_planning(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    num_examples: int,
+    max_steps: int,
+    branch_size: int,
+    beam_size: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if num_examples <= 0:
+        return {}, []
+    summaries = {
+        "step_energy": [],
+        "terminal_energy": [],
     }
+    for example_index in range(num_examples):
+        example = examples[int(rng.integers(0, len(examples)))]
+        for mode in summaries:
+            plan = reencoded_beam_plan(
+                model,
+                world,
+                example,
+                max_steps=max_steps,
+                branch_size=branch_size,
+                beam_size=beam_size,
+                terminal_only_score=(mode == "terminal_energy"),
+            )
+            plan["example_index"] = int(example_index)
+            plan["mode"] = mode
+            summaries[mode].append(plan)
+    return (
+        {
+            mode: summarize_plan_summaries(items)
+            for mode, items in summaries.items()
+        },
+        flatten_plan_records(summaries, planner="reencoded"),
+    )
 
 
 @torch.no_grad()
@@ -437,7 +500,104 @@ def latent_beam_plan(
         "steps": float(best["steps"]),
         "energy": float(best["energy"]),
         "remaining_hamming": float(np.not_equal(best["state"], goal).sum()),
+        "final_state": board_as_list(best["state"]),
+        "goal_state": board_as_list(goal),
+        "mismatches": mismatch_records(best["state"], goal),
     }
+
+
+@torch.no_grad()
+def reencoded_beam_plan(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    example: PuzzleExample,
+    *,
+    max_steps: int,
+    branch_size: int,
+    beam_size: int,
+    terminal_only_score: bool,
+) -> dict[str, Any]:
+    start = world.validate_state(example.state).copy()
+    goal = world.validate_state(example.goal)
+    clue_mask = clue_mask_for_planning(world, start)
+    active = [
+        {
+            "state": start,
+            "steps": 0,
+            "energy": encoded_state_energy(model, world, start, goal),
+        }
+    ]
+    terminals = []
+    limit = min(int(max_steps), terminal_step_limit(world, example, max_steps))
+    for _ in range(limit):
+        candidates = []
+        for beam in active:
+            state = beam["state"]
+            if is_terminal_state(world, state, goal, clue_mask):
+                terminals.append(beam)
+                continue
+            legal = legal_planning_actions(world, state, clue_mask)
+            if not legal:
+                continue
+            scores = model.score_actions_to_goal(
+                torch.as_tensor(state, dtype=torch.long),
+                legal,
+                torch.as_tensor(goal, dtype=torch.long),
+                world.task_id,
+            )
+            order = scores.argsort(descending=True).detach().cpu().tolist()[: max(1, branch_size)]
+            for index in order:
+                action = legal[index]
+                try:
+                    next_state = apply_planning_action(world, state, action, clue_mask)
+                except ValueError:
+                    continue
+                next_beam = {
+                    "state": next_state,
+                    "steps": int(beam["steps"]) + 1,
+                    "energy": encoded_state_energy(model, world, next_state, goal),
+                }
+                if is_terminal_state(world, next_state, goal, clue_mask):
+                    terminals.append(next_beam)
+                else:
+                    candidates.append(next_beam)
+        if not candidates:
+            break
+        candidates.sort(key=lambda item: float(item["energy"]))
+        active = candidates[: max(1, beam_size)]
+        if not terminal_only_score and any(world.is_goal(item["state"], goal) for item in active):
+            break
+
+    scored = terminals if terminal_only_score and terminals else [*terminals, *active]
+    if not scored:
+        scored = active
+    best = min(scored, key=lambda item: float(item["energy"]))
+    return {
+        "solved": float(world.is_goal(best["state"], goal)),
+        "terminal": float(is_terminal_state(world, best["state"], goal, clue_mask)),
+        "steps": float(best["steps"]),
+        "energy": float(best["energy"]),
+        "remaining_hamming": float(np.not_equal(best["state"], goal).sum()),
+        "final_state": board_as_list(best["state"]),
+        "goal_state": board_as_list(goal),
+        "mismatches": mismatch_records(best["state"], goal),
+    }
+
+
+@torch.no_grad()
+def encoded_state_energy(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    state: np.ndarray,
+    goal: np.ndarray,
+) -> float:
+    device = next(model.parameters()).device
+    task_ids = torch.full((1,), world.task_id, dtype=torch.long, device=device)
+    state_tensor = torch.as_tensor(state[None, ...], dtype=torch.long, device=device)
+    goal_tensor = torch.as_tensor(goal[None, ...], dtype=torch.long, device=device)
+    latent = model.encoder(state_tensor, task_ids=task_ids)
+    goal_latent = model.target_encoder(goal_tensor, task_ids=task_ids)
+    return float(F.mse_loss(latent, goal_latent).detach().cpu().item())
 
 
 def summarize_plan_summaries(items: list[dict[str, Any]]) -> dict[str, float]:
@@ -449,6 +609,47 @@ def summarize_plan_summaries(items: list[dict[str, Any]]) -> dict[str, float]:
         "mean_energy": mean([item["energy"] for item in items]),
         "mean_remaining_hamming": mean([item["remaining_hamming"] for item in items]),
     }
+
+
+def flatten_plan_records(summaries: dict[str, list[dict[str, Any]]], *, planner: str) -> list[dict[str, Any]]:
+    records = []
+    for mode, items in summaries.items():
+        for item in items:
+            record = {
+                "planner": planner,
+                "mode": mode,
+                "example_index": int(item["example_index"]),
+                "solved": float(item["solved"]),
+                "terminal": float(item["terminal"]),
+                "steps": float(item["steps"]),
+                "energy": float(item["energy"]),
+                "remaining_hamming": float(item["remaining_hamming"]),
+                "final_state": item["final_state"],
+                "goal_state": item["goal_state"],
+                "mismatches": item["mismatches"],
+            }
+            records.append(record)
+    return records
+
+
+def board_as_list(state: np.ndarray) -> list[list[int]]:
+    return np.asarray(state, dtype=np.int64).tolist()
+
+
+def mismatch_records(state: np.ndarray, goal: np.ndarray) -> list[dict[str, int]]:
+    state_arr = np.asarray(state, dtype=np.int64)
+    goal_arr = np.asarray(goal, dtype=np.int64)
+    mismatches = []
+    for row, col in np.argwhere(state_arr != goal_arr):
+        mismatches.append(
+            {
+                "row": int(row),
+                "col": int(col),
+                "pred": int(state_arr[row, col]),
+                "goal": int(goal_arr[row, col]),
+            }
+        )
+    return mismatches
 
 
 def terminal_step_limit(world: PuzzleWorld, example: PuzzleExample, fallback: int) -> int:

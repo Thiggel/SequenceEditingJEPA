@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 09:40 CEST
+Last updated: 2026-05-30 10:18 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -40,17 +40,20 @@ repo snapshot.
 | `3674778_[0-3]` | COMPLETED | Grid 3A training complete; all four roots have `metrics.json` and `checkpoint.pt`. |
 | `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
 | `3676904_[0-3]` | COMPLETED | Resubmitted Grid 3A diagnostics completed; all four roots have `diagnostics/diagnostics.json`. |
+| `3680019` | RUNNING | Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted`; writes `diagnostics_large/`, including latent and re-encoded planning records. |
+| `3680020` | RUNNING | Grid 3B `local_direct_weighted` rollout `N=2`; output root `sudoku_jepa_5m_local_direct_weighted_rollout_n2`. |
+| `3680021` | PENDING | Dependent Grid 3B rollout `N=2` diagnostics, `afterok:3680020`. |
 | `3676879` | COMPLETED | Previous puzzle oversight completed at `2026-05-29 21:48:10 CEST`. |
 | `3677391` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 01:43:35 CEST`. |
 | `3678050` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 05:48:59 CEST`. |
-| `3679094` | RUNNING | Current recurring oversight, started `2026-05-30 09:37:30 CEST` on `a0535`. |
+| `3679094` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 09:44:26 CEST`. |
 | `3679877` | PENDING | Next recurring oversight, begin time `2026-05-30 13:37:32 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3674778,3674779,3676904,3677391,3678050,3679094,3679877 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3674778,3674779,3676904,3677391,3678050,3679094,3679877 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3680019,3680020,3680021,3679877 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3680019,3680020,3680021,3679094,3679877 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -66,12 +69,15 @@ Residual prediction and changed-cell-only loss are rejected for the next branch:
 residual has explosive rollout drift (`drift@20 103`, terminal `1940`), and
 changed-only has poor goal rank (`15.49`) plus poor planning. The concrete
 bottleneck is now long-horizon drift / closed-loop exactness after strong local
-one-step grounding. Next safe experiment is a short local-direct weighted
-rollout `N=2`; do not start Maze, 10M/20M sweeps, or broad controls before that
-follow-up is implemented, run, and diagnosed.
+one-step grounding.
 
-No Grid 0, Grid 1, Grid 2A, Grid 3A, or diagnostics jobs are active as of the
-2026-05-30 09:40 CEST check. All documented output roots still have
-their expected checkpoints, metrics, and diagnostics artifacts. The oversight
-chain is already continued by begin-time-blocked job `3679877`; no partition
-broadening was useful for that pending job.
+Grid 3B is now active. Job `3680019` runs larger diagnostics on the current
+weighted direct checkpoint and compares latent rollout planning against
+re-encoded symbolic-state planning. Job `3680020` trains the short
+local-direct weighted rollout `N=2`; dependent job `3680021` will run the same
+larger diagnostics on the rollout checkpoint if training succeeds. Do not start
+Maze, 10M/20M sweeps, or broad controls until these finish.
+
+Live check at 10:18 CEST: the two running jobs have no stderr output yet.
+`3680020` has created its run `config.json`; diagnostics output for `3680019`
+has not been written yet.
