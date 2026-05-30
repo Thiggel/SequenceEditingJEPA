@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 21:32 CEST
+Last updated: 2026-05-31 01:31 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -50,15 +50,16 @@ repo snapshot.
 | `3679877` | CANCELLED | Stale pending oversight cancelled after replacing the prompt with the enhanced template. |
 | `3680033` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 13:41:13 CEST`. |
 | `3680652` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 17:42:01 CEST`. |
-| `3681711` | RUNNING | Current enhanced recurring oversight, started `2026-05-30 21:26:28 CEST` on `a0537`. |
-| `3682864` | PENDING | Next enhanced recurring oversight, begin time `2026-05-31 01:26:31 CEST`. |
-| `3682924` | RUNNING | Grid 3C reset-cadence diagnostics for rollout `N=2`, started `2026-05-30 21:32:01 CEST` on `a0537`. |
+| `3681711` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 21:38:01 CEST`; added/submitted Grid 3C reset-cadence diagnostics. |
+| `3682864` | RUNNING | Current enhanced recurring oversight, started `2026-05-31 01:26:39 CEST` on `a0932`. |
+| `3683472` | PENDING | Next enhanced recurring oversight, begin time `2026-05-31 05:27:01 CEST`. |
+| `3682924` | RUNNING | Grid 3C reset-cadence diagnostics for rollout `N=2`, started `2026-05-30 21:32:01 CEST` on `a0537`; no `diagnostics_reset_cadence/` files written yet as of `2026-05-31 01:31 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3680019,3680020,3680021,3680033,3680652,3681711,3682864,3682924 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3680019,3680020,3680021,3680033,3680652,3681711,3682864,3682924 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3680019,3680020,3680021,3681711,3682864,3682924,3683472 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3680019,3680020,3680021,3681711,3682864,3682924,3683472 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -87,21 +88,23 @@ analysis artifacts live under `../sequence-editing-report/assets/grid3b/`,
 including rollout `N=2` planning, drift, remaining-Hamming, mismatch heatmap,
 training curve, and concrete terminal board examples.
 
-Grid 3C reset-cadence diagnostics were submitted as `3682924` and are running
-against
+Grid 3C reset-cadence diagnostics were submitted as `3682924` and are still
+running against
 `$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_local_direct_weighted_rollout_n2`,
-writing `diagnostics_reset_cadence/`. This diagnostic compares latent no-reset,
-reset every 2/4/8/16 actions, and full re-encoded planning on the same 64
-sampled boards. Launch smoke and tests passed before submission.
+writing `diagnostics_reset_cadence/` only at completion. As of `2026-05-31
+01:31 CEST`, the job has empty stderr, about `1.4 GiB` MaxRSS, CPU time close
+to elapsed time, and no output files yet. This diagnostic compares latent
+no-reset, reset every 2/4/8/16 actions, and full re-encoded planning on the
+same 64 sampled boards. Launch smoke and tests passed before submission.
 
-Partition housekeeping at 21:32 CEST: repo job `3682924` started on `a100`, the
-current oversight `3681711` is running, and the only later oversight `3682864`
-is begin-time-blocked. `sinfo` showed idle `a100` nodes before `3682924`
-started, so no partition broadening was useful.
+Partition housekeeping at 01:31 CEST: repo job `3682924` is already running on
+`a100`, current oversight `3682864` is running, and the only later oversight
+`3683472` is begin-time-blocked. `sinfo` shows idle `a100` nodes, but no
+partition broadening is useful for running or begin-time-blocked repo jobs.
 
-Oversight now uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
+Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
 concrete planner examples, question assumptions, add useful report figures and
 tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive. The next safe step is to analyze `3682924` when it completes, not Maze
-or broad capacity sweeps.
+alive. The next safe step is still to analyze `3682924` when it completes, not
+Maze or broad capacity sweeps.

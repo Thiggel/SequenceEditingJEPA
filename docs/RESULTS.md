@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-30 21:32 CEST
+Last updated: 2026-05-31 01:31 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -66,9 +66,10 @@ larger diagnostics show exact latent solve remains weak.
 Grid 3C reset-cadence diagnostics were implemented and submitted as `3682924`
 for the rollout `N=2` checkpoint. The job compares latent no-reset, reset every
 2/4/8/16 actions, and full re-encoded planning on the same 64 sampled boards,
-writing `diagnostics_reset_cadence/`. Current oversight `3681711` is running,
-and exactly one successor, `3682864`, is pending for `2026-05-31 01:26:31
-CEST`.
+writing `diagnostics_reset_cadence/` at completion. As of `2026-05-31 01:31
+CEST`, it is still running with empty stderr and no reset-cadence files yet.
+Current oversight `3682864` is running, and exactly one successor, `3683472`,
+is pending for `2026-05-31 05:27:01 CEST`.
 
 ## Grid 3A Diagnostics
 

@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-05-30 21:32 CEST
+Last updated: 2026-05-31 01:31 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -13,8 +13,8 @@ Grid 3B Sudoku follow-up:
 | `sudoku_jepa_5m_local_direct_weighted` large diagnostics | Increase eval sample size and compare latent rollout planning with re-encoded symbolic-state planning; write terminal board records. | Completed as `3680019`; re-encoded planning solved `64/64`, latent rollout solved `0/64`. |
 | `sudoku_jepa_5m_local_direct_weighted_rollout_n2` | Train direct local weighted JEPA with rollout loss `N=2`. | Completed as `3680020`; final step `5000`, eval loss `0.000138`, online H1/H2/H4 solve `1.0 / 1.0 / 1.0`. |
 | Grid 3B rollout `N=2` diagnostics | Same larger diagnostics after rollout training. | Completed as `3680021`; latent terminal-energy solve `4/64`, re-encoded planning `64/64`. |
-| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | Running as `3681711`; successor `3682864` is pending for `2026-05-31 01:26:31 CEST`. |
-| Grid 3C reset/re-encoding diagnostic | Test periodic candidate-state re-encoding or latent reset cadence before broad scaling. | Running as `3682924`; compares latent no-reset, reset every 2/4/8/16 actions, and full re-encoded planning on paired 64-board samples. |
+| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | `3681711` completed; `3682864` is running; successor `3683472` is pending for `2026-05-31 05:27:01 CEST`. |
+| Grid 3C reset/re-encoding diagnostic | Test periodic candidate-state re-encoding or latent reset cadence before broad scaling. | Running as `3682924`; compares latent no-reset, reset every 2/4/8/16 actions, and full re-encoded planning on paired 64-board samples. No reset-cadence artifacts yet as of `2026-05-31 01:31 CEST`. |
 
 Grid 3A Sudoku local-edit ablation:
 
