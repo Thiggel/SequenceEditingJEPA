@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-30 10:18 CEST
+Last updated: 2026-05-30 10:25 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -36,6 +36,9 @@ Grid 3B is running now. Job `3680019` runs larger diagnostics for the current
 lead checkpoint and adds re-encoded symbolic-state planning records. Job
 `3680020` trains `sudoku_jepa_5m_local_direct_weighted_rollout_n2`; dependent
 job `3680021` will run the same larger diagnostics after training succeeds.
+Enhanced oversight `3680033` is scheduled for `2026-05-30 13:24:28 CEST` and
+will keep the chain running every four hours from
+`scripts/oversight/puzzle_oversight_prompt.md`.
 
 ## Grid 3A Diagnostics
 

@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-05-30 10:18 CEST
+Last updated: 2026-05-30 10:25 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -13,6 +13,7 @@ Grid 3B Sudoku follow-up:
 | `sudoku_jepa_5m_local_direct_weighted` large diagnostics | Increase eval sample size and compare latent rollout planning with re-encoded symbolic-state planning; write terminal board records. | Running as `3680019`. |
 | `sudoku_jepa_5m_local_direct_weighted_rollout_n2` | Train direct local weighted JEPA with rollout loss `N=2`. | Running as `3680020`. |
 | Grid 3B rollout `N=2` diagnostics | Same larger diagnostics after rollout training. | Pending as `3680021`, dependency `afterok:3680020`. |
+| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | Pending as `3680033`, begin time `2026-05-30 13:24:28 CEST`; prompt source is `scripts/oversight/puzzle_oversight_prompt.md`. |
 
 Grid 3A Sudoku local-edit ablation:
 

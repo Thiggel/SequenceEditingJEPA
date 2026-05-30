@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 10:18 CEST
+Last updated: 2026-05-30 10:25 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -47,13 +47,14 @@ repo snapshot.
 | `3677391` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 01:43:35 CEST`. |
 | `3678050` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 05:48:59 CEST`. |
 | `3679094` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 09:44:26 CEST`. |
-| `3679877` | PENDING | Next recurring oversight, begin time `2026-05-30 13:37:32 CEST`. |
+| `3679877` | CANCELLED | Stale pending oversight cancelled after replacing the prompt with the enhanced template. |
+| `3680033` | PENDING | Enhanced recurring oversight, begin time `2026-05-30 13:24:28 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3680019,3680020,3680021,3679877 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3680019,3680020,3680021,3679094,3679877 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3680019,3680020,3680021,3680033 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3680019,3680020,3680021,3679094,3679877,3680033 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -81,3 +82,9 @@ Maze, 10M/20M sweeps, or broad controls until these finish.
 Live check at 10:18 CEST: the two running jobs have no stderr output yet.
 `3680020` has created its run `config.json`; diagnostics output for `3680019`
 has not been written yet.
+
+Oversight now uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
+requires each run to reconcile Slurm/artifacts with the backlog, inspect
+concrete planner examples, question assumptions, add useful report figures and
+tables, fix/resubmit small failures, and keep the four-hour oversight chain
+alive.

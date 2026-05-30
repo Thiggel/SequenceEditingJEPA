@@ -26,6 +26,12 @@
   `scontrol update JobId=<jobid> Partition=<partition1,partition2>` to reduce
   wait time. Do not do this for dependency- or begin-time-blocked jobs where it
   cannot help.
+- The recurring oversight chain is `scripts/slurm/puzzle_oversight.slurm`,
+  driven by `scripts/oversight/puzzle_oversight_prompt.md`. Keep that prompt
+  current. Each oversight run should analyze completed jobs deeply, inspect
+  concrete examples/sample generations, question assumptions, create useful
+  plots/tables in the report repo, update the backlog/plan, fix or resubmit
+  small failures, and keep exactly one future oversight job scheduled.
 - After successful verification, commit and push changes in both this repo and
   `../sequence-editing-report` to GitHub. If pushing fails, report the exact
   reason and leave the commits locally.
