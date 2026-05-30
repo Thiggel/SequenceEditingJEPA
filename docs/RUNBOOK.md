@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 09:26 CEST
+Last updated: 2026-05-30 09:33 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -25,8 +25,18 @@ Runtime outputs default to:
 
 ## Active Slurm Snapshot
 
+This table is restricted to jobs submitted from this repo's active puzzle-JEPA
+Slurm wrappers. Other user-account HFSA/paired arrays are not part of this
+repo snapshot.
+
 | Job | State | Notes |
 | --- | --- | --- |
+| `3664581_[0-1]` | COMPLETED | Grid 0 smoke; infrastructure only, solve remained `0.0`. |
+| `3665018_[0-4]` | COMPLETED | Grid 1 one-step/curriculum runs; planning solve remained `0.0`. |
+| `3667044_[0-4]` | COMPLETED | Replacement Grid 1 diagnostics completed after earlier cancelled stale diagnostics. |
+| `3671344_[0-3]` | COMPLETED | Grid 2A rollout `N=2/4` for Sudoku/Maze; no terminal solve. |
+| `3671345_[0-3]` | FAILED | First Grid 2A diagnostics failed on stale CLI flags; superseded by `3673400_[0-3]`. |
+| `3673400_[0-3]` | COMPLETED | Replacement Grid 2A diagnostics completed. |
 | `3674778_[0-3]` | COMPLETED | Grid 3A training complete; all four roots have `metrics.json` and `checkpoint.pt`. |
 | `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
 | `3676904_[0-3]` | COMPLETED | Resubmitted Grid 3A diagnostics completed; all four roots have `diagnostics/diagnostics.json`. |
@@ -60,13 +70,7 @@ rollout `N=2`; do not start Maze, 10M/20M sweeps, or broad controls before that
 follow-up is implemented, run, and diagnosed.
 
 No Grid 0, Grid 1, Grid 2A, Grid 3A, or diagnostics jobs are active as of the
-2026-05-30 09:26 CEST check. All documented output roots still have
+2026-05-30 09:33 CEST check. All documented output roots still have
 their expected checkpoints, metrics, and diagnostics artifacts. The oversight
 chain is already continued by begin-time-blocked job `3679094`; no partition
 broadening was useful for that pending job.
-
-Other visible user jobs are legacy HFSA/paired arrays, not active puzzle-JEPA
-experiments. As of 09:26 CEST there are 19 running tasks across
-`hfsa_trace_ctl_eval`, `hfsa_hybrid_eval`, `sft_pair_full`,
-`sft_hfsa_cond50k`, and `sft_hfsa_shortkind`. Pending non-oversight work is
-blocked by array limits or dependencies, so partition broadening is not useful.
