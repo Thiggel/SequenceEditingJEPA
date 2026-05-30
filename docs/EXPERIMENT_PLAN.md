@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-05-30 10:25 CEST
+Last updated: 2026-05-30 13:31 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -10,10 +10,10 @@ Grid 3B Sudoku follow-up:
 
 | Run | Purpose | Status |
 | --- | --- | --- |
-| `sudoku_jepa_5m_local_direct_weighted` large diagnostics | Increase eval sample size and compare latent rollout planning with re-encoded symbolic-state planning; write terminal board records. | Running as `3680019`. |
-| `sudoku_jepa_5m_local_direct_weighted_rollout_n2` | Train direct local weighted JEPA with rollout loss `N=2`. | Running as `3680020`. |
+| `sudoku_jepa_5m_local_direct_weighted` large diagnostics | Increase eval sample size and compare latent rollout planning with re-encoded symbolic-state planning; write terminal board records. | Completed as `3680019`; re-encoded planning solved `64/64`, latent rollout solved `0/64`. |
+| `sudoku_jepa_5m_local_direct_weighted_rollout_n2` | Train direct local weighted JEPA with rollout loss `N=2`. | Running as `3680020`; step `3000` checkpoint present at 13:26 CEST. |
 | Grid 3B rollout `N=2` diagnostics | Same larger diagnostics after rollout training. | Pending as `3680021`, dependency `afterok:3680020`. |
-| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | Pending as `3680033`, begin time `2026-05-30 13:24:28 CEST`; prompt source is `scripts/oversight/puzzle_oversight_prompt.md`. |
+| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | Running as `3680033`; successor `3680652` is pending for `2026-05-30 17:25:44 CEST`. |
 
 Grid 3A Sudoku local-edit ablation:
 
@@ -41,7 +41,11 @@ Grid 3A diagnostic decision:
    (`drift@20 103`, terminal `1940`).
 4. Changed-cell-only loss is rejected except as a negative control because
    `goal_rank` and planning are poor.
-5. Current Grid 3B gate: use `3680019` to decide whether terminal failure is
-   mostly latent rollout drift or action scoring under exact re-encoding. Use
-   `3680020`/`3680021` to test whether short rollout `N=2` reduces
-   20/terminal drift while preserving `goal_rank=1.0`.
+5. Grid 3B lead diagnosis: terminal failure is mostly latent rollout drift
+   under the oracle-goal diagnostic. Re-encoded symbolic-state planning solves
+   all 64 boards, while latent rollout planning solves none; terminal-only
+   scoring does not materially improve latent planning.
+6. Current Grid 3B gate: use `3680020`/`3680021` to test whether short rollout
+   `N=2` reduces 20/terminal drift while preserving `goal_rank=1.0` and the
+   re-encoded planning advantage. Do not start Maze, broad size sweeps, or broad
+   controls until the rollout diagnostics finish.

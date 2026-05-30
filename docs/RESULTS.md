@@ -1,13 +1,38 @@
 # Results
 
-Last updated: 2026-05-30 10:25 CEST
+Last updated: 2026-05-30 13:31 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
 
 ## Current Key Result
 
-Grid 3A local value-only action injection finished and diagnostics now confirm
+Grid 3B large diagnostics now isolate the lead checkpoint's failure mode. The
+same `sudoku_jepa_5m_local_direct_weighted` model that has perfect sampled
+`goal_rank` still cannot solve under closed-loop latent rollout planning
+(`0/64` exact solves), but re-encoded symbolic-state planning solves all 64
+diagnostic boards. Under oracle-goal diagnostics, the remaining failure is
+latent rollout drift / stale latent state rather than the local action scorer.
+
+| Planner | Scoring | Solve | Terminal | Mean remaining Hamming |
+| --- | --- | ---: | ---: | ---: |
+| latent rollout | step energy | 0.0 | 0.015625 | 4.734375 |
+| latent rollout | terminal energy | 0.0 | 0.0625 | 4.671875 |
+| re-encoded state | step energy | 1.0 | 1.0 | 0.0 |
+| re-encoded state | terminal energy | 1.0 | 1.0 | 0.0 |
+
+Large-diagnostic action grounding remains strong: `goal_rank` mean/top1 is
+`1.0` over 4096 sampled states, while the stricter single-oracle rank mean is
+`21.59`. Latent drift still jumps from `0.079` at 10 oracle steps to `1.742` at
+20 steps and about `2.0` near terminal states.
+
+Generated artifacts: `../sequence-editing-report/assets/grid3b/` contains the
+planning comparison, drift curve, terminal mismatch heatmap, rollout `N=2`
+training-so-far curve, CSV tables, and concrete latent failure examples.
+
+## Grid 3A Grounding Result
+
+Grid 3A local value-only action injection finished and diagnostics confirmed
 the main action-grounding result. Direct local injection strongly outperformed
 the old global-broadcast action conditioning; both direct variants rank a
 goal-correct action first on every sampled diagnostic state.
@@ -32,13 +57,13 @@ diagnostic terminal planning as the stricter Sudoku-solve read.
 
 ## Active Follow-Up
 
-Grid 3B is running now. Job `3680019` runs larger diagnostics for the current
-lead checkpoint and adds re-encoded symbolic-state planning records. Job
-`3680020` trains `sudoku_jepa_5m_local_direct_weighted_rollout_n2`; dependent
-job `3680021` will run the same larger diagnostics after training succeeds.
-Enhanced oversight `3680033` is scheduled for `2026-05-30 13:24:28 CEST` and
-will keep the chain running every four hours from
-`scripts/oversight/puzzle_oversight_prompt.md`.
+Grid 3B rollout `N=2` is still running as job `3680020`. At 13:26 CEST it had
+written `checkpoint-3000.pt` and `checkpoint.pt`; online metrics were eval loss
+`0.000186`, oracle mean rank `17.0625`, and H1/H2/H4 solve
+`1.0 / 1.0 / 1.0`. The dependent diagnostics job `3680021` remains pending on
+`afterok:3680020` and is the next decisive read. Current oversight `3680033` is
+running, and exactly one successor, `3680652`, is pending for
+`2026-05-30 17:25:44 CEST`.
 
 ## Grid 3A Diagnostics
 

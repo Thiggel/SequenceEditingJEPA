@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 10:25 CEST
+Last updated: 2026-05-30 13:31 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -40,48 +40,58 @@ repo snapshot.
 | `3674778_[0-3]` | COMPLETED | Grid 3A training complete; all four roots have `metrics.json` and `checkpoint.pt`. |
 | `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
 | `3676904_[0-3]` | COMPLETED | Resubmitted Grid 3A diagnostics completed; all four roots have `diagnostics/diagnostics.json`. |
-| `3680019` | RUNNING | Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted`; writes `diagnostics_large/`, including latent and re-encoded planning records. |
-| `3680020` | RUNNING | Grid 3B `local_direct_weighted` rollout `N=2`; output root `sudoku_jepa_5m_local_direct_weighted_rollout_n2`. |
+| `3680019` | COMPLETED | Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted`; latent rollout solve `0.0`, re-encoded symbolic-state planning solve `1.0`. |
+| `3680020` | RUNNING | Grid 3B `local_direct_weighted` rollout `N=2`; latest checkpoint at step `3000` as of 13:26 CEST. |
 | `3680021` | PENDING | Dependent Grid 3B rollout `N=2` diagnostics, `afterok:3680020`. |
 | `3676879` | COMPLETED | Previous puzzle oversight completed at `2026-05-29 21:48:10 CEST`. |
 | `3677391` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 01:43:35 CEST`. |
 | `3678050` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 05:48:59 CEST`. |
 | `3679094` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 09:44:26 CEST`. |
 | `3679877` | CANCELLED | Stale pending oversight cancelled after replacing the prompt with the enhanced template. |
-| `3680033` | PENDING | Enhanced recurring oversight, begin time `2026-05-30 13:24:28 CEST`. |
+| `3680033` | RUNNING | Enhanced recurring oversight, started `2026-05-30 13:24:55 CEST`. |
+| `3680652` | PENDING | Next enhanced recurring oversight, begin time `2026-05-30 17:25:44 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3680019,3680020,3680021,3680033 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3680019,3680020,3680021,3679094,3679877,3680033 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3680019,3680020,3680021,3680033,3680652 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3680019,3680020,3680021,3680033,3680652 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
 
-Grid 3A diagnostics finished. Direct local value injection fixed sampled
-goal-action grounding: both direct variants have `goal_rank` mean/top1 `1.0`.
-Direct weighted is the current lead because it has lower short drift than
-uniform (`drift@10 0.078` vs `0.119`) and better closed-loop terminal planning
-proximity (`terminal_rate 0.125`, mean remaining Hamming `4.25` vs `5.625`),
-though terminal solve remains `0.0`.
+Grid 3B large diagnostics completed for the current lead checkpoint. Latent
+rollout planning still has exact solve `0.0` on 64 examples, with mean remaining
+Hamming `4.734` under step-energy scoring and `4.672` under terminal-only
+scoring. Re-encoded symbolic-state planning solved all 64 examples under both
+scoring modes (`solve_rate=1.0`, mean remaining Hamming `0.0`). Terminal-only
+scoring therefore does not change the conclusion; it only raises the latent
+filled-board terminal rate from `1/64` to `4/64`.
 
-Residual prediction and changed-cell-only loss are rejected for the next branch:
-residual has explosive rollout drift (`drift@20 103`, terminal `1940`), and
-changed-only has poor goal rank (`15.49`) plus poor planning. The concrete
-bottleneck is now long-horizon drift / closed-loop exactness after strong local
-one-step grounding.
+Interpretation: under oracle-goal diagnostics, action scoring is sufficient when
+candidate symbolic states are re-encoded exactly. The lead failure is latent
+rollout drift / stale latent state, not the local action scorer. This is not a
+deployable solve metric because the diagnostic still uses the oracle goal state
+and because the latent and re-encoded planners sampled separate eval examples,
+but the `0/64` versus `64/64` split is large enough to set the current gate.
 
-Grid 3B is now active. Job `3680019` runs larger diagnostics on the current
-weighted direct checkpoint and compares latent rollout planning against
-re-encoded symbolic-state planning. Job `3680020` trains the short
-local-direct weighted rollout `N=2`; dependent job `3680021` will run the same
-larger diagnostics on the rollout checkpoint if training succeeds. Do not start
-Maze, 10M/20M sweeps, or broad controls until these finish.
+Concrete latent terminal errors are mostly a few blank or wrong cells: the
+terminal-energy latent records have 299 mismatches across 64 boards, including
+189 blanks left as `0` and 110 wrong nonzero values. Hotspots are concentrated
+in columns `8`, `2`, and `7` and rows `3`, `7`, `2`, `0`, and `5`. Generated
+analysis artifacts live under `../sequence-editing-report/assets/grid3b/`.
 
-Live check at 10:18 CEST: the two running jobs have no stderr output yet.
-`3680020` has created its run `config.json`; diagnostics output for `3680019`
-has not been written yet.
+Grid 3B rollout `N=2` remains active. At 13:26 CEST, job `3680020` had written
+`checkpoint-3000.pt` and `checkpoint.pt`; online metrics were eval loss
+`0.000186`, oracle mean rank `17.0625`, and H1/H2/H4 solve `1.0 / 1.0 / 1.0`.
+Do not accept that as final solve quality: wait for dependent diagnostics
+`3680021` after training completes, then compare `goal_rank`, drift, latent vs
+re-encoded planning, terminal solve, remaining Hamming, mismatch concentration,
+and training curves against Grid 3A direct weighted.
+
+Partition housekeeping at 13:26 CEST: `3680020` and `3680033` are already
+running on `a100`; `3680021` is dependency-blocked and `3680652` is
+begin-time-blocked, so no `scontrol update ... Partition=...` was applied.
 
 Oversight now uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect

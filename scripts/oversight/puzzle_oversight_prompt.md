@@ -27,9 +27,10 @@ Core loop for every oversight run:
 
 Current active focus:
 - Check `puzzle_grid3b`, `puzzle_diag3b_large`, `puzzle_diag3b_n2`, and `puzzle_oversight` jobs first.
-- If Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted` finish, parse `diagnostics_large/diagnostics.json`, `latent_planning_records.jsonl`, and `reencoded_planning_records.jsonl`. Report whether re-encoded symbolic-state planning solves more boards than latent rollout, whether terminal-only scoring differs from step-energy scoring, and where terminal board errors concentrate.
-- If Grid 3B rollout `N=2` finishes, ensure dependent diagnostics ran or are submitted. When diagnostics finish, compare against Grid 3A `local_direct_weighted` on `goal_rank`, 10/20/terminal drift, latent-vs-reencoded planning, terminal solve, remaining Hamming, mismatch concentration, and training curves.
-- Do not start Maze, 10M/20M size sweeps, or broad controls until the Grid 3B gate is diagnosed, unless the evidence clearly shows the current Sudoku branch is blocked.
+- Grid 3B large diagnostics for `sudoku_jepa_5m_local_direct_weighted` completed as `3680019`: latent rollout planning solved `0/64`, re-encoded symbolic-state planning solved `64/64`, and terminal-only scoring only changed latent terminal fill rate from `1/64` to `4/64`. Treat this as evidence that the lead checkpoint's remaining oracle-goal failure is latent rollout drift / stale latent state, not the local action scorer.
+- Reuse `../sequence-editing-report/assets/grid3b/` when interpreting the lead diagnostics: planning comparison, drift curve, terminal mismatch heatmap, CSV summaries, and concrete latent failure examples are already there.
+- If Grid 3B rollout `N=2` finishes, ensure dependent diagnostics `3680021` ran or are submitted. When diagnostics finish, compare against Grid 3A `local_direct_weighted` and Grid 3B lead large diagnostics on `goal_rank`, 10/20/terminal drift, latent-vs-reencoded planning, terminal solve, remaining Hamming, mismatch concentration, and training curves.
+- Do not start Maze, 10M/20M size sweeps, or broad controls until the Grid 3B rollout `N=2` diagnostics finish, unless the evidence clearly shows the current Sudoku branch is blocked.
 
 Historical checks to preserve:
 - Grid 0 was infrastructure only.
