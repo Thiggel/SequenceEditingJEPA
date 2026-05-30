@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-30 01:50 CEST
+Last updated: 2026-05-30 05:45 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -30,16 +30,16 @@ Runtime outputs default to:
 | `3674778_[0-3]` | COMPLETED | Grid 3A training complete; all four roots have `metrics.json` and `checkpoint.pt`. |
 | `3674779_[0-3]` | FAILED | First Grid 3A diagnostics failed before model load: wrapper passed comma-separated `--horizons`. |
 | `3676904_[0-3]` | COMPLETED | Resubmitted Grid 3A diagnostics completed; all four roots have `diagnostics/diagnostics.json`. |
-| `3675734` | COMPLETED | Previous puzzle oversight. |
 | `3676879` | COMPLETED | Previous puzzle oversight completed at `2026-05-29 21:48:10 CEST`. |
-| `3677391` | RUNNING | Current puzzle oversight, started `2026-05-30 01:36:48 CEST`. |
-| `3678050` | PENDING | Recurring oversight, begin time `2026-05-30 05:36:49 CEST`. |
+| `3677391` | COMPLETED | Previous puzzle oversight completed at `2026-05-30 01:43:35 CEST`. |
+| `3678050` | RUNNING | Current puzzle oversight, started `2026-05-30 05:37:13 CEST`. |
+| `3679094` | PENDING | Recurring oversight, begin time `2026-05-30 09:37:16 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3674778,3674779,3675734,3676879,3676904,3677391,3678050 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3674778,3674779,3675734,3676879,3676904,3677391,3678050 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3674778,3674779,3676904,3677391,3678050,3679094 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3674778,3674779,3676904,3677391,3678050,3679094 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -60,5 +60,7 @@ rollout `N=2`; do not start Maze, 10M/20M sweeps, or broad controls before that
 follow-up is implemented, run, and diagnosed.
 
 No Grid 0, Grid 1, Grid 2A, Grid 3A, or diagnostics jobs are active as of the
-2026-05-30 01:50 CEST oversight check. All documented output roots still have
-their expected checkpoints, metrics, and diagnostics artifacts.
+2026-05-30 05:45 CEST oversight check. All documented output roots still have
+their expected checkpoints, metrics, and diagnostics artifacts. The oversight
+chain is already continued by begin-time-blocked job `3679094`; no partition
+broadening was useful for that pending job.
