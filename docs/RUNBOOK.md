@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-31 01:31 CEST
+Last updated: 2026-05-31 05:30 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -51,26 +51,25 @@ repo snapshot.
 | `3680033` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 13:41:13 CEST`. |
 | `3680652` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 17:42:01 CEST`. |
 | `3681711` | COMPLETED | Enhanced recurring oversight completed at `2026-05-30 21:38:01 CEST`; added/submitted Grid 3C reset-cadence diagnostics. |
-| `3682864` | RUNNING | Current enhanced recurring oversight, started `2026-05-31 01:26:39 CEST` on `a0932`. |
-| `3683472` | PENDING | Next enhanced recurring oversight, begin time `2026-05-31 05:27:01 CEST`. |
-| `3682924` | RUNNING | Grid 3C reset-cadence diagnostics for rollout `N=2`, started `2026-05-30 21:32:01 CEST` on `a0537`; no `diagnostics_reset_cadence/` files written yet as of `2026-05-31 01:31 CEST`. |
+| `3682864` | COMPLETED | Enhanced recurring oversight completed at `2026-05-31 01:36:26 CEST`; recorded that Grid 3C was still running. |
+| `3682924` | COMPLETED | Grid 3C reset-cadence diagnostics for rollout `N=2`, exit `0:0`; reset every 2/4 solved `64/64` paired boards under step and terminal energy, reset every 8/16 solved `64/64` under terminal energy. |
+| `3683472` | RUNNING | Current enhanced recurring oversight, started `2026-05-31 05:27:01 CEST` on `a0731`. |
+| `3683863` | PENDING | Next enhanced recurring oversight, begin time `2026-05-31 09:27:03 CEST`. |
+| `3683903` | RUNNING | Grid 3D reset-large confirmation, started `2026-05-31 05:32:01 CEST` on `a0731`; writes `diagnostics_reset_cadence_large/`. |
 
 Check live state:
 
 ```bash
-squeue -j 3680019,3680020,3680021,3681711,3682864,3682924,3683472 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3680019,3680020,3680021,3681711,3682864,3682924,3683472 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3680019,3680020,3680021,3682864,3682924,3683472,3683863,3683903 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3680019,3680020,3680021,3682864,3682924,3683472,3683863,3683903 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
 
-Grid 3B rollout `N=2` completed and improved proximity, but it did not satisfy
-the exact-solve gate. Final online metrics at step `5000` were eval loss
-`0.000138`, oracle mean rank `12.34375`, and H1/H2/H4 solve
-`1.0 / 1.0 / 1.0`; the larger diagnostics are the meaningful read. Job
-`3680021` reports latent terminal-energy planning solve `4/64`, filled-board
-terminal rate `26/64`, and mean remaining Hamming `2.453`. Re-encoded
-symbolic-state planning still solves `64/64`.
+Grid 3B rollout `N=2` improved proximity, but it did not satisfy the pure
+latent exact-solve gate. Job `3680021` reports latent terminal-energy planning
+solve `4/64`, filled-board terminal rate `26/64`, and mean remaining Hamming
+`2.453`. Re-encoded symbolic-state planning still solves `64/64`.
 
 Compared with the lead large diagnostics (`3680019`), rollout `N=2` cuts
 terminal-energy mismatches from 299 to 157 and reduces drift at 10/20 oracle
@@ -81,30 +80,32 @@ are re-encoded, while stale latent rollout remains the bottleneck. The result
 is not deployable because it still uses the oracle goal and because latent and
 re-encoded planner samples are not paired example-by-example.
 
+Grid 3C reset-cadence diagnostics (`3682924`) passed the mechanism gate. On
+paired 64-board samples, no-reset terminal-energy planning solved `2/64`, reset
+every 2 and 4 actions solved `64/64` under both step- and terminal-energy
+selection, reset every 8/16 actions solved `64/64` only with terminal-energy
+selection, and full re-encoded planning solved `64/64`. This supports keeping
+symbolic boards as the planner state of record and periodically re-encoding the
+latent state, before any model-size or Maze expansion.
+
 Planning intentionally allows overwrites/conflicts on mutable Sudoku cells for
 diagnosis, so terminal boards can be fully filled but wrong. Treat online
-H1/H2/H4 and terminal fill rate as sanity checks, not solve quality. Generated
-analysis artifacts live under `../sequence-editing-report/assets/grid3b/`,
-including rollout `N=2` planning, drift, remaining-Hamming, mismatch heatmap,
-training curve, and concrete terminal board examples.
+H1/H2/H4, terminal fill rate, and oracle-goal reset results as diagnostics, not
+deployable solve quality. Generated analysis artifacts live under
+`../sequence-editing-report/assets/grid3b/`, including the new Grid 3C
+reset-cadence planning plots, CSVs, and concrete paired examples.
 
-Grid 3C reset-cadence diagnostics were submitted as `3682924` and are still
-running against
+Grid 3D reset-large confirmation (`3683903`) is running against
 `$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_local_direct_weighted_rollout_n2`,
-writing `diagnostics_reset_cadence/` only at completion. As of `2026-05-31
-01:31 CEST`, the job has empty stderr, about `1.4 GiB` MaxRSS, CPU time close
-to elapsed time, and no output files yet. This diagnostic compares latent
-no-reset, reset every 2/4/8/16 actions, and full re-encoded planning on the
-same 64 sampled boards. Launch smoke and tests passed before submission.
-
-Partition housekeeping at 01:31 CEST: repo job `3682924` is already running on
-`a100`, current oversight `3682864` is running, and the only later oversight
-`3683472` is begin-time-blocked. `sinfo` shows idle `a100` nodes, but no
-partition broadening is useful for running or begin-time-blocked repo jobs.
+writing `diagnostics_reset_cadence_large/`. It compares no reset, reset every
+4/8 actions, and full re-encoded planning on 128 paired boards. Partition
+housekeeping at 05:30 CEST: `3683903` and current oversight `3683472` are
+running on `a100`, and the only later oversight `3683863` is begin-time-blocked.
+No partition broadening is useful for running or begin-time-blocked repo jobs.
 
 Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
 concrete planner examples, question assumptions, add useful report figures and
 tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive. The next safe step is still to analyze `3682924` when it completes, not
-Maze or broad capacity sweeps.
+alive. The next safe step is to analyze `3683903` when it completes, not Maze
+or broad capacity sweeps.

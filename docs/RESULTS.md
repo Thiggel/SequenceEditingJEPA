@@ -1,35 +1,38 @@
 # Results
 
-Last updated: 2026-05-31 01:31 CEST
+Last updated: 2026-05-31 05:30 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
 
 ## Current Key Result
 
-Grid 3B rollout `N=2` gives a real but insufficient improvement. It preserves
-sampled action grounding (`goal_rank` mean/top1 `1.0`) and improves latent
-terminal-energy planning from `0/64` to `4/64` solves, with mean remaining
-Hamming falling from `4.672` to `2.453`. Re-encoded symbolic-state planning
-still solves `64/64`, so the bottleneck remains stale latent rollout rather
-than the local action scorer under oracle-goal diagnostics.
+Grid 3C reset-cadence diagnostics show that periodic planner-state re-encoding
+recovers the re-encoded oracle-goal result. On paired 64-board samples for the
+rollout `N=2` checkpoint, no-reset terminal-energy planning solved `2/64`, reset
+every 2/4 actions solved `64/64` under both step and terminal energy, reset
+every 8/16 actions solved `64/64` under terminal energy, and full re-encoded
+planning solved `64/64`.
 
 | Run | Planner | Scoring | Solve | Terminal | Mean remaining Hamming |
 | --- | --- | --- | ---: | ---: | ---: |
 | lead large | latent rollout | terminal energy | 0.0 | 0.0625 | 4.671875 |
 | rollout `N=2` | latent rollout | terminal energy | 0.0625 | 0.40625 | 2.453125 |
+| Grid 3C paired | no reset | terminal energy | 0.03125 | 0.5625 | 2.265625 |
+| Grid 3C paired | reset every 4 | step energy | 1.0 | 1.0 | 0.0 |
+| Grid 3C paired | reset every 8 | terminal energy | 1.0 | 1.0 | 0.0 |
 | lead large | re-encoded state | terminal energy | 1.0 | 1.0 | 0.0 |
 | rollout `N=2` | re-encoded state | terminal energy | 1.0 | 1.0 | 0.0 |
 
-Rollout `N=2` reduces drift at 10/20 oracle steps from `0.079/1.742` to
-`0.041/1.495`, but terminal weighted drift is still about `2.16`. This keeps
-Maze, 10M/20M sweeps, and broad controls blocked. The next safe diagnostic is a
-small periodic re-encoding / latent reset branch.
+This passes the mechanism gate for a planner-state reset/re-encoding branch,
+but it is still an oracle-goal diagnostic, not a deployable solver. Maze,
+10M/20M sweeps, and broad controls remain blocked until the reset branch is
+confirmed and integrated.
 
 Generated artifacts: `../sequence-editing-report/assets/grid3b/` contains the
 lead and rollout `N=2` planning comparisons, drift curves, terminal
 remaining-Hamming distributions, mismatch heatmaps, final training curve, CSV
-tables, and concrete latent terminal examples.
+tables, Grid 3C reset-cadence plots/CSVs, and concrete paired examples.
 
 ## Grid 3A Grounding Result
 
@@ -63,13 +66,13 @@ Grid 3B rollout `N=2` completed as `3680020` and diagnostics completed as
 oracle mean rank `12.34375`, and H1/H2/H4 solve `1.0 / 1.0 / 1.0`, but the
 larger diagnostics show exact latent solve remains weak.
 
-Grid 3C reset-cadence diagnostics were implemented and submitted as `3682924`
-for the rollout `N=2` checkpoint. The job compares latent no-reset, reset every
-2/4/8/16 actions, and full re-encoded planning on the same 64 sampled boards,
-writing `diagnostics_reset_cadence/` at completion. As of `2026-05-31 01:31
-CEST`, it is still running with empty stderr and no reset-cadence files yet.
-Current oversight `3682864` is running, and exactly one successor, `3683472`,
-is pending for `2026-05-31 05:27:01 CEST`.
+Grid 3C reset-cadence diagnostics completed as `3682924` and wrote
+`diagnostics_reset_cadence/diagnostics.json` plus paired reset planning records.
+The follow-up Grid 3D reset-large confirmation is running as `3683903`; it
+compares no reset, reset every 4/8 actions, and full re-encoded planning on 128
+paired boards, writing `diagnostics_reset_cadence_large/`. Current oversight
+`3683472` is running, and exactly one successor, `3683863`, is pending for
+`2026-05-31 09:27:03 CEST`.
 
 ## Grid 3A Diagnostics
 
