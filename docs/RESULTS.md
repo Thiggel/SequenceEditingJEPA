@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-05-31 09:30 CEST
+Last updated: 2026-05-31 13:30 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -71,9 +71,10 @@ Grid 3C reset-cadence diagnostics completed as `3682924` and wrote
 The follow-up Grid 3D reset-large confirmation is running as `3683903`; it
 compares no reset, reset every 4/8 actions, and full re-encoded planning on 128
 paired boards, writing `diagnostics_reset_cadence_large/` only at completion.
-As of 09:30 CEST, stderr is empty and the output directory has not been created.
-Oversight `3683472` completed cleanly, current oversight `3683863` is running,
-and exactly one successor, `3684237`, is pending for `2026-05-31 13:27:20 CEST`.
+As of 13:30 CEST, stderr is empty, stdout only has the task prologue, and the
+output directory has not been created. Oversight `3683863` completed cleanly,
+current oversight `3684237` is running, and exactly one successor, `3684889`, is
+pending for `2026-05-31 17:27:28 CEST`.
 
 ## Grid 3A Diagnostics
 
