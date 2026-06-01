@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-01 17:05 CEST
+Last updated: 2026-06-01 18:35 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -59,19 +59,20 @@ repo snapshot.
 | `3684237` | COMPLETED | Enhanced recurring oversight completed at `2026-05-31 13:40:28 CEST`, exit `0:0`; submitted successor `3684889`. |
 | `3684889` | NODE_FAIL | Enhanced recurring oversight started at `2026-05-31 17:27:32 CEST` and failed after `00:00:34` on `a0731`; no application stderr, stdout only job statistics. |
 | `3687722` | COMPLETED | Replacement enhanced recurring oversight ran `2026-06-01 12:57:00-13:21:50 CEST`, exit `0:0`; submitted successor `3688542`. |
-| `3688542` | RUNNING | Enhanced recurring oversight started at `2026-06-01 16:57:23 CEST` on `a0633`; submitted successor `3689344`. |
-| `3689344` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-01 20:57:29 CEST`. |
+| `3688542` | COMPLETED | Enhanced recurring oversight ran `2026-06-01 16:57:23-17:12:45 CEST`, exit `0:0`; submitted successor `3689344` and queued Grid 4A diagnostics. |
+| `3689344` | CANCELLED | Later oversight from `3688542` was cancelled before start at `2026-06-01 18:29:32 CEST`; replaced by `3689685`. |
+| `3689685` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-01 22:35:52 CEST`. |
 | `3688587_[0-2]` | CANCELLED | User-approved cancellation at `2026-06-01 14:46:56 CEST`; pre-HWM-correction Grid 4A baseline jobs ran `01:40:56` and wrote step-1 metrics. |
 | `3688921_[0-2]` | CANCELLED | Superseded after the user requested exact report-style hierarchical planning; cancelled at `2026-06-01 15:01:20 CEST` after `00:14:07` on `a0531`, `a0731`, and `a0931`; no checkpoints. |
-| `3688986_[0-2]` | RUNNING | Exact-recipe Grid 4A training started at `2026-06-01 15:09:33 CEST`; all three roots have `checkpoint-1000.pt` and step-1000 metrics; stderr files are empty. |
+| `3688986_[0-2]` | RUNNING | Exact-recipe Grid 4A training started at `2026-06-01 15:09:33 CEST`; L1 is at step 3000, L2/L3 at step 2000, checkpoints are being written, and stderr files are empty. |
 | `3689396_[0-2]` | PENDING | Grid 4A learned-energy CEM diagnostics, dependency-blocked on successful completion of `3688986_[0-2]`; writes `diagnostics_cem_goal_energy`. |
 | `3689397_[0-1]` | PENDING | Grid 4A report-style subgoal CEM diagnostics, dependency-blocked on successful completion of `3689396_[0-2]`; writes `diagnostics_subgoal_cem_l{1,2}`. |
 
 Check live state:
 
 ```bash
-squeue -j 3688542,3689344,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3688587,3688921,3688986,3689396,3689397 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3689685,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3688542,3689344,3689685,3688587,3688921,3688986,3689396,3689397 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -110,9 +111,10 @@ re-encodes latents every 4 actions.
 
 Oversight chain issue: successor oversight `3684889` failed with `NODE_FAIL`
 after 34 seconds on `a0731`; there was no application stderr. Replacement
-oversight `3687722` completed, current oversight `3688542` is running, and
-exactly one later oversight, `3689344`, is pending for
-`2026-06-01 20:57:29 CEST`.
+oversight `3687722` completed, oversight `3688542` completed cleanly at
+`2026-06-01 17:12:45 CEST`, its successor `3689344` was later cancelled before
+start, and replacement oversight `3689685` is pending for
+`2026-06-01 22:35:52 CEST`.
 Other visible HFSA/paired user-account arrays are outside this repo snapshot.
 Partition housekeeping at 17:00 CEST: `sinfo` showed idle `a100`, `a40`, and
 `rtxpro6k` nodes, but the only pending repo jobs are dependency-blocked
@@ -139,6 +141,14 @@ three, but this remains a small sanity metric. Learned-energy CEM diagnostics
 are queued as `3689396_[0-2]` with `afterok:3688986`; report-style subgoal CEM
 diagnostics are queued as `3689397_[0-1]` with `afterok:3689396`. Generated
 step-1000 artifacts live in `../sequence-editing-report/assets/grid4a/`.
+
+Grid 4A check at 18:35 CEST: `3688986_[0-2]` is still running. L1 has reached
+step 3000 with eval loss `0.000171` and goal-energy MSE `0.000335`; L2 has
+reached step 2000 with eval loss `0.000257`, goal-energy MSE `0.000431`, and
+hierarchy loss `0.0158`; L3 has reached step 2000 with eval loss `0.000243`,
+goal-energy MSE `0.000182`, and hierarchy loss `0.0132`. H1/H2/H4 online solve
+remains `1.0` for all three, still only a sanity metric. The queued diagnostics
+remain dependency-blocked.
 
 Implementation correction at 14:03 CEST: the user clarified that the hierarchy
 should have an explicit higher-level action encoder over the lower-level action

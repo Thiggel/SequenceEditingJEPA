@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-01 17:05 CEST
+Last updated: 2026-06-01 18:35 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -38,10 +38,10 @@ was pre-HWM correction and was cancelled after user approval at `14:46:56 CEST`.
 Intermediate corrected training `3688921_[0-2]` was cancelled at `15:01:20 CEST`
 after the user requested the exact report-style high-level latent-action CEM
 to subgoal and low-level primitive CEM recipe. Replacement training
-`3688986_[0-2]` is running and has reached step 1000 in all three
-`sudoku_jepa_5m_goal_energy_hwm_*` run roots. Learned-energy CEM diagnostics
-are queued as `3689396_[0-2]` after successful training completion, followed by
-report-style subgoal CEM diagnostics `3689397_[0-1]`.
+`3688986_[0-2]` is running; L1 has reached step 3000 and L2/L3 have reached
+step 2000 in the `sudoku_jepa_5m_goal_energy_hwm_*` run roots. Learned-energy
+CEM diagnostics are queued as `3689396_[0-2]` after successful training
+completion, followed by report-style subgoal CEM diagnostics `3689397_[0-1]`.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve
@@ -93,14 +93,17 @@ confirmation completed as `3683903` and wrote
 `diagnostics_reset_cadence_large/diagnostics.json` plus paired records. It
 confirms reset every 4 as the cheapest exact cadence tested on the larger
 sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
-`3687722` completed, current oversight `3688542` is running, and successor
-`3689344` is the single future oversight.
+`3687722` completed, oversight `3688542` completed, successor `3689344` was
+cancelled before start, and replacement `3689685` is the single future
+oversight.
 Grid 4A pre-correction training `3688587_[0-2]` was cancelled after preserving
 step-1 metrics; intermediate `3688921_[0-2]` was cancelled after the exact
-planner correction; replacement training is running as `3688986_[0-2]`. At
-step 1000, the three exact-recipe runs have eval loss about `3.8e-4` to
-`4.3e-4`, goal-energy MSE `0.000676` to `0.00341`, and online H1/H2/H4 solve
-`1.0 / 1.0 / 1.0`; treat those as sanity checks until `3689396`/`3689397`
+planner correction; replacement training is running as `3688986_[0-2]`. Current
+online training metrics remain healthy: L1 step 3000 eval loss `0.000171` and
+goal-energy MSE `0.000335`; L2 step 2000 eval loss `0.000257`, goal-energy MSE
+`0.000431`, and hierarchy loss `0.0158`; L3 step 2000 eval loss `0.000243`,
+goal-energy MSE `0.000182`, and hierarchy loss `0.0132`. Online H1/H2/H4 solve
+is `1.0 / 1.0 / 1.0`; treat this as a sanity check until `3689396`/`3689397`
 finish.
 
 ## Grid 3A Diagnostics
