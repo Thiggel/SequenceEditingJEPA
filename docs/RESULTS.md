@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-01 15:10 CEST
+Last updated: 2026-06-01 17:05 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -38,8 +38,10 @@ was pre-HWM correction and was cancelled after user approval at `14:46:56 CEST`.
 Intermediate corrected training `3688921_[0-2]` was cancelled at `15:01:20 CEST`
 after the user requested the exact report-style high-level latent-action CEM
 to subgoal and low-level primitive CEM recipe. Replacement training
-`3688986_[0-2]` is running and writes to the
-`sudoku_jepa_5m_goal_energy_hwm_*` run roots.
+`3688986_[0-2]` is running and has reached step 1000 in all three
+`sudoku_jepa_5m_goal_energy_hwm_*` run roots. Learned-energy CEM diagnostics
+are queued as `3689396_[0-2]` after successful training completion, followed by
+report-style subgoal CEM diagnostics `3689397_[0-1]`.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve
@@ -51,6 +53,8 @@ Generated artifacts: `../sequence-editing-report/assets/grid3b/` contains the
 lead and rollout `N=2` planning comparisons, drift curves, terminal
 remaining-Hamming distributions, mismatch heatmaps, final training curve, CSV
 tables, Grid 3C/Grid 3D reset-cadence plots/CSVs, and concrete paired examples.
+`../sequence-editing-report/assets/grid4a/` contains the step-1000 exact-recipe
+training summary CSV/PNG.
 
 ## Grid 3A Grounding Result
 
@@ -89,10 +93,15 @@ confirmation completed as `3683903` and wrote
 `diagnostics_reset_cadence_large/diagnostics.json` plus paired records. It
 confirms reset every 4 as the cheapest exact cadence tested on the larger
 sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
-`3687722` completed, and successor `3688542` is the single future oversight.
+`3687722` completed, current oversight `3688542` is running, and successor
+`3689344` is the single future oversight.
 Grid 4A pre-correction training `3688587_[0-2]` was cancelled after preserving
 step-1 metrics; intermediate `3688921_[0-2]` was cancelled after the exact
-planner correction; replacement training is running as `3688986_[0-2]`.
+planner correction; replacement training is running as `3688986_[0-2]`. At
+step 1000, the three exact-recipe runs have eval loss about `3.8e-4` to
+`4.3e-4`, goal-energy MSE `0.000676` to `0.00341`, and online H1/H2/H4 solve
+`1.0 / 1.0 / 1.0`; treat those as sanity checks until `3689396`/`3689397`
+finish.
 
 ## Grid 3A Diagnostics
 
