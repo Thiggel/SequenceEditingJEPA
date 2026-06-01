@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-01 10:37 CEST
+Last updated: 2026-06-01 13:06 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -33,8 +33,9 @@ This passes the mechanism gate for a planner-state reset/re-encoding branch,
 but it is still an oracle-goal diagnostic, not a deployable solver. The next
 user-directed branch is Grid 4A: train one-, two-, and three-level JEPA models
 with a learned goal-energy head and evaluate them with CEM. The implementation,
-configs, and CEM diagnostics are in place, but no Grid 4A jobs have been
-submitted yet.
+configs, and CEM diagnostics are in place, and training array `3688587_[0-2]`
+started at `2026-06-01 13:06:00 CEST`. CEM diagnostics remain pending until
+those checkpoints exist.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve
@@ -84,7 +85,8 @@ confirmation completed as `3683903` and wrote
 `diagnostics_reset_cadence_large/diagnostics.json` plus paired records. It
 confirms reset every 4 as the cheapest exact cadence tested on the larger
 sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
-`3687722` is pending for `2026-06-01 12:56:38 CEST`.
+`3687722` is running, and successor `3688542` is the single future oversight.
+Grid 4A training is running as `3688587_[0-2]`.
 
 ## Grid 3A Diagnostics
 

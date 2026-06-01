@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-01 10:37 CEST
+Last updated: 2026-06-01 13:06 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -58,13 +58,15 @@ repo snapshot.
 | `3683903` | COMPLETED | Grid 3D reset-large confirmation, exit `0:0`, elapsed `08:25:19`; reset every 4 solved `128/128`, reset every 8 solved `128/128` only under terminal-energy selection. |
 | `3684237` | COMPLETED | Enhanced recurring oversight completed at `2026-05-31 13:40:28 CEST`, exit `0:0`; submitted successor `3684889`. |
 | `3684889` | NODE_FAIL | Enhanced recurring oversight started at `2026-05-31 17:27:32 CEST` and failed after `00:00:34` on `a0731`; no application stderr, stdout only job statistics. |
-| `3687722` | PENDING | Replacement enhanced recurring oversight submitted at `2026-06-01 08:56:38 CEST`; begin-time-blocked until `2026-06-01 12:56:38 CEST`. |
+| `3687722` | RUNNING | Replacement enhanced recurring oversight started at `2026-06-01 12:57:00 CEST` on `a0731`; submitted successor `3688542`. |
+| `3688542` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-01 16:57:08 CEST`. |
+| `3688587_[0-2]` | RUNNING | Grid 4A goal-energy / hierarchy / CEM training submitted at `2026-06-01 13:05:50 CEST`; tasks started at `13:06:00` on `a0632`, `a0731`, and `a0931`; run roots contain `config.json` only as of `13:19`. |
 
 Check live state:
 
 ```bash
-squeue -j 3683903,3684237,3684889,3687722 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3683903,3684237,3684889,3687722 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3687722,3688542,3688587 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3687722,3688542,3688587 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -103,31 +105,40 @@ re-encodes latents every 4 actions.
 
 Oversight chain issue: successor oversight `3684889` failed with `NODE_FAIL`
 after 34 seconds on `a0731`; there was no application stderr. Replacement
-oversight `3687722` was submitted with `--begin=now+4hours` and is pending for
-`2026-06-01 12:56:38 CEST`. There are no active puzzle-JEPA jobs in `squeue`;
-other visible HFSA/paired user-account arrays are outside this repo snapshot.
-Partition housekeeping at 10:37 CEST: `3687722` is begin-time-blocked, so
-partition broadening cannot help.
+oversight `3687722` started at `2026-06-01 12:57:00 CEST`, and exactly one
+later oversight, `3688542`, is pending for `2026-06-01 16:57:08 CEST`.
+Other visible HFSA/paired user-account arrays are outside this repo snapshot.
+Partition housekeeping at 13:06 CEST: Grid 4A and the current oversight are
+already running on `a100`; `3688542` is begin-time-blocked, so no
+`scontrol update ... Partition=...` is useful.
 
-Implementation update: the user-directed Grid 4A branch is implemented but not
-submitted. It adds a CLS goal-energy head, optional multi-level JEPA predictors,
-hierarchy training loss, categorical CEM diagnostics, and configs/scripts for
-`sudoku_jepa_5m_goal_energy_cem_l{1,2,3}`. Focused validation passed under the
-repo venv:
+Grid 4A startup check at 13:19 CEST: all three tasks are still running, stderr
+is empty, output roots for `sudoku_jepa_5m_goal_energy_cem_l{1,2,3}` exist and
+contain `config.json`, but no `metrics.jsonl`, checkpoints, or CEM artifacts
+exist yet. `sstat` shows about `2.7 GiB` RSS and about `6:55` CPU per task
+after about 13 minutes of wall time, so the tasks have moved past the initial
+import stall but have not written the first training metric. The next oversight
+should inspect whether metrics/checkpoints begin or whether the jobs remain
+stuck before submitting CEM diagnostics.
+
+Implementation update: the user-directed Grid 4A branch is implemented and
+training is running as `3688587_[0-2]`. It adds a CLS goal-energy head,
+optional multi-level JEPA predictors, hierarchy training loss, categorical CEM
+diagnostics, and configs/scripts for
+`sudoku_jepa_5m_goal_energy_cem_l{1,2,3}`. Prior focused validation passed
+under the repo venv:
 
 ```bash
 source scripts/env.sh
 python -m pytest -q tests/test_puzzle_models.py tests/test_puzzle_hydra.py
 ```
 
-Submit the proposed Grid 4A training array only when ready to spend the GPU
-budget:
+The 13:06 CEST oversight rerun of that pytest command was interrupted before
+collection because Python imports were stuck in shared filesystem waits
+(`rpc_wait_bit_killable`/`folio_wait_bit_common`). The Slurm wrapper syntax
+checks and `py_compile` for the changed Grid 4A modules passed.
 
-```bash
-sbatch scripts/slurm/run_grid4a_goal_energy_hierarchy.slurm
-```
-
-After those checkpoints exist, run:
+After Grid 4A checkpoints exist, run:
 
 ```bash
 sbatch scripts/slurm/run_grid4a_cem_diagnostics.slurm
