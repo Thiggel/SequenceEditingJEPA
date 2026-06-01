@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-01 14:03 CEST
+Last updated: 2026-06-01 14:47 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -60,13 +60,14 @@ repo snapshot.
 | `3684889` | NODE_FAIL | Enhanced recurring oversight started at `2026-05-31 17:27:32 CEST` and failed after `00:00:34` on `a0731`; no application stderr, stdout only job statistics. |
 | `3687722` | COMPLETED | Replacement enhanced recurring oversight ran `2026-06-01 12:57:00-13:21:50 CEST`, exit `0:0`; submitted successor `3688542`. |
 | `3688542` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-01 16:57:08 CEST`. |
-| `3688587_[0-2]` | RUNNING | Grid 4A pre-HWM-correction training submitted at `2026-06-01 13:05:50 CEST`; tasks started at `13:06:00` on `a0632`, `a0731`, and `a0931`; step-1 metrics exist as of `14:03`. |
+| `3688587_[0-2]` | CANCELLED | User-approved cancellation at `2026-06-01 14:46:56 CEST`; pre-HWM-correction Grid 4A baseline jobs ran `01:40:56` and wrote step-1 metrics. |
+| `3688921_[0-2]` | RUNNING | Corrected HWM-style Grid 4A training submitted at `2026-06-01 14:47:13 CEST`; tasks started immediately on `a0531`, `a0731`, and `a0931`; output roots are `sudoku_jepa_5m_goal_energy_hwm_l1`, `..._l2_span9`, `..._l3_span3`. |
 
 Check live state:
 
 ```bash
-squeue -j 3687722,3688542,3688587 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3687722,3688542,3688587 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3688542,3688587,3688921 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3688587,3688921 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -112,21 +113,20 @@ Partition housekeeping at 14:03 CEST: Grid 4A is already running on `a100`;
 `3688542` is begin-time-blocked, so no
 `scontrol update ... Partition=...` is useful.
 
-Grid 4A check at 14:03 CEST: all three tasks are still running, stderr is
-empty, and each old run root has `config.json` plus `metrics.jsonl` with step-1
-metrics. These jobs were submitted before the HWM-style correction below, so
-they use the earlier multi-horizon predictor setup and `hierarchy_stride=2`.
-Do not treat them as the final HWM-style hierarchy result.
+Grid 4A check at 14:47 CEST: pre-HWM-correction jobs `3688587_[0-2]` were
+cancelled after user approval. Corrected HWM-style jobs `3688921_[0-2]` are
+running. At submission time the corrected HWM run roots did not yet contain
+metrics or checkpoints; CEM diagnostics should wait for `checkpoint.pt`.
 
 Implementation correction at 14:03 CEST: the user clarified that the hierarchy
 should have an explicit higher-level action encoder over the lower-level action
 span and that K should be configurable. The code now adds
 `ActionSequenceEncoder`, `hierarchy_span`, recursive higher-level action
 encoding, and a diagnostic `hierarchical_latent_goal` CEM score path. Corrected
-future run roots are `sudoku_jepa_5m_goal_energy_hwm_l1`,
+run roots are `sudoku_jepa_5m_goal_energy_hwm_l1`,
 `sudoku_jepa_5m_goal_energy_hwm_l2_span9`, and
-`sudoku_jepa_5m_goal_energy_hwm_l3_span3`, so they will not overwrite the
-already-running pre-correction roots.
+`sudoku_jepa_5m_goal_energy_hwm_l3_span3`, so they do not overwrite the
+cancelled pre-correction roots.
 
 Focused validation passed under the repo venv:
 
