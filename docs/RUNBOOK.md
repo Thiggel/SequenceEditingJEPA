@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-01 13:06 CEST
+Last updated: 2026-06-01 14:03 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -58,9 +58,9 @@ repo snapshot.
 | `3683903` | COMPLETED | Grid 3D reset-large confirmation, exit `0:0`, elapsed `08:25:19`; reset every 4 solved `128/128`, reset every 8 solved `128/128` only under terminal-energy selection. |
 | `3684237` | COMPLETED | Enhanced recurring oversight completed at `2026-05-31 13:40:28 CEST`, exit `0:0`; submitted successor `3684889`. |
 | `3684889` | NODE_FAIL | Enhanced recurring oversight started at `2026-05-31 17:27:32 CEST` and failed after `00:00:34` on `a0731`; no application stderr, stdout only job statistics. |
-| `3687722` | RUNNING | Replacement enhanced recurring oversight started at `2026-06-01 12:57:00 CEST` on `a0731`; submitted successor `3688542`. |
+| `3687722` | COMPLETED | Replacement enhanced recurring oversight ran `2026-06-01 12:57:00-13:21:50 CEST`, exit `0:0`; submitted successor `3688542`. |
 | `3688542` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-01 16:57:08 CEST`. |
-| `3688587_[0-2]` | RUNNING | Grid 4A goal-energy / hierarchy / CEM training submitted at `2026-06-01 13:05:50 CEST`; tasks started at `13:06:00` on `a0632`, `a0731`, and `a0931`; run roots contain `config.json` only as of `13:19`. |
+| `3688587_[0-2]` | RUNNING | Grid 4A pre-HWM-correction training submitted at `2026-06-01 13:05:50 CEST`; tasks started at `13:06:00` on `a0632`, `a0731`, and `a0931`; step-1 metrics exist as of `14:03`. |
 
 Check live state:
 
@@ -108,25 +108,27 @@ after 34 seconds on `a0731`; there was no application stderr. Replacement
 oversight `3687722` started at `2026-06-01 12:57:00 CEST`, and exactly one
 later oversight, `3688542`, is pending for `2026-06-01 16:57:08 CEST`.
 Other visible HFSA/paired user-account arrays are outside this repo snapshot.
-Partition housekeeping at 13:06 CEST: Grid 4A and the current oversight are
-already running on `a100`; `3688542` is begin-time-blocked, so no
+Partition housekeeping at 14:03 CEST: Grid 4A is already running on `a100`;
+`3688542` is begin-time-blocked, so no
 `scontrol update ... Partition=...` is useful.
 
-Grid 4A startup check at 13:19 CEST: all three tasks are still running, stderr
-is empty, output roots for `sudoku_jepa_5m_goal_energy_cem_l{1,2,3}` exist and
-contain `config.json`, but no `metrics.jsonl`, checkpoints, or CEM artifacts
-exist yet. `sstat` shows about `2.7 GiB` RSS and about `6:55` CPU per task
-after about 13 minutes of wall time, so the tasks have moved past the initial
-import stall but have not written the first training metric. The next oversight
-should inspect whether metrics/checkpoints begin or whether the jobs remain
-stuck before submitting CEM diagnostics.
+Grid 4A check at 14:03 CEST: all three tasks are still running, stderr is
+empty, and each old run root has `config.json` plus `metrics.jsonl` with step-1
+metrics. These jobs were submitted before the HWM-style correction below, so
+they use the earlier multi-horizon predictor setup and `hierarchy_stride=2`.
+Do not treat them as the final HWM-style hierarchy result.
 
-Implementation update: the user-directed Grid 4A branch is implemented and
-training is running as `3688587_[0-2]`. It adds a CLS goal-energy head,
-optional multi-level JEPA predictors, hierarchy training loss, categorical CEM
-diagnostics, and configs/scripts for
-`sudoku_jepa_5m_goal_energy_cem_l{1,2,3}`. Prior focused validation passed
-under the repo venv:
+Implementation correction at 14:03 CEST: the user clarified that the hierarchy
+should have an explicit higher-level action encoder over the lower-level action
+span and that K should be configurable. The code now adds
+`ActionSequenceEncoder`, `hierarchy_span`, recursive higher-level action
+encoding, and a diagnostic `hierarchical_latent_goal` CEM score path. Corrected
+future run roots are `sudoku_jepa_5m_goal_energy_hwm_l1`,
+`sudoku_jepa_5m_goal_energy_hwm_l2_span9`, and
+`sudoku_jepa_5m_goal_energy_hwm_l3_span3`, so they will not overwrite the
+already-running pre-correction roots.
+
+Focused validation passed under the repo venv:
 
 ```bash
 source scripts/env.sh
@@ -142,6 +144,13 @@ After Grid 4A checkpoints exist, run:
 
 ```bash
 sbatch scripts/slurm/run_grid4a_cem_diagnostics.slurm
+```
+
+For the oracle-goal high-level action-encoder diagnostic on corrected
+hierarchical checkpoints, run:
+
+```bash
+sbatch scripts/slurm/run_grid4a_hierarchical_cem_diagnostics.slurm
 ```
 
 Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt

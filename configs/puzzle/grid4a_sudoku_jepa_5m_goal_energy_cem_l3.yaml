@@ -1,5 +1,5 @@
 seed: 603
-output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/sudoku_jepa_5m_goal_energy_cem_l3
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/sudoku_jepa_5m_goal_energy_hwm_l3_span3
 data:
   oracle_probability: 0.5
 task:
@@ -28,7 +28,7 @@ model:
   use_cls_token: true
   use_goal_energy_head: true
   hierarchy_levels: 3
-  hierarchy_stride: 2
+  hierarchy_span: 3
 training:
   max_steps: 5000
   batch_size: 768
@@ -37,8 +37,8 @@ training:
   rollout_weight: 1.0
   goal_energy_weight: 1.0
   hierarchy_weight: 1.0
-  hierarchy_rollout_steps: 4
-  hierarchy_batch_size: 512
+  hierarchy_rollout_steps: 9
+  hierarchy_batch_size: 256
   loss_weighting: local_context
   changed_cell_weight: 8.0
   context_cell_weight: 2.0

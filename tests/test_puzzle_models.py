@@ -254,7 +254,7 @@ def test_goal_energy_cls_and_hierarchy_losses_backpropagate():
         use_cls_token=True,
         use_goal_energy_head=True,
         hierarchy_levels=3,
-        hierarchy_stride=2,
+        hierarchy_span=2,
     )
     assert batch.clue_masks is not None
     initial_states = batch.states * batch.clue_masks.to(dtype=batch.states.dtype)
@@ -272,8 +272,11 @@ def test_goal_energy_cls_and_hierarchy_losses_backpropagate():
     assert output.pred_latents.shape == output.target_latents.shape == (2, 82, 32)
     assert "loss/goal_energy_mse" in output.components
     assert "loss/hierarchy_level_2_h4_mse" in hierarchy.components
+    abstract_action = model.encode_hierarchy_action(rollout_batch.actions[:, :4], level=2)
+    assert abstract_action.shape == (2, 32)
     (output.loss + hierarchy.loss).backward()
     assert model.goal_energy_head[-1].weight.grad is not None
+    assert model.higher_action_encoders[-1].stack.layers[0].attn.in_proj_weight.grad is not None
     assert model.higher_predictors[-1].layers[0].attn.in_proj_weight.grad is not None
 
 
@@ -355,6 +358,8 @@ def test_cem_planning_records_with_goal_energy_head():
         action_injection="local_value",
         use_cls_token=True,
         use_goal_energy_head=True,
+        hierarchy_levels=2,
+        hierarchy_span=2,
     )
     summary, records = evaluate_cem_planning(
         model,
@@ -373,6 +378,22 @@ def test_cem_planning_records_with_goal_energy_head():
     assert records[0]["planner"] == "cem"
     assert records[0]["score_mode"] == "goal_energy"
     assert len(records[0]["final_state"]) == 9
+    hierarchical_summary, hierarchical_records = evaluate_cem_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(1),
+        num_examples=1,
+        max_steps=2,
+        population_size=4,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        score_mode="hierarchical_latent_goal",
+        hierarchy_level=1,
+    )
+    assert hierarchical_summary["hierarchical_latent_goal"]["count"] == 1.0
+    assert hierarchical_records[0]["hierarchy_level"] == 1.0
 
 
 def test_diagnostics_oracle_sequence_and_drift_smoke():

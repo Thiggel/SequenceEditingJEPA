@@ -18,6 +18,40 @@ class ActionConditionedJEPAOutput:
     components: dict[str, torch.Tensor]
 
 
+class ActionSequenceEncoder(nn.Module):
+    """Encode a fixed span of lower-level actions into one abstract action vector."""
+
+    def __init__(
+        self,
+        hidden_size: int,
+        intermediate_size: int,
+        num_heads: int,
+        num_layers: int,
+        max_span: int,
+        dropout: float,
+    ):
+        super().__init__()
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
+        self.position_embedding = nn.Embedding(max_span, hidden_size)
+        self.stack = TransformerStack(num_layers, hidden_size, intermediate_size, num_heads, dropout)
+        self.norm = nn.LayerNorm(hidden_size)
+        nn.init.normal_(self.cls_token, std=0.02)
+
+    def forward(self, lower_actions: torch.Tensor) -> torch.Tensor:
+        if lower_actions.ndim != 3:
+            raise ValueError("lower_actions must have shape [batch, span, hidden].")
+        batch, span, _hidden = lower_actions.shape
+        if span > self.position_embedding.num_embeddings:
+            raise ValueError(
+                f"action span {span} exceeds encoder capacity {self.position_embedding.num_embeddings}."
+            )
+        positions = torch.arange(span, device=lower_actions.device)
+        tokens = lower_actions + self.position_embedding(positions).unsqueeze(0)
+        cls = self.cls_token.expand(batch, -1, -1)
+        encoded = self.stack(torch.cat([cls, tokens], dim=1))
+        return self.norm(encoded[:, 0])
+
+
 class ActionConditionedWorldModel(nn.Module):
     """JEPA-style latent world model: encode state, condition on action, predict next-state latent."""
 
@@ -43,6 +77,7 @@ class ActionConditionedWorldModel(nn.Module):
         use_goal_energy_head: bool = False,
         hierarchy_levels: int = 1,
         hierarchy_stride: int = 2,
+        hierarchy_span: int | None = None,
     ):
         super().__init__()
         self.max_width = int(max_width)
@@ -56,7 +91,8 @@ class ActionConditionedWorldModel(nn.Module):
         self.use_cls_token = bool(use_cls_token)
         self.use_goal_energy_head = bool(use_goal_energy_head)
         self.hierarchy_levels = max(1, int(hierarchy_levels))
-        self.hierarchy_stride = max(1, int(hierarchy_stride))
+        self.hierarchy_span = max(1, int(hierarchy_span if hierarchy_span is not None else hierarchy_stride))
+        self.hierarchy_stride = self.hierarchy_span
         self.encoder = GridEncoder(
             vocab_size=vocab_size,
             hidden_size=hidden_size,
@@ -95,6 +131,19 @@ class ActionConditionedWorldModel(nn.Module):
         self.higher_predictors = nn.ModuleList(
             [
                 TransformerStack(predictor_layers, hidden_size, intermediate_size, num_heads, dropout)
+                for _ in range(self.hierarchy_levels - 1)
+            ]
+        )
+        self.higher_action_encoders = nn.ModuleList(
+            [
+                ActionSequenceEncoder(
+                    hidden_size,
+                    intermediate_size,
+                    num_heads,
+                    num_layers=1,
+                    max_span=self.hierarchy_span,
+                    dropout=dropout,
+                )
                 for _ in range(self.hierarchy_levels - 1)
             ]
         )
@@ -249,7 +298,7 @@ class ActionConditionedWorldModel(nn.Module):
         final_pred = None
         final_target = None
         for level in range(self.hierarchy_levels):
-            horizon = self.hierarchy_stride**level
+            horizon = self.hierarchy_span**level
             if horizon > steps:
                 continue
             pred = self.predict_latent_sequence_from_latent(
@@ -298,7 +347,14 @@ class ActionConditionedWorldModel(nn.Module):
             raise ValueError("action sequences must have shape [batch, steps, 4].")
         if int(level) < 0 or int(level) >= self.hierarchy_levels:
             raise ValueError(f"level must be in [0, {self.hierarchy_levels}).")
-        conditioned = self._condition_latents(latents, actions, height=height, width=width)
+        if int(level) == 0:
+            conditioned = self._condition_latents(latents, actions, height=height, width=width)
+        else:
+            expected = self.hierarchy_span ** int(level)
+            if actions.shape[1] != expected:
+                raise ValueError(f"level {level} expects exactly {expected} primitive actions.")
+            abstract_action = self.encode_hierarchy_action(actions, level=int(level))
+            conditioned = latents + abstract_action.unsqueeze(1)
         predicted = self._predictor_for_level(level)(conditioned)
         if self.predict_residual:
             return latents + predicted
@@ -361,6 +417,32 @@ class ActionConditionedWorldModel(nn.Module):
                     conditioned[torch.arange(batch, device=latents.device), positions] + value_context
                 )
         return conditioned
+
+    def encode_hierarchy_action(self, actions: torch.Tensor, *, level: int) -> torch.Tensor:
+        """Encode K**level primitive actions into one level-action vector."""
+        if actions.ndim != 3 or actions.shape[-1] != 4:
+            raise ValueError("actions must have shape [batch, steps, 4].")
+        level = int(level)
+        if level <= 0 or level >= self.hierarchy_levels:
+            raise ValueError(f"level must be in [1, {self.hierarchy_levels}).")
+        expected = self.hierarchy_span**level
+        if actions.shape[1] != expected:
+            raise ValueError(f"level {level} expects {expected} primitive actions, got {actions.shape[1]}.")
+        if level == 1:
+            lower = self._action_embedding(actions.reshape(-1, actions.shape[-1])).reshape(
+                actions.shape[0],
+                self.hierarchy_span,
+                -1,
+            )
+        else:
+            lower_horizon = self.hierarchy_span ** (level - 1)
+            grouped = actions.reshape(actions.shape[0] * self.hierarchy_span, lower_horizon, actions.shape[-1])
+            lower = self.encode_hierarchy_action(grouped, level=level - 1).reshape(
+                actions.shape[0],
+                self.hierarchy_span,
+                -1,
+            )
+        return self.higher_action_encoders[level - 1](lower)
 
     @torch.no_grad()
     def score_actions_to_goal(
@@ -443,6 +525,60 @@ class ActionConditionedWorldModel(nn.Module):
         initial_latents = self.encoder(initial_states, task_ids=task_tensor)
         features = torch.cat([self._state_summary(state_latents), self._state_summary(initial_latents)], dim=-1)
         return self.goal_energy_head(features).squeeze(-1)
+
+    @torch.no_grad()
+    def score_action_sequences_to_goal(
+        self,
+        state: torch.Tensor,
+        action_sequences: torch.Tensor,
+        goal: torch.Tensor,
+        task_id: int,
+        *,
+        hierarchy_level: int = 0,
+    ) -> torch.Tensor:
+        device = next(self.parameters()).device
+        state = state.to(device)
+        goal = goal.to(device)
+        action_sequences = action_sequences.to(device)
+        if action_sequences.ndim != 3 or action_sequences.shape[-1] != 4:
+            raise ValueError("action_sequences must have shape [batch, steps, 4].")
+        if state.ndim == 2:
+            states = state.unsqueeze(0).expand(action_sequences.shape[0], -1, -1)
+        else:
+            states = state
+        if goal.ndim == 2:
+            goals = goal.unsqueeze(0).expand(action_sequences.shape[0], -1, -1)
+        else:
+            goals = goal
+        task_ids = torch.full((action_sequences.shape[0],), task_id, dtype=torch.long, device=device)
+        latents = self.encoder(states, task_ids=task_ids)
+        height, width = int(states.shape[-2]), int(states.shape[-1])
+        level = max(0, int(hierarchy_level))
+        if level >= self.hierarchy_levels:
+            raise ValueError(f"hierarchy_level must be < {self.hierarchy_levels}.")
+        block = self.hierarchy_span**level
+        step = 0
+        while step < action_sequences.shape[1]:
+            remaining = action_sequences.shape[1] - step
+            if level > 0 and remaining >= block:
+                latents = self.predict_latent_sequence_from_latent(
+                    latents,
+                    action_sequences[:, step : step + block],
+                    height=height,
+                    width=width,
+                    level=level,
+                )
+                step += block
+            else:
+                latents = self.predict_latent_from_latent(
+                    latents,
+                    action_sequences[:, step],
+                    height=height,
+                    width=width,
+                )
+                step += 1
+        target = self.target_encoder(goals, task_ids=task_ids)
+        return -F.mse_loss(latents, target, reduction="none").mean(dim=(1, 2))
 
     def _action_embedding(self, actions: torch.Tensor) -> torch.Tensor:
         task, row, col, value = actions.unbind(dim=-1)

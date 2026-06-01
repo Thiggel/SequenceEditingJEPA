@@ -1,5 +1,5 @@
 seed: 601
-output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/sudoku_jepa_5m_goal_energy_cem_l1
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/sudoku_jepa_5m_goal_energy_hwm_l1
 data:
   oracle_probability: 0.5
 task:
@@ -28,7 +28,7 @@ model:
   use_cls_token: true
   use_goal_energy_head: true
   hierarchy_levels: 1
-  hierarchy_stride: 2
+  hierarchy_span: 9
 training:
   max_steps: 5000
   batch_size: 768

@@ -148,7 +148,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "goal_energy_weight": goal_energy_weight,
                     "hierarchy_weight": hierarchy_weight,
                     "hierarchy_levels": int(model.hierarchy_levels),
-                    "hierarchy_stride": int(model.hierarchy_stride),
+                    "hierarchy_span": int(model.hierarchy_span),
                     "hierarchy_rollout_steps": hierarchy_rollout_steps if hierarchy_weight > 0.0 else 0,
                     "hierarchy_batch_size": hierarchy_batch_size if hierarchy_weight > 0.0 else 0,
                     "loss_weighting": str(train_cfg.get("loss_weighting", "uniform")),
@@ -300,7 +300,7 @@ def _initial_states_from_batch(world: PuzzleWorld, batch) -> torch.Tensor:
 
 
 def _max_hierarchy_horizon(model: ActionConditionedWorldModel) -> int:
-    return int(model.hierarchy_stride) ** max(0, int(model.hierarchy_levels) - 1)
+    return int(model.hierarchy_span) ** max(0, int(model.hierarchy_levels) - 1)
 
 
 @torch.no_grad()

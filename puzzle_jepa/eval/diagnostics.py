@@ -65,6 +65,7 @@ def run_diagnostics(
     cem_iterations: int,
     cem_smoothing: float,
     cem_score: str,
+    cem_hierarchy_level: int,
     max_unroll_steps: int,
     horizons: list[int],
     depth_fractions: list[float],
@@ -86,7 +87,7 @@ def run_diagnostics(
     examples = load_examples(task_cfg, "eval")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ActionConditionedWorldModel(vocab_size=world.vocab_size, **model_cfg).to(device)
-    model.load_state_dict(checkpoint["model"])
+    load_model_checkpoint_state(model, checkpoint["model"])
     model.eval()
 
     rank_records = evaluate_action_ranks(
@@ -160,6 +161,7 @@ def run_diagnostics(
         iterations=cem_iterations,
         smoothing=cem_smoothing,
         score_mode=cem_score,
+        hierarchy_level=cem_hierarchy_level,
     )
     traces = collect_planner_failure_traces(
         model,
@@ -533,6 +535,7 @@ def evaluate_cem_planning(
     iterations: int,
     smoothing: float,
     score_mode: str,
+    hierarchy_level: int = 0,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if num_examples <= 0:
         return {}, []
@@ -550,6 +553,7 @@ def evaluate_cem_planning(
             iterations=iterations,
             smoothing=smoothing,
             score_mode=score_mode,
+            hierarchy_level=hierarchy_level,
         )
         plan["example_index"] = int(example_index)
         summaries.setdefault(str(plan["score_mode"]), []).append(plan)
@@ -575,12 +579,13 @@ def cem_plan(
     iterations: int,
     smoothing: float,
     score_mode: str,
+    hierarchy_level: int = 0,
 ) -> dict[str, Any]:
     start = world.validate_state(example.state).copy()
     goal = world.validate_state(example.goal)
     clue_mask = clue_mask_for_planning(world, start)
     limit = min(int(max_steps), terminal_step_limit(world, example, max_steps))
-    score_mode = resolve_cem_score_mode(model, score_mode)
+    score_mode = resolve_cem_score_mode(model, score_mode, hierarchy_level=hierarchy_level)
     if limit <= 0 or world.is_goal(start, goal):
         return {
             "solved": float(world.is_goal(start, goal)),
@@ -596,6 +601,7 @@ def cem_plan(
             "elite_frac": float(elite_frac),
             "iterations": float(iterations),
             "smoothing": float(smoothing),
+            "hierarchy_level": float(hierarchy_level),
         }
 
     action_space = cem_action_space(world, start, clue_mask)
@@ -614,6 +620,7 @@ def cem_plan(
             "elite_frac": float(elite_frac),
             "iterations": float(iterations),
             "smoothing": float(smoothing),
+            "hierarchy_level": float(hierarchy_level),
         }
 
     horizon = max(1, limit)
@@ -650,6 +657,8 @@ def cem_plan(
             goal,
             start,
             score_mode=score_mode,
+            candidates=candidates,
+            hierarchy_level=hierarchy_level,
         )
         for candidate, score in zip(candidates, scores, strict=True):
             candidate["score"] = float(score)
@@ -679,17 +688,29 @@ def cem_plan(
         "elite_frac": float(elite_frac),
         "iterations": float(iterations),
         "smoothing": float(smoothing),
+        "hierarchy_level": float(hierarchy_level),
     }
 
 
-def resolve_cem_score_mode(model: ActionConditionedWorldModel, score_mode: str) -> str:
+def resolve_cem_score_mode(
+    model: ActionConditionedWorldModel,
+    score_mode: str,
+    *,
+    hierarchy_level: int = 0,
+) -> str:
     mode = str(score_mode)
     if mode == "auto":
         return "goal_energy" if model.use_goal_energy_head else "latent_goal"
-    if mode not in {"goal_energy", "latent_goal"}:
-        raise ValueError("cem score mode must be 'auto', 'goal_energy', or 'latent_goal'.")
+    if mode not in {"goal_energy", "latent_goal", "hierarchical_latent_goal"}:
+        raise ValueError("cem score mode must be 'auto', 'goal_energy', 'latent_goal', or 'hierarchical_latent_goal'.")
     if mode == "goal_energy" and not model.use_goal_energy_head:
         raise ValueError("CEM goal_energy scoring requires a model with use_goal_energy_head=True.")
+    if mode == "hierarchical_latent_goal" and int(hierarchy_level) <= 0:
+        raise ValueError("hierarchical_latent_goal scoring requires --cem-hierarchy-level > 0.")
+    if mode == "hierarchical_latent_goal" and int(hierarchy_level) >= model.hierarchy_levels:
+        raise ValueError("cem hierarchy level must be lower than model.hierarchy_levels.")
+    if mode == "hierarchical_latent_goal" and getattr(model, "checkpoint_missing_hierarchy_action_encoders", False):
+        raise ValueError("hierarchical_latent_goal scoring requires a checkpoint with trained action encoders.")
     return mode
 
 
@@ -792,7 +813,20 @@ def cem_scores(
     initial_state: np.ndarray,
     *,
     score_mode: str,
+    candidates: list[dict[str, Any]] | None = None,
+    hierarchy_level: int = 0,
 ) -> list[float]:
+    if score_mode == "hierarchical_latent_goal":
+        if candidates is None:
+            raise ValueError("hierarchical_latent_goal scoring requires CEM candidates.")
+        return hierarchical_cem_scores(
+            model,
+            world,
+            initial_state,
+            goal,
+            candidates,
+            hierarchy_level=hierarchy_level,
+        )
     goals = np.repeat(goal[None, ...], final_states.shape[0], axis=0)
     states_tensor = torch.as_tensor(final_states, dtype=torch.long)
     goals_tensor = torch.as_tensor(goals, dtype=torch.long)
@@ -808,6 +842,52 @@ def cem_scores(
     else:
         scores = model.score_states_to_goal(states_tensor, goals_tensor, world.task_id)
     return [float(item) for item in scores.detach().cpu().tolist()]
+
+
+@torch.no_grad()
+def hierarchical_cem_scores(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    initial_state: np.ndarray,
+    goal: np.ndarray,
+    candidates: list[dict[str, Any]],
+    *,
+    hierarchy_level: int,
+) -> list[float]:
+    scores: list[float] = [math.nan for _ in candidates]
+    state_tensor = torch.as_tensor(initial_state, dtype=torch.long)
+    goal_tensor = torch.as_tensor(goal, dtype=torch.long)
+    block = int(model.hierarchy_span) ** int(hierarchy_level)
+    by_usable: dict[int, list[int]] = {}
+    for index, candidate in enumerate(candidates):
+        actions = candidate["actions"]
+        usable = len(actions) - (len(actions) % block)
+        by_usable.setdefault(usable, []).append(index)
+    for usable, indices in by_usable.items():
+        if usable <= 0:
+            states = torch.as_tensor(np.stack([candidates[index]["state"] for index in indices]), dtype=torch.long)
+            batch_scores = model.score_states_to_goal(states, goal_tensor, world.task_id)
+        else:
+            action_tensor = torch.as_tensor(
+                [
+                    [
+                        [world.task_id, action.row, action.col, action.value]
+                        for action in candidates[index]["actions"][:usable]
+                    ]
+                    for index in indices
+                ],
+                dtype=torch.long,
+            )
+            batch_scores = model.score_action_sequences_to_goal(
+                state_tensor,
+                action_tensor,
+                goal_tensor,
+                world.task_id,
+                hierarchy_level=hierarchy_level,
+            )
+        for index, score in zip(indices, batch_scores.detach().cpu().tolist(), strict=True):
+            scores[index] = float(score)
+    return scores
 
 
 def estimate_cem_distributions(
@@ -1108,6 +1188,7 @@ def flatten_cem_plan_records(summaries: dict[str, list[dict[str, Any]]]) -> list
                     "elite_frac": float(item["elite_frac"]),
                     "iterations": float(item["iterations"]),
                     "smoothing": float(item["smoothing"]),
+                    "hierarchy_level": float(item.get("hierarchy_level", 0.0)),
                     "final_state": item["final_state"],
                     "goal_state": item["goal_state"],
                     "mismatches": item["mismatches"],
@@ -1298,6 +1379,19 @@ def build_world(task_cfg: dict[str, Any]) -> PuzzleWorld:
     if name == "maze":
         return MazeWorld(height=int(task_cfg.get("height", 30)), width=int(task_cfg.get("width", 30)))
     raise ValueError(f"Unknown task {name!r}.")
+
+
+def load_model_checkpoint_state(model: ActionConditionedWorldModel, state: dict[str, torch.Tensor]) -> None:
+    load_result = model.load_state_dict(state, strict=False)
+    missing = list(load_result.missing_keys)
+    unexpected = list(load_result.unexpected_keys)
+    allowed_missing = [key for key in missing if key.startswith("higher_action_encoders.")]
+    if unexpected or len(allowed_missing) != len(missing):
+        raise RuntimeError(
+            "Checkpoint/model mismatch. "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    setattr(model, "checkpoint_missing_hierarchy_action_encoders", bool(allowed_missing))
 
 
 def load_examples(task_cfg: dict[str, Any], split_key: str) -> list[PuzzleExample]:
@@ -1590,7 +1684,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cem-elite-frac", type=float, default=0.2)
     parser.add_argument("--cem-iterations", type=int, default=4)
     parser.add_argument("--cem-smoothing", type=float, default=0.7)
-    parser.add_argument("--cem-score", choices=["auto", "goal_energy", "latent_goal"], default="auto")
+    parser.add_argument(
+        "--cem-score",
+        choices=["auto", "goal_energy", "latent_goal", "hierarchical_latent_goal"],
+        default="auto",
+    )
+    parser.add_argument("--cem-hierarchy-level", type=int, default=0)
     parser.add_argument("--trace-examples", type=int, default=3)
     parser.add_argument("--max-unroll-steps", type=int, default=256)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 4, 10, 20])
@@ -1615,6 +1714,7 @@ def main() -> None:
         cem_iterations=args.cem_iterations,
         cem_smoothing=args.cem_smoothing,
         cem_score=args.cem_score,
+        cem_hierarchy_level=args.cem_hierarchy_level,
         max_unroll_steps=args.max_unroll_steps,
         horizons=args.horizons,
         depth_fractions=args.depth_fractions,

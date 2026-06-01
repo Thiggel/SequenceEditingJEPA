@@ -49,5 +49,6 @@ def test_hydra_grid4a_goal_energy_hierarchy_configs_compose():
     with initialize_config_dir(version_base=None, config_dir=str(repo_root / "configs" / "puzzle")):
         configs = [compose(config_name=name) for name in names]
     assert [int(cfg.model.hierarchy_levels) for cfg in configs] == [1, 2, 3]
+    assert [int(cfg.model.hierarchy_span) for cfg in configs] == [9, 9, 3]
     assert all(bool(cfg.model.use_cls_token) for cfg in configs)
     assert all(bool(cfg.model.use_goal_energy_head) for cfg in configs)
