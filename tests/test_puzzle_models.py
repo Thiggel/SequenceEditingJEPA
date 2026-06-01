@@ -12,6 +12,7 @@ from puzzle_jepa.data import (
 from puzzle_jepa.data.worlds import PuzzleExample
 from puzzle_jepa.eval.diagnostics import (
     evaluate_cem_planning,
+    evaluate_hierarchical_subgoal_cem_planning,
     evaluate_latent_drift,
     evaluate_latent_planning,
     evaluate_paired_reset_planning,
@@ -274,6 +275,9 @@ def test_goal_energy_cls_and_hierarchy_losses_backpropagate():
     assert "loss/hierarchy_level_2_h4_mse" in hierarchy.components
     abstract_action = model.encode_hierarchy_action(rollout_batch.actions[:, :4], level=2)
     assert abstract_action.shape == (2, 32)
+    latent = model.encoder(batch.states, task_ids=batch.actions[:, 0])
+    macro_pred = model.predict_latent_from_abstract_action(latent, abstract_action, level=2)
+    assert macro_pred.shape == latent.shape
     (output.loss + hierarchy.loss).backward()
     assert model.goal_energy_head[-1].weight.grad is not None
     assert model.higher_action_encoders[-1].stack.layers[0].attn.in_proj_weight.grad is not None
@@ -394,6 +398,27 @@ def test_cem_planning_records_with_goal_energy_head():
     )
     assert hierarchical_summary["hierarchical_latent_goal"]["count"] == 1.0
     assert hierarchical_records[0]["hierarchy_level"] == 1.0
+
+    subgoal_summary, subgoal_records = evaluate_hierarchical_subgoal_cem_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(2),
+        num_examples=1,
+        max_steps=2,
+        hierarchy_level=1,
+        macro_horizon=1,
+        high_population_size=3,
+        low_population_size=3,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        execute_steps=1,
+        prior_samples=2,
+    )
+    assert subgoal_summary["oracle_latent_subgoal"]["count"] == 1.0
+    assert subgoal_records[0]["planner"] == "hierarchical_subgoal_cem"
+    assert subgoal_records[0]["hierarchy_level"] == 1.0
 
 
 def test_diagnostics_oracle_sequence_and_drift_smoke():

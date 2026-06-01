@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-01 14:47 CEST
+Last updated: 2026-06-01 15:10 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -32,10 +32,13 @@ planning solved `128/128`.
 This passes the mechanism gate for a planner-state reset/re-encoding branch,
 but it is still an oracle-goal diagnostic, not a deployable solver. The next
 user-directed branch is Grid 4A: train one-, two-, and three-level JEPA models
-with a learned goal-energy head and evaluate them with CEM. Training array
-`3688587_[0-2]` started at `2026-06-01 13:06:00 CEST`, but it was pre-HWM
-correction and was cancelled after user approval at `14:46:56 CEST`. Corrected
-HWM-style training is running as `3688921_[0-2]` and writes to separate
+with a learned goal-energy head, learned action-encoder hierarchy, and CEM.
+Training array `3688587_[0-2]` started at `2026-06-01 13:06:00 CEST`, but it
+was pre-HWM correction and was cancelled after user approval at `14:46:56 CEST`.
+Intermediate corrected training `3688921_[0-2]` was cancelled at `15:01:20 CEST`
+after the user requested the exact report-style high-level latent-action CEM
+to subgoal and low-level primitive CEM recipe. Replacement training
+`3688986_[0-2]` is running and writes to the
 `sudoku_jepa_5m_goal_energy_hwm_*` run roots.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
@@ -88,7 +91,8 @@ confirms reset every 4 as the cheapest exact cadence tested on the larger
 sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
 `3687722` completed, and successor `3688542` is the single future oversight.
 Grid 4A pre-correction training `3688587_[0-2]` was cancelled after preserving
-step-1 metrics; corrected HWM-style training is running as `3688921_[0-2]`.
+step-1 metrics; intermediate `3688921_[0-2]` was cancelled after the exact
+planner correction; replacement training is running as `3688986_[0-2]`.
 
 ## Grid 3A Diagnostics
 

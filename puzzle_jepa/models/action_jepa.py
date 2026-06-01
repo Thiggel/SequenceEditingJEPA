@@ -360,6 +360,30 @@ class ActionConditionedWorldModel(nn.Module):
             return latents + predicted
         return predicted
 
+    def predict_latent_from_abstract_action(
+        self,
+        latents: torch.Tensor,
+        abstract_actions: torch.Tensor,
+        *,
+        level: int,
+    ) -> torch.Tensor:
+        if latents.ndim != 3:
+            raise ValueError("latents must have shape [batch, tokens, hidden].")
+        if abstract_actions.ndim != 2:
+            raise ValueError("abstract_actions must have shape [batch, hidden].")
+        if abstract_actions.shape[0] != latents.shape[0]:
+            raise ValueError("abstract action batch size must match latents batch size.")
+        if abstract_actions.shape[-1] != latents.shape[-1]:
+            raise ValueError("abstract action hidden size must match latent hidden size.")
+        level = int(level)
+        if level <= 0 or level >= self.hierarchy_levels:
+            raise ValueError(f"level must be in [1, {self.hierarchy_levels}).")
+        conditioned = latents + abstract_actions.unsqueeze(1)
+        predicted = self._predictor_for_level(level)(conditioned)
+        if self.predict_residual:
+            return latents + predicted
+        return predicted
+
     def predict_latent_from_latent(
         self,
         latents: torch.Tensor,

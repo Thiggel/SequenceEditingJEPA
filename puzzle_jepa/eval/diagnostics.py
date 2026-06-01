@@ -66,6 +66,16 @@ def run_diagnostics(
     cem_smoothing: float,
     cem_score: str,
     cem_hierarchy_level: int,
+    subgoal_cem_examples: int,
+    subgoal_hierarchy_level: int,
+    subgoal_macro_horizon: int,
+    subgoal_high_population: int,
+    subgoal_low_population: int,
+    subgoal_iterations: int,
+    subgoal_elite_frac: float,
+    subgoal_smoothing: float,
+    subgoal_execute_steps: int,
+    subgoal_prior_samples: int,
     max_unroll_steps: int,
     horizons: list[int],
     depth_fractions: list[float],
@@ -163,6 +173,23 @@ def run_diagnostics(
         score_mode=cem_score,
         hierarchy_level=cem_hierarchy_level,
     )
+    subgoal_cem_planning, subgoal_cem_planning_records = evaluate_hierarchical_subgoal_cem_planning(
+        model,
+        world,
+        examples,
+        rng,
+        num_examples=subgoal_cem_examples,
+        max_steps=max_unroll_steps,
+        hierarchy_level=subgoal_hierarchy_level,
+        macro_horizon=subgoal_macro_horizon,
+        high_population_size=subgoal_high_population,
+        low_population_size=subgoal_low_population,
+        elite_frac=subgoal_elite_frac,
+        iterations=subgoal_iterations,
+        smoothing=subgoal_smoothing,
+        execute_steps=subgoal_execute_steps,
+        prior_samples=subgoal_prior_samples,
+    )
     traces = collect_planner_failure_traces(
         model,
         world,
@@ -183,6 +210,7 @@ def run_diagnostics(
         "reencoded_planning": reencoded_planning,
         "paired_reset_planning": paired_reset_planning,
         "cem_planning": cem_planning,
+        "hierarchical_subgoal_cem": subgoal_cem_planning,
         "planner_traces": traces,
     }
     destination = output_dir or (run_root / "diagnostics")
@@ -210,6 +238,10 @@ def run_diagnostics(
     if cem_planning_records:
         with (destination / "cem_planning_records.jsonl").open("w") as handle:
             for record in cem_planning_records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if subgoal_cem_planning_records:
+        with (destination / "hierarchical_subgoal_cem_records.jsonl").open("w") as handle:
+            for record in subgoal_cem_planning_records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
     write_drift_plot(destination / "latent_energy_mse.png", drift_records)
     print(json.dumps(result, indent=2, sort_keys=True), flush=True)
@@ -917,6 +949,482 @@ def normalize_categorical(values: np.ndarray) -> np.ndarray:
 
 
 @torch.no_grad()
+def evaluate_hierarchical_subgoal_cem_planning(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    num_examples: int,
+    max_steps: int,
+    hierarchy_level: int,
+    macro_horizon: int,
+    high_population_size: int,
+    low_population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    execute_steps: int,
+    prior_samples: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if num_examples <= 0:
+        return {}, []
+    validate_hierarchical_subgoal_level(model, hierarchy_level)
+    items: list[dict[str, Any]] = []
+    for example_index in range(num_examples):
+        example = examples[int(rng.integers(0, len(examples)))]
+        plan = hierarchical_subgoal_cem_plan(
+            model,
+            world,
+            example,
+            rng,
+            max_steps=max_steps,
+            hierarchy_level=hierarchy_level,
+            macro_horizon=macro_horizon,
+            high_population_size=high_population_size,
+            low_population_size=low_population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+            execute_steps=execute_steps,
+            prior_samples=prior_samples,
+        )
+        plan["example_index"] = int(example_index)
+        items.append(plan)
+    return (
+        {"oracle_latent_subgoal": summarize_plan_summaries(items)},
+        flatten_hierarchical_subgoal_cem_records(items),
+    )
+
+
+@torch.no_grad()
+def hierarchical_subgoal_cem_plan(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    *,
+    max_steps: int,
+    hierarchy_level: int,
+    macro_horizon: int,
+    high_population_size: int,
+    low_population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    execute_steps: int,
+    prior_samples: int,
+) -> dict[str, Any]:
+    validate_hierarchical_subgoal_level(model, hierarchy_level)
+    start = world.validate_state(example.state).copy()
+    goal = world.validate_state(example.goal)
+    clue_mask = clue_mask_for_planning(world, start)
+    limit = min(int(max_steps), terminal_step_limit(world, example, max_steps))
+    block = int(model.hierarchy_span) ** int(hierarchy_level)
+    high_population_size = max(1, int(high_population_size))
+    low_population_size = max(1, int(low_population_size))
+    iterations = max(1, int(iterations))
+    execute_steps = max(1, int(execute_steps))
+    macro_horizon = max(1, int(macro_horizon))
+    smoothing = min(max(float(smoothing), 0.0), 1.0)
+
+    if limit <= 0 or world.is_goal(start, goal):
+        return {
+            "solved": float(world.is_goal(start, goal)),
+            "terminal": float(is_terminal_state(world, start, goal, clue_mask)),
+            "steps": 0.0,
+            "energy": 0.0,
+            "remaining_hamming": float(np.not_equal(start, goal).sum()),
+            "final_state": board_as_list(start),
+            "goal_state": board_as_list(goal),
+            "mismatches": mismatch_records(start, goal),
+            "hierarchy_level": float(hierarchy_level),
+            "macro_horizon": float(macro_horizon),
+            "macro_block": float(block),
+            "high_population_size": float(high_population_size),
+            "low_population_size": float(low_population_size),
+            "elite_frac": float(elite_frac),
+            "iterations": float(iterations),
+            "smoothing": float(smoothing),
+            "execute_steps": float(execute_steps),
+            "replans": 0.0,
+            "mean_high_energy": 0.0,
+            "mean_low_subgoal_energy": 0.0,
+            "prior_samples": float(prior_samples),
+        }
+
+    action_space = cem_action_space(world, start, clue_mask)
+    if not action_space["positions"] or not action_space["values"]:
+        return {
+            "solved": 0.0,
+            "terminal": float(is_terminal_state(world, start, goal, clue_mask)),
+            "steps": 0.0,
+            "energy": math.inf,
+            "remaining_hamming": float(np.not_equal(start, goal).sum()),
+            "final_state": board_as_list(start),
+            "goal_state": board_as_list(goal),
+            "mismatches": mismatch_records(start, goal),
+            "hierarchy_level": float(hierarchy_level),
+            "macro_horizon": float(macro_horizon),
+            "macro_block": float(block),
+            "high_population_size": float(high_population_size),
+            "low_population_size": float(low_population_size),
+            "elite_frac": float(elite_frac),
+            "iterations": float(iterations),
+            "smoothing": float(smoothing),
+            "execute_steps": float(execute_steps),
+            "replans": 0.0,
+            "mean_high_energy": math.inf,
+            "mean_low_subgoal_energy": math.inf,
+            "prior_samples": float(prior_samples),
+        }
+
+    current = start.copy()
+    steps = 0
+    high_energies: list[float] = []
+    low_energies: list[float] = []
+    replans = 0
+    while steps < limit and not is_terminal_state(world, current, goal, clue_mask):
+        device = next(model.parameters()).device
+        task_ids = torch.full((1,), world.task_id, dtype=torch.long, device=device)
+        current_tensor = torch.as_tensor(current[None, ...], dtype=torch.long, device=device)
+        goal_tensor = torch.as_tensor(goal[None, ...], dtype=torch.long, device=device)
+        current_latent = model.encoder(current_tensor, task_ids=task_ids)
+        goal_latent = model.target_encoder(goal_tensor, task_ids=task_ids)
+        prior = estimate_macro_action_prior(
+            model,
+            world,
+            current,
+            goal,
+            clue_mask,
+            rng,
+            hierarchy_level=hierarchy_level,
+            samples=prior_samples,
+        )
+        high_plan = high_level_subgoal_cem(
+            model,
+            current_latent,
+            goal_latent,
+            rng,
+            hierarchy_level=hierarchy_level,
+            macro_horizon=macro_horizon,
+            population_size=high_population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+            prior=prior,
+        )
+        remaining = max(1, limit - steps)
+        low_plan = low_level_subgoal_cem(
+            model,
+            world,
+            current,
+            goal,
+            clue_mask,
+            rng,
+            subgoal_latent=high_plan["subgoal_latent"],
+            horizon=min(block, remaining),
+            population_size=low_population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+        )
+        actions = list(low_plan["actions"])
+        if not actions:
+            break
+        prefix = actions[: min(execute_steps, len(actions), limit - steps)]
+        if not prefix:
+            break
+        for action in prefix:
+            current = apply_planning_action(world, current, action, clue_mask)
+        steps += len(prefix)
+        replans += 1
+        high_energies.append(float(high_plan["energy"]))
+        low_energies.append(float(low_plan["energy"]))
+
+    return {
+        "solved": float(world.is_goal(current, goal)),
+        "terminal": float(is_terminal_state(world, current, goal, clue_mask)),
+        "steps": float(steps),
+        "energy": float(encoded_state_energy(model, world, current, goal)),
+        "remaining_hamming": float(np.not_equal(current, goal).sum()),
+        "final_state": board_as_list(current),
+        "goal_state": board_as_list(goal),
+        "mismatches": mismatch_records(current, goal),
+        "hierarchy_level": float(hierarchy_level),
+        "macro_horizon": float(macro_horizon),
+        "macro_block": float(block),
+        "high_population_size": float(high_population_size),
+        "low_population_size": float(low_population_size),
+        "elite_frac": float(elite_frac),
+        "iterations": float(iterations),
+        "smoothing": float(smoothing),
+        "execute_steps": float(execute_steps),
+        "replans": float(replans),
+        "mean_high_energy": mean(high_energies),
+        "mean_low_subgoal_energy": mean(low_energies),
+        "prior_samples": float(prior_samples),
+    }
+
+
+def validate_hierarchical_subgoal_level(model: ActionConditionedWorldModel, hierarchy_level: int) -> None:
+    if int(hierarchy_level) <= 0:
+        raise ValueError("hierarchical subgoal CEM requires --subgoal-hierarchy-level > 0.")
+    if int(hierarchy_level) >= model.hierarchy_levels:
+        raise ValueError("subgoal hierarchy level must be lower than model.hierarchy_levels.")
+    if getattr(model, "checkpoint_missing_hierarchy_action_encoders", False):
+        raise ValueError("hierarchical subgoal CEM requires a checkpoint with trained action encoders.")
+
+
+@torch.no_grad()
+def high_level_subgoal_cem(
+    model: ActionConditionedWorldModel,
+    current_latent: torch.Tensor,
+    goal_latent: torch.Tensor,
+    rng: np.random.Generator,
+    *,
+    hierarchy_level: int,
+    macro_horizon: int,
+    population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    prior: torch.Tensor | None,
+) -> dict[str, Any]:
+    del rng
+    device = current_latent.device
+    hidden_size = int(current_latent.shape[-1])
+    population_size = max(1, int(population_size))
+    macro_horizon = max(1, int(macro_horizon))
+    iterations = max(1, int(iterations))
+    elite_count = max(1, min(population_size, int(math.ceil(population_size * float(elite_frac)))))
+    smoothing = min(max(float(smoothing), 0.0), 1.0)
+    if prior is not None and prior.numel() > 0:
+        prior = prior.to(device=device, dtype=current_latent.dtype)
+        base_mu = prior.mean(dim=0)
+        if prior.shape[0] > 1:
+            base_std = prior.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+        else:
+            base_std = torch.ones(hidden_size, dtype=current_latent.dtype, device=device)
+    else:
+        base_mu = torch.zeros(hidden_size, dtype=current_latent.dtype, device=device)
+        base_std = torch.ones(hidden_size, dtype=current_latent.dtype, device=device)
+    mu = base_mu.unsqueeze(0).expand(macro_horizon, -1).clone()
+    std = base_std.unsqueeze(0).expand(macro_horizon, -1).clone()
+    best_energy = math.inf
+    best_subgoal = current_latent.detach().clone()
+    best_sequence = torch.zeros(macro_horizon, hidden_size, dtype=current_latent.dtype, device=device)
+    goal_batch = goal_latent.expand(population_size, -1, -1)
+    current_batch = current_latent.expand(population_size, -1, -1)
+
+    for _ in range(iterations):
+        samples = mu.unsqueeze(0) + std.unsqueeze(0) * torch.randn(
+            population_size,
+            macro_horizon,
+            hidden_size,
+            dtype=current_latent.dtype,
+            device=device,
+        )
+        latents = current_batch.clone()
+        first_subgoals = None
+        for step in range(macro_horizon):
+            latents = model.predict_latent_from_abstract_action(
+                latents,
+                samples[:, step],
+                level=hierarchy_level,
+            )
+            if step == 0:
+                first_subgoals = latents
+        energies = F.mse_loss(latents, goal_batch, reduction="none").mean(dim=(1, 2))
+        order = torch.argsort(energies)
+        best_index = int(order[0].detach().cpu().item())
+        energy = float(energies[best_index].detach().cpu().item())
+        if energy < best_energy:
+            best_energy = energy
+            if first_subgoals is None:
+                raise RuntimeError("high-level CEM did not produce a subgoal.")
+            best_subgoal = first_subgoals[best_index : best_index + 1].detach().clone()
+            best_sequence = samples[best_index].detach().clone()
+        elites = samples[order[:elite_count]]
+        elite_mu = elites.mean(dim=0)
+        elite_std = elites.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+        mu = smoothing * mu + (1.0 - smoothing) * elite_mu
+        std = smoothing * std + (1.0 - smoothing) * elite_std
+
+    return {
+        "subgoal_latent": best_subgoal,
+        "energy": float(best_energy),
+        "latent_action_sequence": best_sequence,
+    }
+
+
+@torch.no_grad()
+def estimate_macro_action_prior(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    start: np.ndarray,
+    goal: np.ndarray,
+    clue_mask: np.ndarray | None,
+    rng: np.random.Generator,
+    *,
+    hierarchy_level: int,
+    samples: int,
+) -> torch.Tensor | None:
+    samples = int(samples)
+    if samples <= 0:
+        return None
+    action_space = cem_action_space(world, start, clue_mask)
+    if not action_space["positions"] or not action_space["values"]:
+        return None
+    block = int(model.hierarchy_span) ** int(hierarchy_level)
+    cell_probs = np.full((block, len(action_space["positions"])), 1.0 / len(action_space["positions"]))
+    value_probs = np.full((block, len(action_space["values"])), 1.0 / len(action_space["values"]))
+    encoded_sequences: list[list[list[int]]] = []
+    max_attempts = max(samples * 4, samples)
+    for _ in range(max_attempts):
+        candidate = sample_cem_rollout(
+            world,
+            start,
+            goal,
+            clue_mask,
+            rng,
+            cell_probs=cell_probs,
+            value_probs=value_probs,
+            action_space=action_space,
+        )
+        actions = candidate["actions"]
+        if len(actions) != block:
+            continue
+        encoded_sequences.append(
+            [
+                [world.task_id, action.row, action.col, action.value]
+                for action in actions
+            ]
+        )
+        if len(encoded_sequences) >= samples:
+            break
+    if not encoded_sequences:
+        return None
+    device = next(model.parameters()).device
+    action_tensor = torch.as_tensor(encoded_sequences, dtype=torch.long, device=device)
+    return model.encode_hierarchy_action(action_tensor, level=hierarchy_level).detach()
+
+
+@torch.no_grad()
+def low_level_subgoal_cem(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    start: np.ndarray,
+    goal: np.ndarray,
+    clue_mask: np.ndarray | None,
+    rng: np.random.Generator,
+    *,
+    subgoal_latent: torch.Tensor,
+    horizon: int,
+    population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+) -> dict[str, Any]:
+    action_space = cem_action_space(world, start, clue_mask)
+    if not action_space["positions"] or not action_space["values"]:
+        return {"state": start.copy(), "actions": [], "energy": math.inf}
+    horizon = max(1, int(horizon))
+    population_size = max(1, int(population_size))
+    iterations = max(1, int(iterations))
+    elite_count = max(1, min(population_size, int(math.ceil(population_size * float(elite_frac)))))
+    smoothing = min(max(float(smoothing), 0.0), 1.0)
+    cell_probs = np.full((horizon, len(action_space["positions"])), 1.0 / len(action_space["positions"]))
+    value_probs = np.full((horizon, len(action_space["values"])), 1.0 / len(action_space["values"]))
+    best_state = start.copy()
+    best_actions: list[WorldAction] = []
+    best_score = -math.inf
+
+    for _ in range(iterations):
+        candidates = [
+            sample_cem_rollout(
+                world,
+                start,
+                goal,
+                clue_mask,
+                rng,
+                cell_probs=cell_probs,
+                value_probs=value_probs,
+                action_space=action_space,
+            )
+            for _sample_index in range(population_size)
+        ]
+        scores = primitive_subgoal_scores(
+            model,
+            world,
+            start,
+            candidates,
+            subgoal_latent=subgoal_latent,
+        )
+        for candidate, score in zip(candidates, scores, strict=True):
+            candidate["score"] = float(score)
+        candidates.sort(key=lambda item: float(item["score"]), reverse=True)
+        if float(candidates[0]["score"]) > best_score:
+            best_score = float(candidates[0]["score"])
+            best_state = candidates[0]["state"]
+            best_actions = list(candidates[0]["actions"])
+        elites = candidates[:elite_count]
+        elite_cell_probs, elite_value_probs = estimate_cem_distributions(elites, action_space, horizon)
+        cell_probs = smoothing * cell_probs + (1.0 - smoothing) * elite_cell_probs
+        value_probs = smoothing * value_probs + (1.0 - smoothing) * elite_value_probs
+        cell_probs = normalize_categorical(cell_probs)
+        value_probs = normalize_categorical(value_probs)
+
+    return {"state": best_state, "actions": best_actions, "energy": float(-best_score)}
+
+
+@torch.no_grad()
+def primitive_subgoal_scores(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    initial_state: np.ndarray,
+    candidates: list[dict[str, Any]],
+    *,
+    subgoal_latent: torch.Tensor,
+) -> list[float]:
+    device = next(model.parameters()).device
+    scores: list[float] = [math.nan for _ in candidates]
+    state_tensor = torch.as_tensor(initial_state[None, ...], dtype=torch.long, device=device)
+    task_ids = torch.full((1,), world.task_id, dtype=torch.long, device=device)
+    start_latent = model.encoder(state_tensor, task_ids=task_ids)
+    height, width = int(initial_state.shape[-2]), int(initial_state.shape[-1])
+    by_length: dict[int, list[int]] = {}
+    for index, candidate in enumerate(candidates):
+        by_length.setdefault(len(candidate["actions"]), []).append(index)
+    for length, indices in by_length.items():
+        latents = start_latent.expand(len(indices), -1, -1).clone()
+        if length > 0:
+            action_tensor = torch.as_tensor(
+                [
+                    [
+                        [world.task_id, action.row, action.col, action.value]
+                        for action in candidates[index]["actions"]
+                    ]
+                    for index in indices
+                ],
+                dtype=torch.long,
+                device=device,
+            )
+            for step in range(length):
+                latents = model.predict_latent_from_latent(
+                    latents,
+                    action_tensor[:, step],
+                    height=height,
+                    width=width,
+                )
+        target = subgoal_latent.expand(len(indices), -1, -1)
+        batch_scores = -F.mse_loss(latents, target, reduction="none").mean(dim=(1, 2))
+        for index, score in zip(indices, batch_scores.detach().cpu().tolist(), strict=True):
+            scores[index] = float(score)
+    return scores
+
+
+@torch.no_grad()
 def latent_beam_plan(
     model: ActionConditionedWorldModel,
     world: PuzzleWorld,
@@ -1194,6 +1702,40 @@ def flatten_cem_plan_records(summaries: dict[str, list[dict[str, Any]]]) -> list
                     "mismatches": item["mismatches"],
                 }
             )
+    return records
+
+
+def flatten_hierarchical_subgoal_cem_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    records = []
+    for item in items:
+        records.append(
+            {
+                "planner": "hierarchical_subgoal_cem",
+                "mode": "oracle_latent_subgoal",
+                "example_index": int(item["example_index"]),
+                "solved": float(item["solved"]),
+                "terminal": float(item["terminal"]),
+                "steps": float(item["steps"]),
+                "energy": float(item["energy"]),
+                "remaining_hamming": float(item["remaining_hamming"]),
+                "hierarchy_level": float(item["hierarchy_level"]),
+                "macro_horizon": float(item["macro_horizon"]),
+                "macro_block": float(item["macro_block"]),
+                "high_population_size": float(item["high_population_size"]),
+                "low_population_size": float(item["low_population_size"]),
+                "elite_frac": float(item["elite_frac"]),
+                "iterations": float(item["iterations"]),
+                "smoothing": float(item["smoothing"]),
+                "execute_steps": float(item["execute_steps"]),
+                "replans": float(item["replans"]),
+                "mean_high_energy": float(item["mean_high_energy"]),
+                "mean_low_subgoal_energy": float(item["mean_low_subgoal_energy"]),
+                "prior_samples": float(item["prior_samples"]),
+                "final_state": item["final_state"],
+                "goal_state": item["goal_state"],
+                "mismatches": item["mismatches"],
+            }
+        )
     return records
 
 
@@ -1690,6 +2232,16 @@ def parse_args() -> argparse.Namespace:
         default="auto",
     )
     parser.add_argument("--cem-hierarchy-level", type=int, default=0)
+    parser.add_argument("--subgoal-cem-examples", type=int, default=0)
+    parser.add_argument("--subgoal-hierarchy-level", type=int, default=1)
+    parser.add_argument("--subgoal-macro-horizon", type=int, default=3)
+    parser.add_argument("--subgoal-high-population", type=int, default=128)
+    parser.add_argument("--subgoal-low-population", type=int, default=128)
+    parser.add_argument("--subgoal-iterations", type=int, default=4)
+    parser.add_argument("--subgoal-elite-frac", type=float, default=0.2)
+    parser.add_argument("--subgoal-smoothing", type=float, default=0.7)
+    parser.add_argument("--subgoal-execute-steps", type=int, default=1)
+    parser.add_argument("--subgoal-prior-samples", type=int, default=64)
     parser.add_argument("--trace-examples", type=int, default=3)
     parser.add_argument("--max-unroll-steps", type=int, default=256)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 4, 10, 20])
@@ -1715,6 +2267,16 @@ def main() -> None:
         cem_smoothing=args.cem_smoothing,
         cem_score=args.cem_score,
         cem_hierarchy_level=args.cem_hierarchy_level,
+        subgoal_cem_examples=args.subgoal_cem_examples,
+        subgoal_hierarchy_level=args.subgoal_hierarchy_level,
+        subgoal_macro_horizon=args.subgoal_macro_horizon,
+        subgoal_high_population=args.subgoal_high_population,
+        subgoal_low_population=args.subgoal_low_population,
+        subgoal_iterations=args.subgoal_iterations,
+        subgoal_elite_frac=args.subgoal_elite_frac,
+        subgoal_smoothing=args.subgoal_smoothing,
+        subgoal_execute_steps=args.subgoal_execute_steps,
+        subgoal_prior_samples=args.subgoal_prior_samples,
         max_unroll_steps=args.max_unroll_steps,
         horizons=args.horizons,
         depth_fractions=args.depth_fractions,

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-01 14:47 CEST
+Last updated: 2026-06-01 15:10 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -61,13 +61,14 @@ repo snapshot.
 | `3687722` | COMPLETED | Replacement enhanced recurring oversight ran `2026-06-01 12:57:00-13:21:50 CEST`, exit `0:0`; submitted successor `3688542`. |
 | `3688542` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-01 16:57:08 CEST`. |
 | `3688587_[0-2]` | CANCELLED | User-approved cancellation at `2026-06-01 14:46:56 CEST`; pre-HWM-correction Grid 4A baseline jobs ran `01:40:56` and wrote step-1 metrics. |
-| `3688921_[0-2]` | RUNNING | Corrected HWM-style Grid 4A training submitted at `2026-06-01 14:47:13 CEST`; tasks started immediately on `a0531`, `a0731`, and `a0931`; output roots are `sudoku_jepa_5m_goal_energy_hwm_l1`, `..._l2_span9`, `..._l3_span3`. |
+| `3688921_[0-2]` | CANCELLED | Superseded after the user requested exact report-style hierarchical planning; cancelled at `2026-06-01 15:01:20 CEST` after `00:14:07` on `a0531`, `a0731`, and `a0931`; no checkpoints. |
+| `3688986_[0-2]` | RUNNING | Exact-recipe Grid 4A training resubmitted at `2026-06-01 15:09:33 CEST`; `_0` on `a0531`, `_1` and `_2` on `a0731`; output roots are `sudoku_jepa_5m_goal_energy_hwm_l1`, `..._l2_span9`, `..._l3_span3`. |
 
 Check live state:
 
 ```bash
-squeue -j 3688542,3688587,3688921 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3688587,3688921 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3688542,3688587,3688921,3688986 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3688587,3688921,3688986 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -109,14 +110,22 @@ after 34 seconds on `a0731`; there was no application stderr. Replacement
 oversight `3687722` started at `2026-06-01 12:57:00 CEST`, and exactly one
 later oversight, `3688542`, is pending for `2026-06-01 16:57:08 CEST`.
 Other visible HFSA/paired user-account arrays are outside this repo snapshot.
-Partition housekeeping at 14:03 CEST: Grid 4A is already running on `a100`;
-`3688542` is begin-time-blocked, so no
+Partition housekeeping at 15:09 CEST: `sinfo` showed idle `a40` nodes and idle
+`a100` capacity, but the Grid 4A jobs require `--constraint=a100_80` and started
+on `a100` immediately. `3688542` is begin-time-blocked, so no
 `scontrol update ... Partition=...` is useful.
 
 Grid 4A check at 14:47 CEST: pre-HWM-correction jobs `3688587_[0-2]` were
-cancelled after user approval. Corrected HWM-style jobs `3688921_[0-2]` are
-running. At submission time the corrected HWM run roots did not yet contain
-metrics or checkpoints; CEM diagnostics should wait for `checkpoint.pt`.
+cancelled after user approval. Corrected HWM-style jobs `3688921_[0-2]` started
+immediately, but were later superseded by the exact report-style planner request.
+At submission time the corrected HWM run roots did not yet contain metrics or
+checkpoints; CEM diagnostics should wait for `checkpoint.pt`.
+
+Grid 4A check at 15:10 CEST: `3688921_[0-2]` was cancelled after the user asked
+for the exact report-style planner rather than the intermediate primitive-candidate
+hierarchical score path. Replacement exact-recipe training is `3688986_[0-2]`,
+running since `2026-06-01 15:09:33 CEST`. The corrected run roots currently
+contain refreshed `config.json` files but no metrics or checkpoints yet.
 
 Implementation correction at 14:03 CEST: the user clarified that the hierarchy
 should have an explicit higher-level action encoder over the lower-level action
@@ -128,11 +137,22 @@ run roots are `sudoku_jepa_5m_goal_energy_hwm_l1`,
 `sudoku_jepa_5m_goal_energy_hwm_l3_span3`, so they do not overwrite the
 cancelled pre-correction roots.
 
+Exact report-style planning implemented at 15:10 CEST: diagnostics now have a
+`hierarchical_subgoal_cem` path. High-level CEM samples continuous latent
+macro-action sequences, rolls out the higher-level predictor toward the solved
+board latent, takes the first predicted high-level latent as the subgoal, and
+then runs low-level categorical CEM over primitive Sudoku writes to reach that
+subgoal. The high-level latent action is not decoded into primitive actions.
+Use `scripts/slurm/run_grid4a_subgoal_cem_diagnostics.slurm` after l2/l3
+checkpoints exist. The older `run_grid4a_hierarchical_cem_diagnostics.slurm`
+is only a comparison diagnostic that scores primitive candidate chunks through
+the action encoder; it is not the exact report recipe.
+
 Focused validation passed under the repo venv:
 
 ```bash
 source scripts/env.sh
-python -m pytest -q tests/test_puzzle_models.py tests/test_puzzle_hydra.py
+pytest tests/test_puzzle_models.py tests/test_puzzle_hydra.py -q
 ```
 
 The 13:06 CEST oversight rerun of that pytest command was interrupted before
@@ -146,12 +166,16 @@ After Grid 4A checkpoints exist, run:
 sbatch scripts/slurm/run_grid4a_cem_diagnostics.slurm
 ```
 
-For the oracle-goal high-level action-encoder diagnostic on corrected
-hierarchical checkpoints, run:
+For the report-style oracle-goal hierarchical subgoal diagnostic on corrected
+l2/l3 checkpoints, run:
 
 ```bash
-sbatch scripts/slurm/run_grid4a_hierarchical_cem_diagnostics.slurm
+sbatch scripts/slurm/run_grid4a_subgoal_cem_diagnostics.slurm
 ```
+
+For the older primitive-candidate hierarchy comparison diagnostic, run
+`scripts/slurm/run_grid4a_hierarchical_cem_diagnostics.slurm` only after the
+exact subgoal planner is recorded or if a direct comparison is needed.
 
 Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
