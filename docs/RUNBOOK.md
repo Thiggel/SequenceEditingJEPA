@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-01 09:00 CEST
+Last updated: 2026-06-01 10:37 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -106,12 +106,37 @@ after 34 seconds on `a0731`; there was no application stderr. Replacement
 oversight `3687722` was submitted with `--begin=now+4hours` and is pending for
 `2026-06-01 12:56:38 CEST`. There are no active puzzle-JEPA jobs in `squeue`;
 other visible HFSA/paired user-account arrays are outside this repo snapshot.
-Partition housekeeping at 09:00 CEST: `3687722` is begin-time-blocked, so
+Partition housekeeping at 10:37 CEST: `3687722` is begin-time-blocked, so
 partition broadening cannot help.
+
+Implementation update: the user-directed Grid 4A branch is implemented but not
+submitted. It adds a CLS goal-energy head, optional multi-level JEPA predictors,
+hierarchy training loss, categorical CEM diagnostics, and configs/scripts for
+`sudoku_jepa_5m_goal_energy_cem_l{1,2,3}`. Focused validation passed under the
+repo venv:
+
+```bash
+source scripts/env.sh
+python -m pytest -q tests/test_puzzle_models.py tests/test_puzzle_hydra.py
+```
+
+Submit the proposed Grid 4A training array only when ready to spend the GPU
+budget:
+
+```bash
+sbatch scripts/slurm/run_grid4a_goal_energy_hierarchy.slurm
+```
+
+After those checkpoints exist, run:
+
+```bash
+sbatch scripts/slurm/run_grid4a_cem_diagnostics.slurm
+```
 
 Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
 concrete planner examples, question assumptions, add useful report figures and
 tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive. The next safe step is planner-state reset/re-encoding implementation,
-not Maze or broad capacity sweeps.
+alive. The next safe experiment is the Grid 4A goal-energy/hierarchy/CEM grid;
+keep the oracle-goal reset result as the control baseline and do not start Maze
+or broad capacity sweeps yet.

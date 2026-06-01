@@ -39,6 +39,10 @@ class ActionConditionedWorldModel(nn.Module):
         use_selected_cell_marker: bool = True,
         action_injection: str = "global",
         predict_residual: bool = False,
+        use_cls_token: bool = False,
+        use_goal_energy_head: bool = False,
+        hierarchy_levels: int = 1,
+        hierarchy_stride: int = 2,
     ):
         super().__init__()
         self.max_width = int(max_width)
@@ -49,6 +53,10 @@ class ActionConditionedWorldModel(nn.Module):
             raise ValueError("action_injection must be 'global' or 'local_value'.")
         self.action_injection = action_injection
         self.predict_residual = bool(predict_residual)
+        self.use_cls_token = bool(use_cls_token)
+        self.use_goal_energy_head = bool(use_goal_energy_head)
+        self.hierarchy_levels = max(1, int(hierarchy_levels))
+        self.hierarchy_stride = max(1, int(hierarchy_stride))
         self.encoder = GridEncoder(
             vocab_size=vocab_size,
             hidden_size=hidden_size,
@@ -59,6 +67,7 @@ class ActionConditionedWorldModel(nn.Module):
             max_width=max_width,
             task_vocab_size=task_vocab_size,
             dropout=dropout,
+            use_cls_token=self.use_cls_token,
         )
         self.target_encoder = GridEncoder(
             vocab_size=vocab_size,
@@ -70,6 +79,7 @@ class ActionConditionedWorldModel(nn.Module):
             max_width=max_width,
             task_vocab_size=task_vocab_size,
             dropout=0.0,
+            use_cls_token=self.use_cls_token,
         )
         self.target_encoder.load_state_dict(self.encoder.state_dict())
         for param in self.target_encoder.parameters():
@@ -82,6 +92,19 @@ class ActionConditionedWorldModel(nn.Module):
         self.selected_cell = nn.Parameter(torch.zeros(hidden_size))
         self.action_norm = nn.LayerNorm(hidden_size)
         self.predictor = TransformerStack(predictor_layers, hidden_size, intermediate_size, num_heads, dropout)
+        self.higher_predictors = nn.ModuleList(
+            [
+                TransformerStack(predictor_layers, hidden_size, intermediate_size, num_heads, dropout)
+                for _ in range(self.hierarchy_levels - 1)
+            ]
+        )
+        if self.use_goal_energy_head:
+            self.goal_energy_head = nn.Sequential(
+                nn.LayerNorm(2 * hidden_size),
+                nn.Linear(2 * hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, 1),
+            )
 
     @torch.no_grad()
     def sync_target(self) -> None:
@@ -96,6 +119,9 @@ class ActionConditionedWorldModel(nn.Module):
         next_states: torch.Tensor,
         loss_mask: torch.Tensor | None = None,
         loss_weights: torch.Tensor | None = None,
+        goals: torch.Tensor | None = None,
+        initial_states: torch.Tensor | None = None,
+        goal_energy_weight: float = 0.0,
     ) -> ActionConditionedJEPAOutput:
         task_ids = actions[:, 0]
         pred_latents = self.predict_latent(states, actions)
@@ -112,11 +138,52 @@ class ActionConditionedWorldModel(nn.Module):
             weights = self._flatten_weights(loss_weights, pred_latents.shape[1])
             weights = weights * mask.to(dtype=weights.dtype)
             loss = (per_token * weights).sum() / weights.sum().clamp_min(1.0e-12)
+        components = {"loss/world_model_mse": loss.detach()}
+        if self.use_goal_energy_head and float(goal_energy_weight) > 0.0:
+            if goals is None:
+                raise ValueError("goals are required when goal_energy_weight is positive.")
+            energy_output = self.goal_energy_loss(
+                states,
+                goals,
+                task_ids=task_ids,
+                initial_states=initial_states,
+            )
+            loss = loss + float(goal_energy_weight) * energy_output.loss
+            components.update(energy_output.components)
         return ActionConditionedJEPAOutput(
             loss=loss,
             pred_latents=pred_latents,
             target_latents=target_latents,
-            components={"loss/world_model_mse": loss.detach()},
+            components=components,
+        )
+
+    def goal_energy_loss(
+        self,
+        states: torch.Tensor,
+        goals: torch.Tensor,
+        *,
+        task_ids: torch.Tensor,
+        initial_states: torch.Tensor | None = None,
+    ) -> ActionConditionedJEPAOutput:
+        if not self.use_goal_energy_head:
+            raise ValueError("goal energy head is disabled for this model.")
+        if initial_states is None:
+            initial_states = states
+        pred_energy = self.predict_goal_energy(states, initial_states, task_ids)
+        with torch.no_grad():
+            state_latents = self.target_encoder(states, task_ids=task_ids)
+            goal_latents = self.target_encoder(goals, task_ids=task_ids)
+            target_energy = F.mse_loss(state_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+        loss = F.mse_loss(pred_energy, target_energy)
+        return ActionConditionedJEPAOutput(
+            loss=loss,
+            pred_latents=pred_energy[:, None, None],
+            target_latents=target_energy[:, None, None],
+            components={
+                "loss/goal_energy_mse": loss.detach(),
+                "metric/goal_energy_pred_mean": pred_energy.detach().mean(),
+                "metric/goal_energy_target_mean": target_energy.detach().mean(),
+            },
         )
 
     def rollout_loss(
@@ -159,6 +226,57 @@ class ActionConditionedWorldModel(nn.Module):
             components=components,
         )
 
+    def hierarchy_loss(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        target_states: torch.Tensor,
+    ) -> ActionConditionedJEPAOutput:
+        if actions.ndim != 3 or actions.shape[-1] != 4:
+            raise ValueError("hierarchy actions must have shape [batch, steps, 4].")
+        if target_states.ndim != 4:
+            raise ValueError("target_states must have shape [batch, steps, height, width].")
+        if actions.shape[:2] != target_states.shape[:2]:
+            raise ValueError("actions and target_states must agree on batch and step dimensions.")
+        batch, steps = actions.shape[:2]
+        if states.shape[0] != batch:
+            raise ValueError("states and actions must agree on batch size.")
+        height, width = int(states.shape[-2]), int(states.shape[-1])
+        task_ids = actions[:, 0, 0]
+        latents = self.encoder(states, task_ids=task_ids)
+        losses = []
+        components: dict[str, torch.Tensor] = {}
+        final_pred = None
+        final_target = None
+        for level in range(self.hierarchy_levels):
+            horizon = self.hierarchy_stride**level
+            if horizon > steps:
+                continue
+            pred = self.predict_latent_sequence_from_latent(
+                latents,
+                actions[:, :horizon],
+                height=height,
+                width=width,
+                level=level,
+            )
+            with torch.no_grad():
+                target = self.target_encoder(target_states[:, horizon - 1], task_ids=task_ids)
+            step_loss = F.mse_loss(pred, target, reduction="none").mean(dim=-1).mean()
+            losses.append(step_loss)
+            components[f"loss/hierarchy_level_{level}_h{horizon}_mse"] = step_loss.detach()
+            final_pred = pred
+            final_target = target
+        if not losses or final_pred is None or final_target is None:
+            raise ValueError("No hierarchy levels fit inside the provided rollout.")
+        loss = torch.stack(losses).mean()
+        components["loss/hierarchy_mse"] = loss.detach()
+        return ActionConditionedJEPAOutput(
+            loss=loss,
+            pred_latents=final_pred,
+            target_latents=final_target,
+            components=components,
+        )
+
     def predict_latent(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         if actions.ndim != 2 or actions.shape[-1] != 4:
             raise ValueError("actions must have shape [batch, 4] = task_id,row,col,value.")
@@ -166,6 +284,25 @@ class ActionConditionedWorldModel(nn.Module):
         latents = self.encoder(states, task_ids=task_ids)
         _batch, height, width = states.shape
         return self.predict_latent_from_latent(latents, actions, height=height, width=width)
+
+    def predict_latent_sequence_from_latent(
+        self,
+        latents: torch.Tensor,
+        actions: torch.Tensor,
+        *,
+        height: int,
+        width: int,
+        level: int,
+    ) -> torch.Tensor:
+        if actions.ndim != 3 or actions.shape[-1] != 4:
+            raise ValueError("action sequences must have shape [batch, steps, 4].")
+        if int(level) < 0 or int(level) >= self.hierarchy_levels:
+            raise ValueError(f"level must be in [0, {self.hierarchy_levels}).")
+        conditioned = self._condition_latents(latents, actions, height=height, width=width)
+        predicted = self._predictor_for_level(level)(conditioned)
+        if self.predict_residual:
+            return latents + predicted
+        return predicted
 
     def predict_latent_from_latent(
         self,
@@ -182,26 +319,48 @@ class ActionConditionedWorldModel(nn.Module):
         batch = latents.shape[0]
         if actions.shape[0] != batch:
             raise ValueError("actions batch size must match latents batch size.")
-        if latents.shape[1] != int(height) * int(width):
-            raise ValueError("height*width must match latent token length.")
-        if self.action_injection == "global":
-            conditioned = latents + self._action_embedding(actions).unsqueeze(1)
-            if self.use_selected_cell_marker:
-                marker = torch.zeros_like(latents)
-                positions = self._action_positions(actions, height=height, width=width)
-                marker[torch.arange(batch, device=latents.device), positions] = self.selected_cell
-                conditioned = conditioned + marker
-        else:
-            conditioned = latents.clone()
-            positions = self._action_positions(actions, height=height, width=width)
-            value_context = self.action_norm(self.value_embedding(actions[:, 3]))
-            conditioned[torch.arange(batch, device=latents.device), positions] = (
-                conditioned[torch.arange(batch, device=latents.device), positions] + value_context
-            )
+        expected_tokens = int(height) * int(width) + self._token_offset()
+        if latents.shape[1] != expected_tokens:
+            raise ValueError("height*width plus optional CLS token must match latent token length.")
+        conditioned = self._condition_latents(latents, actions[:, None, :], height=height, width=width)
         predicted = self.predictor(conditioned)
         if self.predict_residual:
             return latents + predicted
         return predicted
+
+    def _condition_latents(
+        self,
+        latents: torch.Tensor,
+        actions: torch.Tensor,
+        *,
+        height: int,
+        width: int,
+    ) -> torch.Tensor:
+        if actions.ndim != 3 or actions.shape[-1] != 4:
+            raise ValueError("actions must have shape [batch, steps, 4].")
+        batch = latents.shape[0]
+        if actions.shape[0] != batch:
+            raise ValueError("actions batch size must match latents batch size.")
+        flat_actions = actions.reshape(-1, actions.shape[-1])
+        if self.action_injection == "global":
+            action_context = self._action_embedding(flat_actions).reshape(batch, actions.shape[1], -1).mean(dim=1)
+            conditioned = latents + action_context.unsqueeze(1)
+            if self.use_selected_cell_marker:
+                marker = torch.zeros_like(latents)
+                for step in range(actions.shape[1]):
+                    positions = self._action_positions(actions[:, step], height=height, width=width)
+                    marker[torch.arange(batch, device=latents.device), positions] = self.selected_cell
+                conditioned = conditioned + marker
+        else:
+            conditioned = latents.clone()
+            for step in range(actions.shape[1]):
+                step_actions = actions[:, step]
+                positions = self._action_positions(step_actions, height=height, width=width)
+                value_context = self.action_norm(self.value_embedding(step_actions[:, 3]))
+                conditioned[torch.arange(batch, device=latents.device), positions] = (
+                    conditioned[torch.arange(batch, device=latents.device), positions] + value_context
+                )
+        return conditioned
 
     @torch.no_grad()
     def score_actions_to_goal(
@@ -233,6 +392,9 @@ class ActionConditionedWorldModel(nn.Module):
         states: torch.Tensor,
         goals: torch.Tensor,
         task_ids: int | torch.Tensor,
+        *,
+        initial_states: torch.Tensor | None = None,
+        use_goal_energy_head: bool = False,
     ) -> torch.Tensor:
         device = next(self.parameters()).device
         states = states.to(device)
@@ -240,13 +402,47 @@ class ActionConditionedWorldModel(nn.Module):
         if states.ndim == 2:
             states = states.unsqueeze(0)
             goals = goals.unsqueeze(0)
+        if initial_states is not None:
+            initial_states = initial_states.to(device)
+            if initial_states.ndim == 2:
+                initial_states = initial_states.unsqueeze(0)
         if isinstance(task_ids, int):
             task_tensor = torch.full((states.shape[0],), task_ids, dtype=torch.long, device=device)
         else:
             task_tensor = task_ids.to(device)
+        if use_goal_energy_head:
+            if not self.use_goal_energy_head:
+                raise ValueError("goal energy head is disabled for this model.")
+            if initial_states is None:
+                initial_states = states
+            return -self.predict_goal_energy(states, initial_states, task_tensor)
         latents = self.encoder(states, task_ids=task_tensor)
         target = self.target_encoder(goals, task_ids=task_tensor)
         return -F.mse_loss(latents, target, reduction="none").mean(dim=(1, 2))
+
+    def predict_goal_energy(
+        self,
+        states: torch.Tensor,
+        initial_states: torch.Tensor,
+        task_ids: int | torch.Tensor,
+    ) -> torch.Tensor:
+        if not self.use_goal_energy_head:
+            raise ValueError("goal energy head is disabled for this model.")
+        device = next(self.parameters()).device
+        states = states.to(device)
+        initial_states = initial_states.to(device)
+        if states.ndim == 2:
+            states = states.unsqueeze(0)
+        if initial_states.ndim == 2:
+            initial_states = initial_states.unsqueeze(0)
+        if isinstance(task_ids, int):
+            task_tensor = torch.full((states.shape[0],), task_ids, dtype=torch.long, device=device)
+        else:
+            task_tensor = task_ids.to(device)
+        state_latents = self.encoder(states, task_ids=task_tensor)
+        initial_latents = self.encoder(initial_states, task_ids=task_tensor)
+        features = torch.cat([self._state_summary(state_latents), self._state_summary(initial_latents)], dim=-1)
+        return self.goal_energy_head(features).squeeze(-1)
 
     def _action_embedding(self, actions: torch.Tensor) -> torch.Tensor:
         task, row, col, value = actions.unbind(dim=-1)
@@ -255,22 +451,39 @@ class ActionConditionedWorldModel(nn.Module):
             action = action + self.task_embedding(task)
         return self.action_norm(action)
 
-    @staticmethod
-    def _action_positions(actions: torch.Tensor, *, height: int, width: int) -> torch.Tensor:
-        return actions[:, 1].clamp(0, int(height) - 1) * int(width) + actions[:, 2].clamp(0, int(width) - 1)
+    def _action_positions(self, actions: torch.Tensor, *, height: int, width: int) -> torch.Tensor:
+        board_position = actions[:, 1].clamp(0, int(height) - 1) * int(width) + actions[:, 2].clamp(0, int(width) - 1)
+        return board_position + self._token_offset()
 
-    @staticmethod
-    def _flatten_mask(mask: torch.Tensor, length: int) -> torch.Tensor:
+    def _predictor_for_level(self, level: int) -> TransformerStack:
+        if int(level) == 0:
+            return self.predictor
+        return self.higher_predictors[int(level) - 1]
+
+    def _state_summary(self, latents: torch.Tensor) -> torch.Tensor:
+        if self.use_cls_token:
+            return latents[:, 0]
+        return latents.mean(dim=1)
+
+    def _token_offset(self) -> int:
+        return 1 if self.use_cls_token else 0
+
+    def _flatten_mask(self, mask: torch.Tensor, length: int) -> torch.Tensor:
         if mask.ndim == 3:
             mask = mask.reshape(mask.shape[0], -1)
+        if mask.shape[-1] == length - self._token_offset():
+            prefix = torch.ones(mask.shape[0], self._token_offset(), dtype=torch.bool, device=mask.device)
+            mask = torch.cat([prefix, mask.bool()], dim=-1)
         if mask.shape[-1] != length:
             raise ValueError(f"loss_mask length {mask.shape[-1]} does not match latent length {length}.")
         return mask.bool()
 
-    @staticmethod
-    def _flatten_weights(weights: torch.Tensor, length: int) -> torch.Tensor:
+    def _flatten_weights(self, weights: torch.Tensor, length: int) -> torch.Tensor:
         if weights.ndim == 3:
             weights = weights.reshape(weights.shape[0], -1)
+        if weights.shape[-1] == length - self._token_offset():
+            prefix = torch.ones(weights.shape[0], self._token_offset(), dtype=weights.dtype, device=weights.device)
+            weights = torch.cat([prefix, weights], dim=-1)
         if weights.shape[-1] != length:
             raise ValueError(f"loss_weights length {weights.shape[-1]} does not match latent length {length}.")
         return weights.float()

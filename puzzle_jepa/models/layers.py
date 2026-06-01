@@ -93,15 +93,20 @@ class GridEncoder(nn.Module):
         max_width: int,
         task_vocab_size: int = 4,
         dropout: float = 0.0,
+        use_cls_token: bool = False,
     ):
         super().__init__()
         self.vocab_size = int(vocab_size)
         self.max_height = int(max_height)
         self.max_width = int(max_width)
+        self.use_cls_token = bool(use_cls_token)
         self.token_embedding = nn.Embedding(vocab_size, hidden_size)
         self.row_embedding = nn.Embedding(max_height, hidden_size)
         self.col_embedding = nn.Embedding(max_width, hidden_size)
         self.task_embedding = nn.Embedding(task_vocab_size, hidden_size)
+        if self.use_cls_token:
+            self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
+            nn.init.normal_(self.cls_token, std=0.02)
         self.layers = TransformerStack(num_layers, hidden_size, intermediate_size, num_heads, dropout)
 
     def forward(self, tokens: torch.Tensor, task_ids: torch.Tensor | None = None) -> torch.Tensor:
@@ -118,4 +123,8 @@ class GridEncoder(nn.Module):
             task_ids = torch.zeros(batch, dtype=torch.long, device=tokens.device)
         task = self.task_embedding(task_ids).view(batch, 1, 1, -1)
         x = self.token_embedding(tokens) + self.row_embedding(rows) + self.col_embedding(cols) + task
-        return self.layers(x.reshape(batch, height * width, -1))
+        x = x.reshape(batch, height * width, -1)
+        if self.use_cls_token:
+            cls = self.cls_token.expand(batch, -1, -1) + self.task_embedding(task_ids).view(batch, 1, -1)
+            x = torch.cat([cls, x], dim=1)
+        return self.layers(x)

@@ -37,3 +37,17 @@ def test_hydra_grid1_curriculum_configs_compose():
     with initialize_config_dir(version_base=None, config_dir=str(repo_root / "configs" / "puzzle")):
         configs = [compose(config_name=name) for name in names]
     assert [float(cfg.data.oracle_probability) for cfg in configs] == [1.0, 0.7, 0.5, 1.0, 0.7]
+
+
+def test_hydra_grid4a_goal_energy_hierarchy_configs_compose():
+    repo_root = Path(__file__).resolve().parents[1]
+    names = [
+        "grid4a_sudoku_jepa_5m_goal_energy_cem_l1",
+        "grid4a_sudoku_jepa_5m_goal_energy_cem_l2",
+        "grid4a_sudoku_jepa_5m_goal_energy_cem_l3",
+    ]
+    with initialize_config_dir(version_base=None, config_dir=str(repo_root / "configs" / "puzzle")):
+        configs = [compose(config_name=name) for name in names]
+    assert [int(cfg.model.hierarchy_levels) for cfg in configs] == [1, 2, 3]
+    assert all(bool(cfg.model.use_cls_token) for cfg in configs)
+    assert all(bool(cfg.model.use_goal_energy_head) for cfg in configs)

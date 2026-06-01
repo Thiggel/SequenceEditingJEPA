@@ -57,8 +57,14 @@ def run_diagnostics(
     rank_examples: int,
     drift_examples: int,
     planning_examples: int,
+    cem_examples: int,
     planning_beam_size: int,
     planning_branch_size: int,
+    cem_population: int,
+    cem_elite_frac: float,
+    cem_iterations: int,
+    cem_smoothing: float,
+    cem_score: str,
     max_unroll_steps: int,
     horizons: list[int],
     depth_fractions: list[float],
@@ -142,6 +148,19 @@ def run_diagnostics(
             beam_size=planning_beam_size,
             reset_cadences=reset_cadences,
         )
+    cem_planning, cem_planning_records = evaluate_cem_planning(
+        model,
+        world,
+        examples,
+        rng,
+        num_examples=cem_examples,
+        max_steps=max_unroll_steps,
+        population_size=cem_population,
+        elite_frac=cem_elite_frac,
+        iterations=cem_iterations,
+        smoothing=cem_smoothing,
+        score_mode=cem_score,
+    )
     traces = collect_planner_failure_traces(
         model,
         world,
@@ -161,6 +180,7 @@ def run_diagnostics(
         "planning": planning,
         "reencoded_planning": reencoded_planning,
         "paired_reset_planning": paired_reset_planning,
+        "cem_planning": cem_planning,
         "planner_traces": traces,
     }
     destination = output_dir or (run_root / "diagnostics")
@@ -184,6 +204,10 @@ def run_diagnostics(
     if paired_reset_planning_records:
         with (destination / "paired_reset_planning_records.jsonl").open("w") as handle:
             for record in paired_reset_planning_records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if cem_planning_records:
+        with (destination / "cem_planning_records.jsonl").open("w") as handle:
+            for record in cem_planning_records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
     write_drift_plot(destination / "latent_energy_mse.png", drift_records)
     print(json.dumps(result, indent=2, sort_keys=True), flush=True)
@@ -496,6 +520,323 @@ def evaluate_paired_reset_planning(
 
 
 @torch.no_grad()
+def evaluate_cem_planning(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    num_examples: int,
+    max_steps: int,
+    population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    score_mode: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if num_examples <= 0:
+        return {}, []
+    summaries: dict[str, list[dict[str, Any]]] = {}
+    for example_index in range(num_examples):
+        example = examples[int(rng.integers(0, len(examples)))]
+        plan = cem_plan(
+            model,
+            world,
+            example,
+            rng,
+            max_steps=max_steps,
+            population_size=population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+            score_mode=score_mode,
+        )
+        plan["example_index"] = int(example_index)
+        summaries.setdefault(str(plan["score_mode"]), []).append(plan)
+    return (
+        {
+            mode: summarize_plan_summaries(items)
+            for mode, items in summaries.items()
+        },
+        flatten_cem_plan_records(summaries),
+    )
+
+
+@torch.no_grad()
+def cem_plan(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    *,
+    max_steps: int,
+    population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    score_mode: str,
+) -> dict[str, Any]:
+    start = world.validate_state(example.state).copy()
+    goal = world.validate_state(example.goal)
+    clue_mask = clue_mask_for_planning(world, start)
+    limit = min(int(max_steps), terminal_step_limit(world, example, max_steps))
+    score_mode = resolve_cem_score_mode(model, score_mode)
+    if limit <= 0 or world.is_goal(start, goal):
+        return {
+            "solved": float(world.is_goal(start, goal)),
+            "terminal": float(is_terminal_state(world, start, goal, clue_mask)),
+            "steps": 0.0,
+            "energy": 0.0,
+            "remaining_hamming": float(np.not_equal(start, goal).sum()),
+            "final_state": board_as_list(start),
+            "goal_state": board_as_list(goal),
+            "mismatches": mismatch_records(start, goal),
+            "score_mode": score_mode,
+            "population_size": float(population_size),
+            "elite_frac": float(elite_frac),
+            "iterations": float(iterations),
+            "smoothing": float(smoothing),
+        }
+
+    action_space = cem_action_space(world, start, clue_mask)
+    if not action_space["positions"] or not action_space["values"]:
+        return {
+            "solved": 0.0,
+            "terminal": float(is_terminal_state(world, start, goal, clue_mask)),
+            "steps": 0.0,
+            "energy": math.inf,
+            "remaining_hamming": float(np.not_equal(start, goal).sum()),
+            "final_state": board_as_list(start),
+            "goal_state": board_as_list(goal),
+            "mismatches": mismatch_records(start, goal),
+            "score_mode": score_mode,
+            "population_size": float(population_size),
+            "elite_frac": float(elite_frac),
+            "iterations": float(iterations),
+            "smoothing": float(smoothing),
+        }
+
+    horizon = max(1, limit)
+    population_size = max(1, int(population_size))
+    iterations = max(1, int(iterations))
+    elite_count = max(1, min(population_size, int(math.ceil(population_size * float(elite_frac)))))
+    smoothing = min(max(float(smoothing), 0.0), 1.0)
+    cell_probs = np.full((horizon, len(action_space["positions"])), 1.0 / len(action_space["positions"]))
+    value_probs = np.full((horizon, len(action_space["values"])), 1.0 / len(action_space["values"]))
+    best_state = start.copy()
+    best_actions: list[WorldAction] = []
+    best_score = -math.inf
+
+    for _ in range(iterations):
+        candidates: list[dict[str, Any]] = []
+        for _sample_index in range(population_size):
+            candidate = sample_cem_rollout(
+                world,
+                start,
+                goal,
+                clue_mask,
+                rng,
+                cell_probs=cell_probs,
+                value_probs=value_probs,
+                action_space=action_space,
+            )
+            candidates.append(candidate)
+
+        final_states = np.stack([item["state"] for item in candidates], axis=0)
+        scores = cem_scores(
+            model,
+            world,
+            final_states,
+            goal,
+            start,
+            score_mode=score_mode,
+        )
+        for candidate, score in zip(candidates, scores, strict=True):
+            candidate["score"] = float(score)
+        candidates.sort(key=lambda item: float(item["score"]), reverse=True)
+        if float(candidates[0]["score"]) > best_score:
+            best_score = float(candidates[0]["score"])
+            best_state = candidates[0]["state"]
+            best_actions = list(candidates[0]["actions"])
+        elites = candidates[:elite_count]
+        elite_cell_probs, elite_value_probs = estimate_cem_distributions(elites, action_space, horizon)
+        cell_probs = smoothing * cell_probs + (1.0 - smoothing) * elite_cell_probs
+        value_probs = smoothing * value_probs + (1.0 - smoothing) * elite_value_probs
+        cell_probs = normalize_categorical(cell_probs)
+        value_probs = normalize_categorical(value_probs)
+
+    return {
+        "solved": float(world.is_goal(best_state, goal)),
+        "terminal": float(is_terminal_state(world, best_state, goal, clue_mask)),
+        "steps": float(len(best_actions)),
+        "energy": float(-best_score),
+        "remaining_hamming": float(np.not_equal(best_state, goal).sum()),
+        "final_state": board_as_list(best_state),
+        "goal_state": board_as_list(goal),
+        "mismatches": mismatch_records(best_state, goal),
+        "score_mode": score_mode,
+        "population_size": float(population_size),
+        "elite_frac": float(elite_frac),
+        "iterations": float(iterations),
+        "smoothing": float(smoothing),
+    }
+
+
+def resolve_cem_score_mode(model: ActionConditionedWorldModel, score_mode: str) -> str:
+    mode = str(score_mode)
+    if mode == "auto":
+        return "goal_energy" if model.use_goal_energy_head else "latent_goal"
+    if mode not in {"goal_energy", "latent_goal"}:
+        raise ValueError("cem score mode must be 'auto', 'goal_energy', or 'latent_goal'.")
+    if mode == "goal_energy" and not model.use_goal_energy_head:
+        raise ValueError("CEM goal_energy scoring requires a model with use_goal_energy_head=True.")
+    return mode
+
+
+def cem_action_space(
+    world: PuzzleWorld,
+    initial_state: np.ndarray,
+    clue_mask: np.ndarray | None,
+) -> dict[str, Any]:
+    if isinstance(world, SudokuWorld):
+        if clue_mask is None:
+            raise ValueError("Sudoku CEM planning requires a clue mask.")
+        positions = [(int(row), int(col)) for row, col in np.argwhere(~clue_mask)]
+        values = list(range(1, 10))
+    else:
+        legal = legal_planning_actions(world, initial_state, clue_mask)
+        positions = sorted({(action.row, action.col) for action in legal})
+        values = sorted({action.value for action in legal})
+    position_to_index = {position: index for index, position in enumerate(positions)}
+    value_to_index = {value: index for index, value in enumerate(values)}
+    return {
+        "positions": positions,
+        "values": values,
+        "position_to_index": position_to_index,
+        "value_to_index": value_to_index,
+    }
+
+
+def sample_cem_rollout(
+    world: PuzzleWorld,
+    start: np.ndarray,
+    goal: np.ndarray,
+    clue_mask: np.ndarray | None,
+    rng: np.random.Generator,
+    *,
+    cell_probs: np.ndarray,
+    value_probs: np.ndarray,
+    action_space: dict[str, Any],
+) -> dict[str, Any]:
+    current = world.validate_state(start).copy()
+    actions: list[WorldAction] = []
+    for step in range(cell_probs.shape[0]):
+        if is_terminal_state(world, current, goal, clue_mask):
+            break
+        action = sample_cem_action(rng, cell_probs[step], value_probs[step], action_space)
+        if action not in legal_planning_actions(world, current, clue_mask):
+            replacement = sample_valid_cem_action(world, current, clue_mask, rng, cell_probs[step], value_probs[step], action_space)
+            if replacement is None:
+                break
+            action = replacement
+        current = apply_planning_action(world, current, action, clue_mask)
+        actions.append(action)
+    return {"state": current, "actions": actions}
+
+
+def sample_cem_action(
+    rng: np.random.Generator,
+    cell_probs: np.ndarray,
+    value_probs: np.ndarray,
+    action_space: dict[str, Any],
+) -> WorldAction:
+    cell_index = int(rng.choice(len(action_space["positions"]), p=cell_probs))
+    value_index = int(rng.choice(len(action_space["values"]), p=value_probs))
+    row, col = action_space["positions"][cell_index]
+    return WorldAction(row, col, int(action_space["values"][value_index]))
+
+
+def sample_valid_cem_action(
+    world: PuzzleWorld,
+    state: np.ndarray,
+    clue_mask: np.ndarray | None,
+    rng: np.random.Generator,
+    cell_probs: np.ndarray,
+    value_probs: np.ndarray,
+    action_space: dict[str, Any],
+) -> WorldAction | None:
+    legal = legal_planning_actions(world, state, clue_mask)
+    if not legal:
+        return None
+    weights = np.asarray(
+        [
+            cell_probs[action_space["position_to_index"][(action.row, action.col)]]
+            * value_probs[action_space["value_to_index"][action.value]]
+            for action in legal
+        ],
+        dtype=np.float64,
+    )
+    total = float(weights.sum())
+    if total <= 0.0 or not np.isfinite(total):
+        return legal[int(rng.integers(0, len(legal)))]
+    weights = weights / total
+    return legal[int(rng.choice(len(legal), p=weights))]
+
+
+@torch.no_grad()
+def cem_scores(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    final_states: np.ndarray,
+    goal: np.ndarray,
+    initial_state: np.ndarray,
+    *,
+    score_mode: str,
+) -> list[float]:
+    goals = np.repeat(goal[None, ...], final_states.shape[0], axis=0)
+    states_tensor = torch.as_tensor(final_states, dtype=torch.long)
+    goals_tensor = torch.as_tensor(goals, dtype=torch.long)
+    if score_mode == "goal_energy":
+        initials = np.repeat(initial_state[None, ...], final_states.shape[0], axis=0)
+        scores = model.score_states_to_goal(
+            states_tensor,
+            goals_tensor,
+            world.task_id,
+            initial_states=torch.as_tensor(initials, dtype=torch.long),
+            use_goal_energy_head=True,
+        )
+    else:
+        scores = model.score_states_to_goal(states_tensor, goals_tensor, world.task_id)
+    return [float(item) for item in scores.detach().cpu().tolist()]
+
+
+def estimate_cem_distributions(
+    elites: list[dict[str, Any]],
+    action_space: dict[str, Any],
+    horizon: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    min_prob = 1.0e-4
+    cell_counts = np.full((horizon, len(action_space["positions"])), min_prob, dtype=np.float64)
+    value_counts = np.full((horizon, len(action_space["values"])), min_prob, dtype=np.float64)
+    for elite in elites:
+        actions = elite["actions"]
+        if not actions:
+            continue
+        for step in range(horizon):
+            action = actions[min(step, len(actions) - 1)]
+            cell_counts[step, action_space["position_to_index"][(action.row, action.col)]] += 1.0
+            value_counts[step, action_space["value_to_index"][action.value]] += 1.0
+    return normalize_categorical(cell_counts), normalize_categorical(value_counts)
+
+
+def normalize_categorical(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float64)
+    row_sums = values.sum(axis=1, keepdims=True)
+    row_sums[row_sums <= 0.0] = 1.0
+    return values / row_sums
+
+
+@torch.no_grad()
 def latent_beam_plan(
     model: ActionConditionedWorldModel,
     world: PuzzleWorld,
@@ -745,6 +1086,33 @@ def flatten_paired_plan_records(summaries: dict[str, dict[str, list[dict[str, An
                     "mismatches": item["mismatches"],
                 }
                 records.append(record)
+    return records
+
+
+def flatten_cem_plan_records(summaries: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    records = []
+    for mode, items in summaries.items():
+        for item in items:
+            records.append(
+                {
+                    "planner": "cem",
+                    "mode": mode,
+                    "score_mode": item["score_mode"],
+                    "example_index": int(item["example_index"]),
+                    "solved": float(item["solved"]),
+                    "terminal": float(item["terminal"]),
+                    "steps": float(item["steps"]),
+                    "energy": float(item["energy"]),
+                    "remaining_hamming": float(item["remaining_hamming"]),
+                    "population_size": float(item["population_size"]),
+                    "elite_frac": float(item["elite_frac"]),
+                    "iterations": float(item["iterations"]),
+                    "smoothing": float(item["smoothing"]),
+                    "final_state": item["final_state"],
+                    "goal_state": item["goal_state"],
+                    "mismatches": item["mismatches"],
+                }
+            )
     return records
 
 
@@ -1215,8 +1583,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rank-examples", type=int, default=64)
     parser.add_argument("--drift-examples", type=int, default=8)
     parser.add_argument("--planning-examples", type=int, default=4)
+    parser.add_argument("--cem-examples", type=int, default=0)
     parser.add_argument("--planning-beam-size", type=int, default=4)
     parser.add_argument("--planning-branch-size", type=int, default=8)
+    parser.add_argument("--cem-population", type=int, default=128)
+    parser.add_argument("--cem-elite-frac", type=float, default=0.2)
+    parser.add_argument("--cem-iterations", type=int, default=4)
+    parser.add_argument("--cem-smoothing", type=float, default=0.7)
+    parser.add_argument("--cem-score", choices=["auto", "goal_energy", "latent_goal"], default="auto")
     parser.add_argument("--trace-examples", type=int, default=3)
     parser.add_argument("--max-unroll-steps", type=int, default=256)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 4, 10, 20])
@@ -1233,8 +1607,14 @@ def main() -> None:
         rank_examples=args.rank_examples,
         drift_examples=args.drift_examples,
         planning_examples=args.planning_examples,
+        cem_examples=args.cem_examples,
         planning_beam_size=args.planning_beam_size,
         planning_branch_size=args.planning_branch_size,
+        cem_population=args.cem_population,
+        cem_elite_frac=args.cem_elite_frac,
+        cem_iterations=args.cem_iterations,
+        cem_smoothing=args.cem_smoothing,
+        cem_score=args.cem_score,
         max_unroll_steps=args.max_unroll_steps,
         horizons=args.horizons,
         depth_fractions=args.depth_fractions,

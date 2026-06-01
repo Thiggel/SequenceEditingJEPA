@@ -61,6 +61,12 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     rollout_steps = int(train_cfg.get("rollout_steps", 1))
     rollout_weight = float(train_cfg.get("rollout_weight", 1.0 if rollout_steps > 1 else 0.0))
     rollout_batch_size = int(train_cfg.get("rollout_batch_size", batch_size))
+    goal_energy_weight = float(train_cfg.get("goal_energy_weight", 0.0))
+    hierarchy_weight = float(train_cfg.get("hierarchy_weight", 0.0))
+    hierarchy_batch_size = int(train_cfg.get("hierarchy_batch_size", train_cfg.get("rollout_batch_size", batch_size)))
+    hierarchy_rollout_steps = int(
+        train_cfg.get("hierarchy_rollout_steps", _max_hierarchy_horizon(model))
+    )
     latest_metrics: dict[str, Any] = {}
 
     with (output_dir / "config.json").open("w") as handle:
@@ -72,9 +78,18 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
         loss_weights = _build_transition_loss_weights(world, batch.actions, batch.states.shape[-2:], train_cfg)
         optimizer.zero_grad(set_to_none=True)
         with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-            output = model(batch.states, batch.actions, batch.next_states, loss_weights=loss_weights)
+            output = model(
+                batch.states,
+                batch.actions,
+                batch.next_states,
+                loss_weights=loss_weights,
+                goals=batch.goals,
+                initial_states=_initial_states_from_batch(world, batch),
+                goal_energy_weight=goal_energy_weight,
+            )
             loss = output.loss
             rollout_loss = None
+            hierarchy_loss = None
             if rollout_steps > 1 and rollout_weight > 0.0:
                 rollout_batch = _sample_rollout_batch(world, train_examples, rng, rollout_batch_size, rollout_steps, device)
                 rollout_output = model.rollout_loss(
@@ -84,6 +99,23 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 )
                 rollout_loss = rollout_output.loss
                 loss = loss + rollout_weight * rollout_loss
+            if hierarchy_weight > 0.0:
+                hierarchy_steps = max(1, hierarchy_rollout_steps)
+                hierarchy_batch = _sample_rollout_batch(
+                    world,
+                    train_examples,
+                    rng,
+                    hierarchy_batch_size,
+                    hierarchy_steps,
+                    device,
+                )
+                hierarchy_output = model.hierarchy_loss(
+                    hierarchy_batch.states,
+                    hierarchy_batch.actions,
+                    hierarchy_batch.target_states,
+                )
+                hierarchy_loss = hierarchy_output.loss
+                loss = loss + hierarchy_weight * hierarchy_loss
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
@@ -107,9 +139,18 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "train_rollout_loss": (
                         0.0 if rollout_loss is None else float(rollout_loss.detach().cpu().item())
                     ),
+                    "train_hierarchy_loss": (
+                        0.0 if hierarchy_loss is None else float(hierarchy_loss.detach().cpu().item())
+                    ),
                     "rollout_steps": rollout_steps,
                     "rollout_weight": rollout_weight,
                     "rollout_batch_size": rollout_batch_size if rollout_steps > 1 else 0,
+                    "goal_energy_weight": goal_energy_weight,
+                    "hierarchy_weight": hierarchy_weight,
+                    "hierarchy_levels": int(model.hierarchy_levels),
+                    "hierarchy_stride": int(model.hierarchy_stride),
+                    "hierarchy_rollout_steps": hierarchy_rollout_steps if hierarchy_weight > 0.0 else 0,
+                    "hierarchy_batch_size": hierarchy_batch_size if hierarchy_weight > 0.0 else 0,
                     "loss_weighting": str(train_cfg.get("loss_weighting", "uniform")),
                     "param_count": _param_count(model),
                     "trainable_param_count": _param_count(model, trainable_only=True),
@@ -252,6 +293,16 @@ def _build_transition_loss_weights(
     return weights
 
 
+def _initial_states_from_batch(world: PuzzleWorld, batch) -> torch.Tensor:
+    if isinstance(world, SudokuWorld) and batch.clue_masks is not None:
+        return batch.states * batch.clue_masks.to(dtype=batch.states.dtype)
+    return batch.states
+
+
+def _max_hierarchy_horizon(model: ActionConditionedWorldModel) -> int:
+    return int(model.hierarchy_stride) ** max(0, int(model.hierarchy_levels) - 1)
+
+
 @torch.no_grad()
 def _evaluate(
     model: ActionConditionedWorldModel,
@@ -278,12 +329,14 @@ def _evaluate(
         ranks.extend(rank_metrics["ranks"])
     plan = _planning_eval(model, world, examples, rng, eval_cfg, device)
     distance = _latent_distance_eval(model, world, examples, rng, eval_cfg, device)
+    goal_energy = _goal_energy_eval(model, world, examples, rng, eval_cfg, device)
     return {
         "eval_loss": float(np.mean(losses)),
         "oracle_action_top1": float(np.mean(top1)) if top1 else 0.0,
         "oracle_action_mean_rank": float(np.mean(ranks)) if ranks else math.inf,
         **plan,
         **distance,
+        **goal_energy,
     }
 
 
@@ -540,6 +593,44 @@ def _latent_distance_eval(
         metrics[f"{name}_latent_delta"] = float(np.mean(deltas)) if deltas else 0.0
         metrics[f"{name}_latent_improve_rate"] = float(np.mean(improves)) if improves else 0.0
     return metrics
+
+
+@torch.no_grad()
+def _goal_energy_eval(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    eval_cfg: dict[str, Any],
+    device: torch.device,
+) -> dict[str, Any]:
+    if not model.use_goal_energy_head:
+        return {}
+    num_examples = int(eval_cfg.get("goal_energy_examples", eval_cfg.get("distance_examples", 0)))
+    if num_examples <= 0:
+        return {}
+    transitions = [
+        sample_curriculum_transition(
+            world,
+            examples[int(rng.integers(0, len(examples)))],
+            rng,
+            oracle_probability=float(eval_cfg.get("oracle_probability", 1.0)),
+        )
+        for _ in range(num_examples)
+    ]
+    batch = collate_transitions(transitions, device=device)
+    task_ids = batch.actions[:, 0]
+    initial_states = _initial_states_from_batch(world, batch)
+    pred = model.predict_goal_energy(batch.states, initial_states, task_ids)
+    state_latents = model.target_encoder(batch.states, task_ids=task_ids)
+    goal_latents = model.target_encoder(batch.goals, task_ids=task_ids)
+    target = torch.nn.functional.mse_loss(state_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+    mse = torch.nn.functional.mse_loss(pred, target)
+    return {
+        "goal_energy_eval_mse": float(mse.detach().cpu().item()),
+        "goal_energy_eval_pred_mean": float(pred.detach().mean().cpu().item()),
+        "goal_energy_eval_target_mean": float(target.detach().mean().cpu().item()),
+    }
 
 
 def _param_count(model: torch.nn.Module, trainable_only: bool = False) -> int:

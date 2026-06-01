@@ -11,6 +11,7 @@ from puzzle_jepa.data import (
 )
 from puzzle_jepa.data.worlds import PuzzleExample
 from puzzle_jepa.eval.diagnostics import (
+    evaluate_cem_planning,
     evaluate_latent_drift,
     evaluate_latent_planning,
     evaluate_paired_reset_planning,
@@ -228,6 +229,54 @@ def test_residual_prediction_and_weighted_loss_backpropagate():
     assert model.predictor.layers[0].attn.in_proj_weight.grad is not None
 
 
+def test_goal_energy_cls_and_hierarchy_losses_backpropagate():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    transitions = [sample_oracle_transition(world, example, np.random.default_rng(seed)) for seed in range(2)]
+    rollouts = [
+        sample_oracle_rollout_transition(world, example, np.random.default_rng(seed), steps=4)
+        for seed in range(2)
+    ]
+    batch = collate_transitions(transitions)
+    rollout_batch = collate_rollouts(rollouts)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_cls_token=True,
+        use_goal_energy_head=True,
+        hierarchy_levels=3,
+        hierarchy_stride=2,
+    )
+    assert batch.clue_masks is not None
+    initial_states = batch.states * batch.clue_masks.to(dtype=batch.states.dtype)
+    output = model(
+        batch.states,
+        batch.actions,
+        batch.next_states,
+        goals=batch.goals,
+        initial_states=initial_states,
+        goal_energy_weight=0.5,
+    )
+    hierarchy = model.hierarchy_loss(rollout_batch.states, rollout_batch.actions, rollout_batch.target_states)
+    assert torch.isfinite(output.loss)
+    assert torch.isfinite(hierarchy.loss)
+    assert output.pred_latents.shape == output.target_latents.shape == (2, 82, 32)
+    assert "loss/goal_energy_mse" in output.components
+    assert "loss/hierarchy_level_2_h4_mse" in hierarchy.components
+    (output.loss + hierarchy.loss).backward()
+    assert model.goal_energy_head[-1].weight.grad is not None
+    assert model.higher_predictors[-1].layers[0].attn.in_proj_weight.grad is not None
+
+
 def test_diagnostics_return_latent_and_reencoded_planning_records():
     world = SudokuWorld()
     example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
@@ -287,6 +336,43 @@ def test_diagnostics_return_latent_and_reencoded_planning_records():
     assert {record["example_index"] for record in reset_records} == {0}
     assert len(latent_records[0]["final_state"]) == 9
     assert {"row", "col", "pred", "goal"} <= set(latent_records[0]["mismatches"][0])
+
+
+def test_cem_planning_records_with_goal_energy_head():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_cls_token=True,
+        use_goal_energy_head=True,
+    )
+    summary, records = evaluate_cem_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(0),
+        num_examples=1,
+        max_steps=2,
+        population_size=4,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        score_mode="goal_energy",
+    )
+    assert summary["goal_energy"]["count"] == 1.0
+    assert records[0]["planner"] == "cem"
+    assert records[0]["score_mode"] == "goal_energy"
+    assert len(records[0]["final_state"]) == 9
 
 
 def test_diagnostics_oracle_sequence_and_drift_smoke():

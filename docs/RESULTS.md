@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-01 09:00 CEST
+Last updated: 2026-06-01 10:37 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -31,8 +31,16 @@ planning solved `128/128`.
 
 This passes the mechanism gate for a planner-state reset/re-encoding branch,
 but it is still an oracle-goal diagnostic, not a deployable solver. The next
-step is to implement the reset/re-encoding planner branch before Maze,
-10M/20M sweeps, or broad controls.
+user-directed branch is Grid 4A: train one-, two-, and three-level JEPA models
+with a learned goal-energy head and evaluate them with CEM. The implementation,
+configs, and CEM diagnostics are in place, but no Grid 4A jobs have been
+submitted yet.
+
+Clarification: the Grid 3C/3D result uses the filled solution board as an
+oracle goal latent for planning diagnostics. It means reset every 4 can solve
+`128/128` when the solved board is given as the goal state and the planner is
+allowed to score candidate boards against that goal. It does not mean the model
+can yet solve Sudoku without being given the solution or an external verifier.
 
 Generated artifacts: `../sequence-editing-report/assets/grid3b/` contains the
 lead and rollout `N=2` planning comparisons, drift curves, terminal
