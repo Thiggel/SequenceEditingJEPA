@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-05-31 13:30 CEST
+Last updated: 2026-06-01 09:00 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -55,15 +55,16 @@ repo snapshot.
 | `3682924` | COMPLETED | Grid 3C reset-cadence diagnostics for rollout `N=2`, exit `0:0`; reset every 2/4 solved `64/64` paired boards under step and terminal energy, reset every 8/16 solved `64/64` under terminal energy. |
 | `3683472` | COMPLETED | Enhanced recurring oversight completed at `2026-05-31 05:45:27 CEST`, exit `0:0`; submitted successor `3683863`. |
 | `3683863` | COMPLETED | Enhanced recurring oversight completed at `2026-05-31 09:36:08 CEST`, exit `0:0`; recorded Grid 3D still running. |
-| `3683903` | RUNNING | Grid 3D reset-large confirmation, started `2026-05-31 05:32:01 CEST` on `a0731`; `diagnostics_reset_cadence_large/` not yet created as of `13:30 CEST`. |
-| `3684237` | RUNNING | Current enhanced recurring oversight, started `2026-05-31 13:27:26 CEST` on `a0731`; submitted successor `3684889`. |
-| `3684889` | PENDING | Next enhanced recurring oversight, begin time `2026-05-31 17:27:28 CEST`. |
+| `3683903` | COMPLETED | Grid 3D reset-large confirmation, exit `0:0`, elapsed `08:25:19`; reset every 4 solved `128/128`, reset every 8 solved `128/128` only under terminal-energy selection. |
+| `3684237` | COMPLETED | Enhanced recurring oversight completed at `2026-05-31 13:40:28 CEST`, exit `0:0`; submitted successor `3684889`. |
+| `3684889` | NODE_FAIL | Enhanced recurring oversight started at `2026-05-31 17:27:32 CEST` and failed after `00:00:34` on `a0731`; no application stderr, stdout only job statistics. |
+| `3687722` | PENDING | Replacement enhanced recurring oversight submitted at `2026-06-01 08:56:38 CEST`; begin-time-blocked until `2026-06-01 12:56:38 CEST`. |
 
 Check live state:
 
 ```bash
-squeue -j 3680019,3680020,3680021,3682864,3682924,3683472,3683863,3683903,3684237,3684889 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3680019,3680020,3680021,3682864,3682924,3683472,3683863,3683903,3684237,3684889 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3683903,3684237,3684889,3687722 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3683903,3684237,3684889,3687722 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -82,38 +83,35 @@ are re-encoded, while stale latent rollout remains the bottleneck. The result
 is not deployable because it still uses the oracle goal and because latent and
 re-encoded planner samples are not paired example-by-example.
 
-Grid 3C reset-cadence diagnostics (`3682924`) passed the mechanism gate. On
-paired 64-board samples, no-reset terminal-energy planning solved `2/64`, reset
-every 2 and 4 actions solved `64/64` under both step- and terminal-energy
-selection, reset every 8/16 actions solved `64/64` only with terminal-energy
-selection, and full re-encoded planning solved `64/64`. This supports keeping
-symbolic boards as the planner state of record and periodically re-encoding the
-latent state, before any model-size or Maze expansion.
+Grid 3C reset-cadence diagnostics (`3682924`) passed the mechanism gate, and
+Grid 3D reset-large confirmation (`3683903`) confirmed it on a larger paired
+sample. On 128 paired boards, no-reset terminal-energy planning solved `7/128`
+with mean remaining Hamming `2.398`, reset every 4 solved `128/128` under both
+step- and terminal-energy selection, reset every 8 solved `91/128` under
+step-energy but `128/128` under terminal-energy selection, and full re-encoded
+planning solved `128/128`.
 
 Planning intentionally allows overwrites/conflicts on mutable Sudoku cells for
 diagnosis, so terminal boards can be fully filled but wrong. Treat online
 H1/H2/H4, terminal fill rate, and oracle-goal reset results as diagnostics, not
 deployable solve quality. Generated analysis artifacts live under
-`../sequence-editing-report/assets/grid3b/`, including the new Grid 3C
-reset-cadence planning plots, CSVs, and concrete paired examples.
+`../sequence-editing-report/assets/grid3b/`, including the new Grid 3D
+reset-large planning plots, CSVs, and concrete paired examples. The decision
+gate is now satisfied for implementing a planner-state reset/re-encoding
+branch that keeps symbolic candidate boards as the state of record and
+re-encodes latents every 4 actions.
 
-Grid 3D reset-large confirmation (`3683903`) is running against
-`$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_local_direct_weighted_rollout_n2`,
-writing `diagnostics_reset_cadence_large/` only at completion. It compares no
-reset, reset every 4/8 actions, and full re-encoded planning on 128 paired
-boards. As of 13:30 CEST, stderr is empty, stdout only contains the task
-prologue, the output directory has not been created, and `sstat` shows CPU time
-close to elapsed with MaxRSS about `1.65 GiB`. The job has a 12-hour walltime
-ending at 17:32:01 CEST.
-
-Partition housekeeping at 13:30 CEST: `3683903` and current oversight `3684237`
-are running on `a100`, and the only later repo oversight `3684889` is
-begin-time-blocked. Idle `a100`, `a40`, and `rtxpro6k` nodes are visible, but no
-partition broadening is useful for running or begin-time-blocked repo jobs.
+Oversight chain issue: successor oversight `3684889` failed with `NODE_FAIL`
+after 34 seconds on `a0731`; there was no application stderr. Replacement
+oversight `3687722` was submitted with `--begin=now+4hours` and is pending for
+`2026-06-01 12:56:38 CEST`. There are no active puzzle-JEPA jobs in `squeue`;
+other visible HFSA/paired user-account arrays are outside this repo snapshot.
+Partition housekeeping at 09:00 CEST: `3687722` is begin-time-blocked, so
+partition broadening cannot help.
 
 Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
 concrete planner examples, question assumptions, add useful report figures and
 tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive. The next safe step is to analyze `3683903` when it completes or times
-out, not Maze or broad capacity sweeps.
+alive. The next safe step is planner-state reset/re-encoding implementation,
+not Maze or broad capacity sweeps.

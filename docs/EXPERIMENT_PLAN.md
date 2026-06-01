@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-05-31 13:30 CEST
+Last updated: 2026-06-01 09:00 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -14,8 +14,9 @@ Grid 3B Sudoku follow-up:
 | `sudoku_jepa_5m_local_direct_weighted_rollout_n2` | Train direct local weighted JEPA with rollout loss `N=2`. | Completed as `3680020`; final step `5000`, eval loss `0.000138`, online H1/H2/H4 solve `1.0 / 1.0 / 1.0`. |
 | Grid 3B rollout `N=2` diagnostics | Same larger diagnostics after rollout training. | Completed as `3680021`; latent terminal-energy solve `4/64`, re-encoded planning `64/64`. |
 | Grid 3C reset/re-encoding diagnostic | Test periodic candidate-state re-encoding or latent reset cadence before broad scaling. | Completed as `3682924`; reset every 2/4 solved `64/64` paired boards under step and terminal energy, while no-reset terminal energy solved `2/64`. |
-| Grid 3D reset-large confirmation | Confirm the reset/re-encoding branch on a larger paired sample before changing planner defaults or scaling. | Running as `3683903`; no `diagnostics_reset_cadence_large/` directory yet as of 13:30 CEST. |
-| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | `3683863` completed; `3684237` is running; successor `3684889` is pending for `2026-05-31 17:27:28 CEST`. |
+| Grid 3D reset-large confirmation | Confirm the reset/re-encoding branch on a larger paired sample before changing planner defaults or scaling. | Completed as `3683903`; reset every 4 solved `128/128`, reset every 8 solved `128/128` only under terminal-energy selection. |
+| Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Next implementation step; do this before Maze, broad controls, or model-size sweeps. |
+| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | `3684237` completed; successor `3684889` failed with `NODE_FAIL`; replacement `3687722` is pending for `2026-06-01 12:56:38 CEST`. |
 
 Grid 3A Sudoku local-edit ablation:
 
@@ -51,9 +52,12 @@ Grid 3A diagnostic decision:
    proximity, but it does not satisfy the exact latent solve gate: latent
    terminal-energy solve is only `4/64` and terminal weighted drift remains
    about `2.16`.
-7. Current gate: do not start Maze, broad size sweeps, or broad controls yet.
-   Grid 3C passed the mechanism gate: periodic re-encoding can recover the
+7. Grid 3C passed the mechanism gate: periodic re-encoding can recover the
    `64/64` re-encoded result on the paired oracle-goal diagnostic.
-8. Next gate: analyze Grid 3D job `3683903` when it completes. If reset every 4
-   remains exact on the larger paired sample, pursue a planner-state
-   reset/re-encoding branch before Maze, broad controls, or model-size sweeps.
+8. Grid 3D confirmed the mechanism on 128 paired boards: reset every 4 solved
+   `128/128` under both step- and terminal-energy selection; reset every 8
+   solved `91/128` under step-energy and `128/128` under terminal-energy
+   selection.
+9. Current gate: implement the planner-state reset/re-encoding branch before
+   Maze, broad controls, or model-size sweeps. Keep the oracle-goal caveat
+   explicit; this is still not a deployable solver.

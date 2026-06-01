@@ -1,18 +1,19 @@
 # Results
 
-Last updated: 2026-05-31 13:30 CEST
+Last updated: 2026-06-01 09:00 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
 
 ## Current Key Result
 
-Grid 3C reset-cadence diagnostics show that periodic planner-state re-encoding
-recovers the re-encoded oracle-goal result. On paired 64-board samples for the
-rollout `N=2` checkpoint, no-reset terminal-energy planning solved `2/64`, reset
-every 2/4 actions solved `64/64` under both step and terminal energy, reset
-every 8/16 actions solved `64/64` under terminal energy, and full re-encoded
-planning solved `64/64`.
+Grid 3D reset-large diagnostics confirm that periodic planner-state
+re-encoding recovers the re-encoded oracle-goal result on a larger paired
+sample. On 128 boards for the rollout `N=2` checkpoint, no-reset
+terminal-energy planning solved `7/128`, reset every 4 actions solved
+`128/128` under both step and terminal energy, reset every 8 solved `91/128`
+under step energy but `128/128` under terminal energy, and full re-encoded
+planning solved `128/128`.
 
 | Run | Planner | Scoring | Solve | Terminal | Mean remaining Hamming |
 | --- | --- | --- | ---: | ---: | ---: |
@@ -21,18 +22,22 @@ planning solved `64/64`.
 | Grid 3C paired | no reset | terminal energy | 0.03125 | 0.5625 | 2.265625 |
 | Grid 3C paired | reset every 4 | step energy | 1.0 | 1.0 | 0.0 |
 | Grid 3C paired | reset every 8 | terminal energy | 1.0 | 1.0 | 0.0 |
+| Grid 3D paired | no reset | terminal energy | 0.0546875 | 0.3984375 | 2.3984375 |
+| Grid 3D paired | reset every 4 | step energy | 1.0 | 1.0 | 0.0 |
+| Grid 3D paired | reset every 8 | step energy | 0.7109375 | 0.7109375 | 0.2890625 |
+| Grid 3D paired | reset every 8 | terminal energy | 1.0 | 1.0 | 0.0 |
 | lead large | re-encoded state | terminal energy | 1.0 | 1.0 | 0.0 |
 | rollout `N=2` | re-encoded state | terminal energy | 1.0 | 1.0 | 0.0 |
 
 This passes the mechanism gate for a planner-state reset/re-encoding branch,
-but it is still an oracle-goal diagnostic, not a deployable solver. Maze,
-10M/20M sweeps, and broad controls remain blocked until the reset branch is
-confirmed and integrated.
+but it is still an oracle-goal diagnostic, not a deployable solver. The next
+step is to implement the reset/re-encoding planner branch before Maze,
+10M/20M sweeps, or broad controls.
 
 Generated artifacts: `../sequence-editing-report/assets/grid3b/` contains the
 lead and rollout `N=2` planning comparisons, drift curves, terminal
 remaining-Hamming distributions, mismatch heatmaps, final training curve, CSV
-tables, Grid 3C reset-cadence plots/CSVs, and concrete paired examples.
+tables, Grid 3C/Grid 3D reset-cadence plots/CSVs, and concrete paired examples.
 
 ## Grid 3A Grounding Result
 
@@ -66,15 +71,12 @@ Grid 3B rollout `N=2` completed as `3680020` and diagnostics completed as
 oracle mean rank `12.34375`, and H1/H2/H4 solve `1.0 / 1.0 / 1.0`, but the
 larger diagnostics show exact latent solve remains weak.
 
-Grid 3C reset-cadence diagnostics completed as `3682924` and wrote
-`diagnostics_reset_cadence/diagnostics.json` plus paired reset planning records.
-The follow-up Grid 3D reset-large confirmation is running as `3683903`; it
-compares no reset, reset every 4/8 actions, and full re-encoded planning on 128
-paired boards, writing `diagnostics_reset_cadence_large/` only at completion.
-As of 13:30 CEST, stderr is empty, stdout only has the task prologue, and the
-output directory has not been created. Oversight `3683863` completed cleanly,
-current oversight `3684237` is running, and exactly one successor, `3684889`, is
-pending for `2026-05-31 17:27:28 CEST`.
+Grid 3C reset-cadence diagnostics completed as `3682924`; Grid 3D reset-large
+confirmation completed as `3683903` and wrote
+`diagnostics_reset_cadence_large/diagnostics.json` plus paired records. It
+confirms reset every 4 as the cheapest exact cadence tested on the larger
+sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
+`3687722` is pending for `2026-06-01 12:56:38 CEST`.
 
 ## Grid 3A Diagnostics
 
