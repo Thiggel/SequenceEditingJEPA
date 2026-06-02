@@ -103,9 +103,9 @@ confirmation completed as `3683903` and wrote
 confirms reset every 4 as the cheapest exact cadence tested on the larger
 sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
 `3687722` completed, oversight `3688542` completed, successors `3689344` and
-`3689685` were cancelled before start, replacement `3691526` started at
-`2026-06-02 14:22:40 CEST`, and it submitted exactly one later oversight
-`3692215` for `2026-06-02 18:22:52 CEST`.
+`3689685` were cancelled before start, replacement `3691526` completed at
+`2026-06-02 14:32:29 CEST`, and successor `3692215` was cancelled by user
+request at `2026-06-02 14:40:41 CEST`. Recurring oversight is now disabled.
 Grid 4A pre-correction training `3688587_[0-2]` was cancelled after preserving
 step-1 metrics; intermediate `3688921_[0-2]` was cancelled after the exact
 planner correction; replacement training completed as `3688986_[0-2]`. Final

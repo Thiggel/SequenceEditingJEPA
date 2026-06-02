@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-02 14:25 CEST
+Last updated: 2026-06-02 14:41 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -63,8 +63,8 @@ repo snapshot.
 | `3688542` | COMPLETED | Enhanced recurring oversight ran `2026-06-01 16:57:23-17:12:45 CEST`, exit `0:0`; submitted successor `3689344` and queued Grid 4A diagnostics. |
 | `3689344` | CANCELLED | Later oversight from `3688542` was cancelled before start at `2026-06-01 18:29:32 CEST`; replaced by `3689685`. |
 | `3689685` | CANCELLED | Replacement oversight was cancelled before start at `2026-06-01 19:57:58 CEST`; replaced by `3691526`. |
-| `3691526` | RUNNING | Enhanced recurring oversight started `2026-06-02 14:22:40 CEST` on `a0831`; stdout shows it submitted successor `3692215`. |
-| `3692215` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-02 18:22:52 CEST`. |
+| `3691526` | COMPLETED | Final enhanced recurring oversight ran `2026-06-02 14:22:40-14:32:29 CEST`, exit `0:0`; submitted successor `3692215`. |
+| `3692215` | CANCELLED | Cancelled by user request at `2026-06-02 14:40:41 CEST`; recurring oversight is now disabled. |
 | `3688587_[0-2]` | CANCELLED | User-approved cancellation at `2026-06-01 14:46:56 CEST`; pre-HWM-correction Grid 4A baseline jobs ran `01:40:56` and wrote step-1 metrics. |
 | `3688921_[0-2]` | CANCELLED | Superseded after the user requested exact report-style hierarchical planning; cancelled at `2026-06-01 15:01:20 CEST` after `00:14:07` on `a0531`, `a0731`, and `a0931`; no checkpoints. |
 | `3688986_[0-2]` | COMPLETED | Exact-recipe Grid 4A training completed cleanly on 2026-06-01; all three roots have final `checkpoint.pt` at step 5000. |
@@ -75,7 +75,7 @@ repo snapshot.
 Check live state:
 
 ```bash
-squeue -j 3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 -o "%.18i %.9T %.28j %.10M %.20S %R"
+squeue -j 3691590,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
 sacct -j 3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
@@ -118,8 +118,8 @@ after 34 seconds on `a0731`; there was no application stderr. Replacement
 oversight `3687722` completed, oversight `3688542` completed cleanly at
 `2026-06-01 17:12:45 CEST`, its successor `3689344` was later cancelled before
 start, replacement `3689685` was also cancelled before start, and replacement
-oversight `3691526` started at `2026-06-02 14:22:40 CEST` and submitted
-successor `3692215`, pending for `2026-06-02 18:22:52 CEST`.
+oversight `3691526` completed at `2026-06-02 14:32:29 CEST`; its successor
+`3692215` was cancelled by user request at `2026-06-02 14:40:41 CEST`.
 Other visible HFSA/paired user-account arrays are outside this repo snapshot.
 Partition housekeeping at 17:00 CEST: `sinfo` showed idle `a100`, `a40`, and
 `rtxpro6k` nodes, but at that time the only pending repo jobs were
@@ -181,11 +181,9 @@ directory exists yet; this is not by itself a failure because
 re-encoded, and paired reset planning. `sstat` shows active CPU time and max RSS
 about `1.6-1.7 GiB` for observed tasks.
 
-Oversight chain at 14:25 CEST: `3691526` is running on `a0831` and submitted
-successor `3692215`, begin-time-blocked until `2026-06-02 18:22:52 CEST`.
-Exactly one later `puzzle_oversight` is pending. `sinfo` showed idle `a100`
-nodes, but the only pending repo job was begin-time-blocked oversight, so no
-partition broadening was useful.
+Oversight cancellation at 14:41 CEST: by user request, pending successor
+`3692215` was cancelled and the recurring oversight wrapper/prompt were removed.
+Do not schedule further `puzzle_oversight` jobs.
 
 Implementation correction at 14:03 CEST: the user clarified that the hierarchy
 should have an explicit higher-level action encoder over the lower-level action
@@ -228,10 +226,7 @@ For the older primitive-candidate hierarchy comparison diagnostic, run
 `scripts/slurm/run_grid4a_hierarchical_cem_diagnostics.slurm` only after the
 exact subgoal planner is recorded or if a direct comparison is needed.
 
-Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
-requires each run to reconcile Slurm/artifacts with the backlog, inspect
-concrete planner examples, question assumptions, add useful report figures and
-tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive. The next safe step is to fix/debug the CEM objective and action
-parameterization before any Maze or broad capacity sweeps. Keep reset every 4
-as the oracle-goal control baseline.
+Recurring oversight is disabled by user request as of 2026-06-02 14:41 CEST.
+Do not schedule further `puzzle_oversight` jobs. The next safe step is to wait
+for Grid 4B `3691590_[0-2]` to finish, then analyze learned-energy reset/beam
+results before changing CEM or starting Maze/broad capacity sweeps.
