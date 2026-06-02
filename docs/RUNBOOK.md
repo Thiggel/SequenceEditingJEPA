@@ -3,6 +3,7 @@
 Last updated: 2026-06-02 10:49 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
+Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
 
 - Ongoing LaTeX report: `../sequence-editing-report/report.tex`
 - Experiment backlog: `../sequence-editing-report/BACKLOG.md`

@@ -3,6 +3,7 @@
 Last updated: 2026-06-02 10:49 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
+Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
 
 ## Active Experiments
 
