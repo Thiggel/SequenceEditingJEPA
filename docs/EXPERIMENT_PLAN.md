@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-02 10:49 CEST
+Last updated: 2026-06-02 14:25 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -17,9 +17,9 @@ Grid 3B Sudoku follow-up:
 | Grid 3C reset/re-encoding diagnostic | Test periodic candidate-state re-encoding or latent reset cadence before broad scaling. | Completed as `3682924`; reset every 2/4 solved `64/64` paired boards under step and terminal energy, while no-reset terminal energy solved `2/64`. |
 | Grid 3D reset-large confirmation | Confirm the reset/re-encoding branch on a larger paired sample before changing planner defaults or scaling. | Completed as `3683903`; reset every 4 solved `128/128`, reset every 8 solved `128/128` only under terminal-energy selection. |
 | Grid 4A goal-energy / hierarchy / CEM | Train one-, two-, and three-level JEPA variants with a learned goal-energy head and evaluate with categorical CEM plus exact report-style hierarchical subgoal CEM. | Completed: training `3688986_[0-2]`, learned-energy CEM `3689396_[0-2]`, and subgoal CEM `3689397_[0-1]` all exited `0:0`, but CEM solve rate was `0.0` across the grid. |
-| Grid 4B learned-energy reset beam | Test beam search with symbolic board state, learned goal-energy scoring, and reset/re-encode cadence 4 on the Grid 4A checkpoints. | Submitted as `3691590_[0-2]`, running since `2026-06-02 10:49:08 CEST`; writes `diagnostics_reset_goal_energy` for L1/L2/L3. |
+| Grid 4B learned-energy reset beam | Test beam search with symbolic board state, learned goal-energy scoring, and reset/re-encode cadence 4 on the Grid 4A checkpoints. | Running as `3691590_[0-2]` since `2026-06-02 10:49:08 CEST`; at 14:25 stderr was empty and no `diagnostics_reset_goal_energy` directory had been written yet. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
-| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | `3688542` completed; successors `3689344` and `3689685` were cancelled before start; replacement `3691526` is pending for `2026-06-02 14:22:39 CEST`. |
+| Enhanced recurring oversight | Every run audits jobs, examples, assumptions, figures/tables, backlog gates, and next submissions. | `3691526` is running since `2026-06-02 14:22:40 CEST` and submitted exactly one later oversight, `3692215`, pending for `2026-06-02 18:22:52 CEST`. |
 
 Grid 3A Sudoku local-edit ablation:
 

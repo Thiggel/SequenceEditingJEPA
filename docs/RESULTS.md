@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-02 10:49 CEST
+Last updated: 2026-06-02 14:25 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -45,9 +45,11 @@ CEM solve gates failed: learned-energy CEM solved `0/64` for every level, and
 subgoal CEM solved `0/32` for L2 and L3.
 
 Grid 4B learned-energy reset/beam diagnostics were submitted as `3691590_[0-2]`
-at `2026-06-02 10:49:08 CEST`. They test the same Grid 4A checkpoints with
-beam search, symbolic board state, learned goal-energy scoring, and reset
-cadence 4, writing `diagnostics_reset_goal_energy`.
+at `2026-06-02 10:49:08 CEST`. At the 14:25 CEST live check they were still
+running with empty stderr and no output directory written yet. They test the
+same Grid 4A checkpoints with beam search, symbolic board state, learned
+goal-energy scoring, and reset cadence 4, writing `diagnostics_reset_goal_energy`
+after the full diagnostics pass completes.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve
@@ -101,8 +103,9 @@ confirmation completed as `3683903` and wrote
 confirms reset every 4 as the cheapest exact cadence tested on the larger
 sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
 `3687722` completed, oversight `3688542` completed, successors `3689344` and
-`3689685` were cancelled before start, and replacement `3691526` is the single
-future oversight.
+`3689685` were cancelled before start, replacement `3691526` started at
+`2026-06-02 14:22:40 CEST`, and it submitted exactly one later oversight
+`3692215` for `2026-06-02 18:22:52 CEST`.
 Grid 4A pre-correction training `3688587_[0-2]` was cancelled after preserving
 step-1 metrics; intermediate `3688921_[0-2]` was cancelled after the exact
 planner correction; replacement training completed as `3688986_[0-2]`. Final

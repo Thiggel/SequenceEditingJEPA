@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-02 10:49 CEST
+Last updated: 2026-06-02 14:25 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -63,19 +63,20 @@ repo snapshot.
 | `3688542` | COMPLETED | Enhanced recurring oversight ran `2026-06-01 16:57:23-17:12:45 CEST`, exit `0:0`; submitted successor `3689344` and queued Grid 4A diagnostics. |
 | `3689344` | CANCELLED | Later oversight from `3688542` was cancelled before start at `2026-06-01 18:29:32 CEST`; replaced by `3689685`. |
 | `3689685` | CANCELLED | Replacement oversight was cancelled before start at `2026-06-01 19:57:58 CEST`; replaced by `3691526`. |
-| `3691526` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-02 14:22:39 CEST`. |
+| `3691526` | RUNNING | Enhanced recurring oversight started `2026-06-02 14:22:40 CEST` on `a0831`; stdout shows it submitted successor `3692215`. |
+| `3692215` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-02 18:22:52 CEST`. |
 | `3688587_[0-2]` | CANCELLED | User-approved cancellation at `2026-06-01 14:46:56 CEST`; pre-HWM-correction Grid 4A baseline jobs ran `01:40:56` and wrote step-1 metrics. |
 | `3688921_[0-2]` | CANCELLED | Superseded after the user requested exact report-style hierarchical planning; cancelled at `2026-06-01 15:01:20 CEST` after `00:14:07` on `a0531`, `a0731`, and `a0931`; no checkpoints. |
 | `3688986_[0-2]` | COMPLETED | Exact-recipe Grid 4A training completed cleanly on 2026-06-01; all three roots have final `checkpoint.pt` at step 5000. |
 | `3689396_[0-2]` | COMPLETED | Grid 4A learned-energy CEM diagnostics completed; solve `0/64` for L1/L2/L3. |
 | `3689397_[0-1]` | COMPLETED | Grid 4A report-style subgoal CEM diagnostics completed; solve `0/32` for L2/L3. |
-| `3691590_[0-2]` | RUNNING | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; started `2026-06-02 10:49:08 CEST` on `a0532`, `a0537`, `a0731`; writes `diagnostics_reset_goal_energy`. |
+| `3691590_[0-2]` | RUNNING | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; started `2026-06-02 10:49:08 CEST` on `a0532`, `a0537`, `a0731`; at 14:25 stderr was empty and no `diagnostics_reset_goal_energy` directory had been written yet. |
 
 Check live state:
 
 ```bash
-squeue -j 3691526,3688587,3688921,3688986,3689396,3689397,3691590 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3688542,3689344,3689685,3691526,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -117,7 +118,8 @@ after 34 seconds on `a0731`; there was no application stderr. Replacement
 oversight `3687722` completed, oversight `3688542` completed cleanly at
 `2026-06-01 17:12:45 CEST`, its successor `3689344` was later cancelled before
 start, replacement `3689685` was also cancelled before start, and replacement
-oversight `3691526` is pending for `2026-06-02 14:22:39 CEST`.
+oversight `3691526` started at `2026-06-02 14:22:40 CEST` and submitted
+successor `3692215`, pending for `2026-06-02 18:22:52 CEST`.
 Other visible HFSA/paired user-account arrays are outside this repo snapshot.
 Partition housekeeping at 17:00 CEST: `sinfo` showed idle `a100`, `a40`, and
 `rtxpro6k` nodes, but at that time the only pending repo jobs were
@@ -170,6 +172,20 @@ It tests beam search over legal Sudoku writes with `--planning-score goal_energy
 `--planning-beam-size 4`, `--planning-branch-size 8`, and `--reset-cadences 4`
 on the three exact-recipe Grid 4A checkpoints. Output roots are
 `$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_goal_energy_hwm_{l1,l2_span9,l3_span3}/diagnostics_reset_goal_energy`.
+
+Grid 4B live check at 14:25 CEST on 2026-06-02: `3691590_[0-2]` is still
+running after about `03:34` on `a0532`, `a0537`, and `a0731`. Stderr is empty
+and stdout contains only Slurm prologues. No `diagnostics_reset_goal_energy`
+directory exists yet; this is not by itself a failure because
+`puzzle_jepa.eval.diagnostics` writes output only after finishing latent,
+re-encoded, and paired reset planning. `sstat` shows active CPU time and max RSS
+about `1.6-1.7 GiB` for observed tasks.
+
+Oversight chain at 14:25 CEST: `3691526` is running on `a0831` and submitted
+successor `3692215`, begin-time-blocked until `2026-06-02 18:22:52 CEST`.
+Exactly one later `puzzle_oversight` is pending. `sinfo` showed idle `a100`
+nodes, but the only pending repo job was begin-time-blocked oversight, so no
+partition broadening was useful.
 
 Implementation correction at 14:03 CEST: the user clarified that the hierarchy
 should have an explicit higher-level action encoder over the lower-level action
