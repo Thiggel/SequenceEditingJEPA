@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-01 18:35 CEST
+Last updated: 2026-06-02 10:23 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -61,18 +61,19 @@ repo snapshot.
 | `3687722` | COMPLETED | Replacement enhanced recurring oversight ran `2026-06-01 12:57:00-13:21:50 CEST`, exit `0:0`; submitted successor `3688542`. |
 | `3688542` | COMPLETED | Enhanced recurring oversight ran `2026-06-01 16:57:23-17:12:45 CEST`, exit `0:0`; submitted successor `3689344` and queued Grid 4A diagnostics. |
 | `3689344` | CANCELLED | Later oversight from `3688542` was cancelled before start at `2026-06-01 18:29:32 CEST`; replaced by `3689685`. |
-| `3689685` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-01 22:35:52 CEST`. |
+| `3689685` | CANCELLED | Replacement oversight was cancelled before start at `2026-06-01 19:57:58 CEST`; replaced by `3691526`. |
+| `3691526` | PENDING | Exactly one later enhanced recurring oversight, begin-time-blocked until `2026-06-02 14:22:39 CEST`. |
 | `3688587_[0-2]` | CANCELLED | User-approved cancellation at `2026-06-01 14:46:56 CEST`; pre-HWM-correction Grid 4A baseline jobs ran `01:40:56` and wrote step-1 metrics. |
 | `3688921_[0-2]` | CANCELLED | Superseded after the user requested exact report-style hierarchical planning; cancelled at `2026-06-01 15:01:20 CEST` after `00:14:07` on `a0531`, `a0731`, and `a0931`; no checkpoints. |
-| `3688986_[0-2]` | RUNNING | Exact-recipe Grid 4A training started at `2026-06-01 15:09:33 CEST`; L1 is at step 3000, L2/L3 at step 2000, checkpoints are being written, and stderr files are empty. |
-| `3689396_[0-2]` | PENDING | Grid 4A learned-energy CEM diagnostics, dependency-blocked on successful completion of `3688986_[0-2]`; writes `diagnostics_cem_goal_energy`. |
-| `3689397_[0-1]` | PENDING | Grid 4A report-style subgoal CEM diagnostics, dependency-blocked on successful completion of `3689396_[0-2]`; writes `diagnostics_subgoal_cem_l{1,2}`. |
+| `3688986_[0-2]` | COMPLETED | Exact-recipe Grid 4A training completed cleanly on 2026-06-01; all three roots have final `checkpoint.pt` at step 5000. |
+| `3689396_[0-2]` | COMPLETED | Grid 4A learned-energy CEM diagnostics completed; solve `0/64` for L1/L2/L3. |
+| `3689397_[0-1]` | COMPLETED | Grid 4A report-style subgoal CEM diagnostics completed; solve `0/32` for L2/L3. |
 
 Check live state:
 
 ```bash
-squeue -j 3689685,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3688542,3689344,3689685,3688587,3688921,3688986,3689396,3689397 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3691526,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3688542,3689344,3689685,3691526,3688587,3688921,3688986,3689396,3689397 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -113,12 +114,13 @@ Oversight chain issue: successor oversight `3684889` failed with `NODE_FAIL`
 after 34 seconds on `a0731`; there was no application stderr. Replacement
 oversight `3687722` completed, oversight `3688542` completed cleanly at
 `2026-06-01 17:12:45 CEST`, its successor `3689344` was later cancelled before
-start, and replacement oversight `3689685` is pending for
-`2026-06-01 22:35:52 CEST`.
+start, replacement `3689685` was also cancelled before start, and replacement
+oversight `3691526` is pending for `2026-06-02 14:22:39 CEST`.
 Other visible HFSA/paired user-account arrays are outside this repo snapshot.
 Partition housekeeping at 17:00 CEST: `sinfo` showed idle `a100`, `a40`, and
-`rtxpro6k` nodes, but the only pending repo jobs are dependency-blocked
-diagnostics or begin-time-blocked oversight, so no `scontrol update` is useful.
+`rtxpro6k` nodes, but at that time the only pending repo jobs were
+dependency-blocked diagnostics or begin-time-blocked oversight, so no
+`scontrol update` was useful.
 
 Grid 4A check at 14:47 CEST: pre-HWM-correction jobs `3688587_[0-2]` were
 cancelled after user approval. Corrected HWM-style jobs `3688921_[0-2]` started
@@ -150,6 +152,16 @@ goal-energy MSE `0.000182`, and hierarchy loss `0.0132`. H1/H2/H4 online solve
 remains `1.0` for all three, still only a sanity metric. The queued diagnostics
 remain dependency-blocked.
 
+Grid 4A result check at 10:23 CEST on 2026-06-02: training `3688986_[0-2]`,
+learned-energy CEM `3689396_[0-2]`, and report-style subgoal CEM
+`3689397_[0-1]` all completed cleanly. Training losses are healthy at step 5000
+and online H1/H2/H4 remains `1.0`, but the actual CEM gates failed. Learned
+goal-energy CEM solved `0/64` for every level, with terminal rate `0.0` and
+mean remaining Hamming L1/L2/L3 `50.80`/`50.33`/`49.70`. Report-style subgoal
+CEM solved `0/32` for L2 and L3, with mean remaining Hamming `48.31` and
+`49.28`; L3 produced one terminal but wrong board. Artifacts are in
+`../sequence-editing-report/assets/grid4a/`.
+
 Implementation correction at 14:03 CEST: the user clarified that the hierarchy
 should have an explicit higher-level action encoder over the lower-level action
 span and that K should be configurable. The code now adds
@@ -166,7 +178,7 @@ macro-action sequences, rolls out the higher-level predictor toward the solved
 board latent, takes the first predicted high-level latent as the subgoal, and
 then runs low-level categorical CEM over primitive Sudoku writes to reach that
 subgoal. The high-level latent action is not decoded into primitive actions.
-That subgoal diagnostic is queued as `3689397_[0-1]`. The older
+That subgoal diagnostic completed as `3689397_[0-1]`. The older
 `run_grid4a_hierarchical_cem_diagnostics.slurm` is only a comparison diagnostic
 that scores primitive candidate chunks through the action encoder; it is not the
 exact report recipe.
@@ -183,11 +195,9 @@ collection because Python imports were stuck in shared filesystem waits
 (`rpc_wait_bit_killable`/`folio_wait_bit_common`). The Slurm wrapper syntax
 checks and `py_compile` for the changed Grid 4A modules passed.
 
-Grid 4A diagnostics have been queued behind successful training completion:
-`3689396_[0-2]` runs `scripts/slurm/run_grid4a_cem_diagnostics.slurm`, then
-`3689397_[0-1]` runs `scripts/slurm/run_grid4a_subgoal_cem_diagnostics.slurm`.
-If `3688986_[0-2]` fails or is cancelled, these dependency-blocked diagnostics
-will not run and should be reviewed before resubmission.
+Grid 4A diagnostics completed cleanly but failed the solve gate. The next
+diagnostic should focus on CEM action parameterization and energy/scorer
+ranking, not on larger models.
 
 For the older primitive-candidate hierarchy comparison diagnostic, run
 `scripts/slurm/run_grid4a_hierarchical_cem_diagnostics.slurm` only after the
@@ -197,7 +207,6 @@ Oversight uses `scripts/oversight/puzzle_oversight_prompt.md`. That prompt
 requires each run to reconcile Slurm/artifacts with the backlog, inspect
 concrete planner examples, question assumptions, add useful report figures and
 tables, fix/resubmit small failures, and keep the four-hour oversight chain
-alive. The next safe step is to monitor `3688986_[0-2]`, then analyze queued
-Grid 4A CEM diagnostics `3689396_[0-2]` and `3689397_[0-1]`. Keep the
-oracle-goal reset result as the control baseline and do not start Maze or broad
-capacity sweeps yet.
+alive. The next safe step is to fix/debug the CEM objective and action
+parameterization before any Maze or broad capacity sweeps. Keep reset every 4
+as the oracle-goal control baseline.

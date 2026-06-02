@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-01 18:35 CEST
+Last updated: 2026-06-02 10:23 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -38,10 +38,11 @@ was pre-HWM correction and was cancelled after user approval at `14:46:56 CEST`.
 Intermediate corrected training `3688921_[0-2]` was cancelled at `15:01:20 CEST`
 after the user requested the exact report-style high-level latent-action CEM
 to subgoal and low-level primitive CEM recipe. Replacement training
-`3688986_[0-2]` is running; L1 has reached step 3000 and L2/L3 have reached
-step 2000 in the `sudoku_jepa_5m_goal_energy_hwm_*` run roots. Learned-energy
-CEM diagnostics are queued as `3689396_[0-2]` after successful training
-completion, followed by report-style subgoal CEM diagnostics `3689397_[0-1]`.
+`3688986_[0-2]` completed cleanly at step 5000 for all three levels. The
+dependent learned-energy CEM diagnostics `3689396_[0-2]` and report-style
+subgoal CEM diagnostics `3689397_[0-1]` also completed cleanly, but the actual
+CEM solve gates failed: learned-energy CEM solved `0/64` for every level, and
+subgoal CEM solved `0/32` for L2 and L3.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve
@@ -54,7 +55,8 @@ lead and rollout `N=2` planning comparisons, drift curves, terminal
 remaining-Hamming distributions, mismatch heatmaps, final training curve, CSV
 tables, Grid 3C/Grid 3D reset-cadence plots/CSVs, and concrete paired examples.
 `../sequence-editing-report/assets/grid4a/` contains the step-1000 exact-recipe
-training summary CSV/PNG.
+training summary CSV/PNG plus final training and CEM diagnostic summaries,
+failure examples, and remaining-Hamming plot.
 
 ## Grid 3A Grounding Result
 
@@ -93,18 +95,19 @@ confirmation completed as `3683903` and wrote
 `diagnostics_reset_cadence_large/diagnostics.json` plus paired records. It
 confirms reset every 4 as the cheapest exact cadence tested on the larger
 sample. Oversight successor `3684889` hit `NODE_FAIL`; replacement oversight
-`3687722` completed, oversight `3688542` completed, successor `3689344` was
-cancelled before start, and replacement `3689685` is the single future
-oversight.
+`3687722` completed, oversight `3688542` completed, successors `3689344` and
+`3689685` were cancelled before start, and replacement `3691526` is the single
+future oversight.
 Grid 4A pre-correction training `3688587_[0-2]` was cancelled after preserving
 step-1 metrics; intermediate `3688921_[0-2]` was cancelled after the exact
-planner correction; replacement training is running as `3688986_[0-2]`. Current
-online training metrics remain healthy: L1 step 3000 eval loss `0.000171` and
-goal-energy MSE `0.000335`; L2 step 2000 eval loss `0.000257`, goal-energy MSE
-`0.000431`, and hierarchy loss `0.0158`; L3 step 2000 eval loss `0.000243`,
-goal-energy MSE `0.000182`, and hierarchy loss `0.0132`. Online H1/H2/H4 solve
-is `1.0 / 1.0 / 1.0`; treat this as a sanity check until `3689396`/`3689397`
-finish.
+planner correction; replacement training completed as `3688986_[0-2]`. Final
+training metrics look healthy: L1/L2/L3 eval loss `0.000118`/`0.000192`/`0.000156`,
+goal-energy MSE `5.72e-05`/`0.000148`/`9.67e-05`, and online H1/H2/H4 solve
+`1.0 / 1.0 / 1.0`. However, learned-energy CEM failed with solve `0/64`,
+terminal rate `0.0`, and mean remaining Hamming `50.80`/`50.33`/`49.70`.
+Report-style subgoal CEM also failed with solve `0/32`; L2 mean remaining
+Hamming `48.31`, L3 mean remaining Hamming `49.28`, and only one L3 sample
+was terminal, still wrong.
 
 ## Grid 3A Diagnostics
 
