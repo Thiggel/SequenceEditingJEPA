@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-02 10:23 CEST
+Last updated: 2026-06-02 10:49 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -68,12 +68,13 @@ repo snapshot.
 | `3688986_[0-2]` | COMPLETED | Exact-recipe Grid 4A training completed cleanly on 2026-06-01; all three roots have final `checkpoint.pt` at step 5000. |
 | `3689396_[0-2]` | COMPLETED | Grid 4A learned-energy CEM diagnostics completed; solve `0/64` for L1/L2/L3. |
 | `3689397_[0-1]` | COMPLETED | Grid 4A report-style subgoal CEM diagnostics completed; solve `0/32` for L2/L3. |
+| `3691590_[0-2]` | RUNNING | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; started `2026-06-02 10:49:08 CEST` on `a0532`, `a0537`, `a0731`; writes `diagnostics_reset_goal_energy`. |
 
 Check live state:
 
 ```bash
-squeue -j 3691526,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3688542,3689344,3689685,3691526,3688587,3688921,3688986,3689396,3689397 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3691526,3688587,3688921,3688986,3689396,3689397,3691590 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3688542,3689344,3689685,3691526,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -162,6 +163,13 @@ CEM solved `0/32` for L2 and L3, with mean remaining Hamming `48.31` and
 `49.28`; L3 produced one terminal but wrong board. Artifacts are in
 `../sequence-editing-report/assets/grid4a/`.
 
+Grid 4B submission at 10:49 CEST on 2026-06-02: implemented and submitted
+`3691590_[0-2]` via `scripts/slurm/run_grid4a_goal_energy_reset_diagnostics.slurm`.
+It tests beam search over legal Sudoku writes with `--planning-score goal_energy`,
+`--planning-beam-size 4`, `--planning-branch-size 8`, and `--reset-cadences 4`
+on the three exact-recipe Grid 4A checkpoints. Output roots are
+`$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_goal_energy_hwm_{l1,l2_span9,l3_span3}/diagnostics_reset_goal_energy`.
+
 Implementation correction at 14:03 CEST: the user clarified that the hierarchy
 should have an explicit higher-level action encoder over the lower-level action
 span and that K should be configurable. The code now adds
@@ -195,9 +203,9 @@ collection because Python imports were stuck in shared filesystem waits
 (`rpc_wait_bit_killable`/`folio_wait_bit_common`). The Slurm wrapper syntax
 checks and `py_compile` for the changed Grid 4A modules passed.
 
-Grid 4A diagnostics completed cleanly but failed the solve gate. The next
-diagnostic should focus on CEM action parameterization and energy/scorer
-ranking, not on larger models.
+Grid 4A diagnostics completed cleanly but failed the solve gate. Grid 4B now
+tests whether learned goal energy works under the older beam/reset regime before
+changing CEM action parameterization or trying larger models.
 
 For the older primitive-candidate hierarchy comparison diagnostic, run
 `scripts/slurm/run_grid4a_hierarchical_cem_diagnostics.slurm` only after the

@@ -58,6 +58,7 @@ def run_diagnostics(
     drift_examples: int,
     planning_examples: int,
     cem_examples: int,
+    planning_score: str,
     planning_beam_size: int,
     planning_branch_size: int,
     cem_population: int,
@@ -134,6 +135,7 @@ def run_diagnostics(
         max_steps=max_unroll_steps,
         branch_size=planning_branch_size,
         beam_size=planning_beam_size,
+        planning_score=planning_score,
     )
     reencoded_planning, reencoded_planning_records = evaluate_reencoded_planning(
         model,
@@ -144,6 +146,7 @@ def run_diagnostics(
         max_steps=max_unroll_steps,
         branch_size=planning_branch_size,
         beam_size=planning_beam_size,
+        planning_score=planning_score,
     )
     paired_reset_planning: dict[str, Any] = {}
     paired_reset_planning_records: list[dict[str, Any]] = []
@@ -157,6 +160,7 @@ def run_diagnostics(
             max_steps=max_unroll_steps,
             branch_size=planning_branch_size,
             beam_size=planning_beam_size,
+            planning_score=planning_score,
             reset_cadences=reset_cadences,
         )
     cem_planning, cem_planning_records = evaluate_cem_planning(
@@ -413,6 +417,7 @@ def evaluate_latent_planning(
     max_steps: int,
     branch_size: int,
     beam_size: int,
+    planning_score: str = "latent_goal",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if num_examples <= 0:
         return {}, []
@@ -431,6 +436,7 @@ def evaluate_latent_planning(
                 branch_size=branch_size,
                 beam_size=beam_size,
                 terminal_only_score=(mode == "terminal_energy"),
+                planning_score=planning_score,
             )
             plan["example_index"] = int(example_index)
             plan["mode"] = mode
@@ -455,6 +461,7 @@ def evaluate_reencoded_planning(
     max_steps: int,
     branch_size: int,
     beam_size: int,
+    planning_score: str = "latent_goal",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if num_examples <= 0:
         return {}, []
@@ -473,6 +480,7 @@ def evaluate_reencoded_planning(
                 branch_size=branch_size,
                 beam_size=beam_size,
                 terminal_only_score=(mode == "terminal_energy"),
+                planning_score=planning_score,
             )
             plan["example_index"] = int(example_index)
             plan["mode"] = mode
@@ -498,6 +506,7 @@ def evaluate_paired_reset_planning(
     branch_size: int,
     beam_size: int,
     reset_cadences: list[int],
+    planning_score: str = "latent_goal",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if num_examples <= 0:
         return {}, []
@@ -525,6 +534,7 @@ def evaluate_paired_reset_planning(
                         branch_size=branch_size,
                         beam_size=beam_size,
                         terminal_only_score=terminal_only_score,
+                        planning_score=planning_score,
                     )
                 else:
                     plan = latent_beam_plan(
@@ -536,6 +546,7 @@ def evaluate_paired_reset_planning(
                         beam_size=beam_size,
                         terminal_only_score=terminal_only_score,
                         reset_cadence=cadence,
+                        planning_score=planning_score,
                     )
                 plan["example_index"] = int(example_index)
                 plan["mode"] = mode
@@ -743,6 +754,15 @@ def resolve_cem_score_mode(
         raise ValueError("cem hierarchy level must be lower than model.hierarchy_levels.")
     if mode == "hierarchical_latent_goal" and getattr(model, "checkpoint_missing_hierarchy_action_encoders", False):
         raise ValueError("hierarchical_latent_goal scoring requires a checkpoint with trained action encoders.")
+    return mode
+
+
+def resolve_planning_score_mode(model: ActionConditionedWorldModel, planning_score: str) -> str:
+    mode = str(planning_score)
+    if mode not in {"latent_goal", "goal_energy"}:
+        raise ValueError("planning score must be 'latent_goal' or 'goal_energy'.")
+    if mode == "goal_energy" and not model.use_goal_energy_head:
+        raise ValueError("goal_energy planning requires a model with use_goal_energy_head=True.")
     return mode
 
 
@@ -1435,7 +1455,9 @@ def latent_beam_plan(
     beam_size: int,
     terminal_only_score: bool,
     reset_cadence: int | None = None,
+    planning_score: str = "latent_goal",
 ) -> dict[str, Any]:
+    planning_score = resolve_planning_score_mode(model, planning_score)
     device = next(model.parameters()).device
     start = world.validate_state(example.state).copy()
     goal = world.validate_state(example.goal)
@@ -1465,19 +1487,45 @@ def latent_beam_plan(
             legal = legal_planning_actions(world, state, clue_mask)
             if not legal:
                 continue
-            scores = model.score_actions_to_goal(
-                torch.as_tensor(state, dtype=torch.long),
-                legal,
-                torch.as_tensor(goal, dtype=torch.long),
-                world.task_id,
-            )
-            order = scores.argsort(descending=True).detach().cpu().tolist()[: max(1, branch_size)]
-            for index in order:
-                action = legal[index]
-                try:
-                    next_state = apply_planning_action(world, state, action, clue_mask)
-                except ValueError:
-                    continue
+            next_items: list[tuple[WorldAction, np.ndarray, float]] = []
+            if planning_score == "goal_energy":
+                next_states: list[np.ndarray] = []
+                next_actions: list[WorldAction] = []
+                for action in legal:
+                    try:
+                        next_states.append(apply_planning_action(world, state, action, clue_mask))
+                        next_actions.append(action)
+                    except ValueError:
+                        continue
+                scores = score_symbolic_states_to_goal(
+                    model,
+                    world,
+                    next_states,
+                    goal,
+                    start,
+                    planning_score=planning_score,
+                )
+                order = np.argsort(np.asarray(scores, dtype=np.float64))[::-1].tolist()[: max(1, branch_size)]
+                next_items = [
+                    (next_actions[index], next_states[index], float(scores[index]))
+                    for index in order
+                ]
+            else:
+                scores = model.score_actions_to_goal(
+                    torch.as_tensor(state, dtype=torch.long),
+                    legal,
+                    torch.as_tensor(goal, dtype=torch.long),
+                    world.task_id,
+                )
+                order = scores.argsort(descending=True).detach().cpu().tolist()[: max(1, branch_size)]
+                for index in order:
+                    action = legal[index]
+                    try:
+                        next_state = apply_planning_action(world, state, action, clue_mask)
+                    except ValueError:
+                        continue
+                    next_items.append((action, next_state, float(scores[index].detach().cpu().item())))
+            for action, next_state, score in next_items:
                 action_tensor = torch.as_tensor(
                     [[world.task_id, action.row, action.col, action.value]],
                     dtype=torch.long,
@@ -1493,7 +1541,10 @@ def latent_beam_plan(
                 if reset_cadence is not None and next_steps % int(reset_cadence) == 0:
                     next_tensor = torch.as_tensor(next_state[None, ...], dtype=torch.long, device=device)
                     next_latent = model.encoder(next_tensor, task_ids=task_ids)
-                energy = float(F.mse_loss(next_latent, goal_latent).detach().cpu().item())
+                if planning_score == "goal_energy":
+                    energy = float(-score)
+                else:
+                    energy = float(F.mse_loss(next_latent, goal_latent).detach().cpu().item())
                 next_beam = {
                     "state": next_state,
                     "latent": next_latent,
@@ -1524,6 +1575,7 @@ def latent_beam_plan(
         "final_state": board_as_list(best["state"]),
         "goal_state": board_as_list(goal),
         "mismatches": mismatch_records(best["state"], goal),
+        "planning_score": planning_score,
     }
 
 
@@ -1537,7 +1589,9 @@ def reencoded_beam_plan(
     branch_size: int,
     beam_size: int,
     terminal_only_score: bool,
+    planning_score: str = "latent_goal",
 ) -> dict[str, Any]:
+    planning_score = resolve_planning_score_mode(model, planning_score)
     start = world.validate_state(example.state).copy()
     goal = world.validate_state(example.goal)
     clue_mask = clue_mask_for_planning(world, start)
@@ -1560,23 +1614,29 @@ def reencoded_beam_plan(
             legal = legal_planning_actions(world, state, clue_mask)
             if not legal:
                 continue
-            scores = model.score_actions_to_goal(
-                torch.as_tensor(state, dtype=torch.long),
-                legal,
-                torch.as_tensor(goal, dtype=torch.long),
-                world.task_id,
-            )
-            order = scores.argsort(descending=True).detach().cpu().tolist()[: max(1, branch_size)]
-            for index in order:
-                action = legal[index]
+            next_states: list[np.ndarray] = []
+            next_actions: list[WorldAction] = []
+            for action in legal:
                 try:
-                    next_state = apply_planning_action(world, state, action, clue_mask)
+                    next_states.append(apply_planning_action(world, state, action, clue_mask))
+                    next_actions.append(action)
                 except ValueError:
                     continue
+            scores = score_symbolic_states_to_goal(
+                model,
+                world,
+                next_states,
+                goal,
+                start,
+                planning_score=planning_score,
+            )
+            order = np.argsort(np.asarray(scores, dtype=np.float64))[::-1].tolist()[: max(1, branch_size)]
+            for index in order:
+                next_state = next_states[index]
                 next_beam = {
                     "state": next_state,
                     "steps": int(beam["steps"]) + 1,
-                    "energy": encoded_state_energy(model, world, next_state, goal),
+                    "energy": float(-scores[index]),
                 }
                 if is_terminal_state(world, next_state, goal, clue_mask):
                     terminals.append(next_beam)
@@ -1602,6 +1662,7 @@ def reencoded_beam_plan(
         "final_state": board_as_list(best["state"]),
         "goal_state": board_as_list(goal),
         "mismatches": mismatch_records(best["state"], goal),
+        "planning_score": planning_score,
     }
 
 
@@ -1619,6 +1680,39 @@ def encoded_state_energy(
     latent = model.encoder(state_tensor, task_ids=task_ids)
     goal_latent = model.target_encoder(goal_tensor, task_ids=task_ids)
     return float(F.mse_loss(latent, goal_latent).detach().cpu().item())
+
+
+@torch.no_grad()
+def score_symbolic_states_to_goal(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    states: list[np.ndarray],
+    goal: np.ndarray,
+    initial_state: np.ndarray,
+    *,
+    planning_score: str,
+) -> list[float]:
+    if not states:
+        return []
+    mode = resolve_planning_score_mode(model, planning_score)
+    state_array = np.stack(states, axis=0)
+    goal_array = np.repeat(goal[None, ...], len(states), axis=0)
+    if mode == "goal_energy":
+        initial_array = np.repeat(initial_state[None, ...], len(states), axis=0)
+        scores = model.score_states_to_goal(
+            torch.as_tensor(state_array, dtype=torch.long),
+            torch.as_tensor(goal_array, dtype=torch.long),
+            world.task_id,
+            initial_states=torch.as_tensor(initial_array, dtype=torch.long),
+            use_goal_energy_head=True,
+        )
+    else:
+        scores = model.score_states_to_goal(
+            torch.as_tensor(state_array, dtype=torch.long),
+            torch.as_tensor(goal_array, dtype=torch.long),
+            world.task_id,
+        )
+    return [float(item) for item in scores.detach().cpu().tolist()]
 
 
 def summarize_plan_summaries(items: list[dict[str, Any]]) -> dict[str, float]:
@@ -1645,6 +1739,7 @@ def flatten_plan_records(summaries: dict[str, list[dict[str, Any]]], *, planner:
                 "steps": float(item["steps"]),
                 "energy": float(item["energy"]),
                 "remaining_hamming": float(item["remaining_hamming"]),
+                "planning_score": item.get("planning_score", "latent_goal"),
                 "final_state": item["final_state"],
                 "goal_state": item["goal_state"],
                 "mismatches": item["mismatches"],
@@ -1669,6 +1764,7 @@ def flatten_paired_plan_records(summaries: dict[str, dict[str, list[dict[str, An
                     "steps": float(item["steps"]),
                     "energy": float(item["energy"]),
                     "remaining_hamming": float(item["remaining_hamming"]),
+                    "planning_score": item.get("planning_score", "latent_goal"),
                     "final_state": item["final_state"],
                     "goal_state": item["goal_state"],
                     "mismatches": item["mismatches"],
@@ -2220,6 +2316,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--drift-examples", type=int, default=8)
     parser.add_argument("--planning-examples", type=int, default=4)
     parser.add_argument("--cem-examples", type=int, default=0)
+    parser.add_argument("--planning-score", choices=["latent_goal", "goal_energy"], default="latent_goal")
     parser.add_argument("--planning-beam-size", type=int, default=4)
     parser.add_argument("--planning-branch-size", type=int, default=8)
     parser.add_argument("--cem-population", type=int, default=128)
@@ -2259,6 +2356,7 @@ def main() -> None:
         drift_examples=args.drift_examples,
         planning_examples=args.planning_examples,
         cem_examples=args.cem_examples,
+        planning_score=args.planning_score,
         planning_beam_size=args.planning_beam_size,
         planning_branch_size=args.planning_branch_size,
         cem_population=args.cem_population,

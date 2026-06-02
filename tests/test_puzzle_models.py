@@ -421,6 +421,40 @@ def test_cem_planning_records_with_goal_energy_head():
     assert subgoal_records[0]["hierarchy_level"] == 1.0
 
 
+def test_reset_planning_can_use_goal_energy_head():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_cls_token=True,
+        use_goal_energy_head=True,
+    )
+    summary, records = evaluate_paired_reset_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(0),
+        num_examples=1,
+        max_steps=2,
+        branch_size=1,
+        beam_size=1,
+        reset_cadences=[2],
+        planning_score="goal_energy",
+    )
+    assert summary["reset_every_2"]["terminal_energy"]["count"] == 1.0
+    assert {record["planning_score"] for record in records} == {"goal_energy"}
+
+
 def test_diagnostics_oracle_sequence_and_drift_smoke():
     world = MazeWorld(height=5, width=5)
     state = world.from_lines(["S   #", "### #", "#   #", "# ###", "#   G"])
