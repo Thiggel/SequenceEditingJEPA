@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-03 11:11 CEST
+Last updated: 2026-06-03 17:53 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -71,7 +71,7 @@ repo snapshot.
 | `3689396_[0-2]` | COMPLETED | Grid 4A learned-energy CEM diagnostics completed; solve `0/64` for L1/L2/L3. |
 | `3689397_[0-1]` | COMPLETED | Grid 4A report-style subgoal CEM diagnostics completed; solve `0/32` for L2/L3. |
 | `3691590_[0-2]` | COMPLETED | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; exit `0:0`; solved `0/128` for all three levels. |
-| `3695040` | PENDING | Grid 4C L1 oracle reset/calibration sanity; reuses `sudoku_jepa_5m_goal_energy_hwm_l1`, `--planning-score latent_goal`, reset cadence 4, and 128 examples. Pending for priority at 11:11 CEST. |
+| `3695040` | COMPLETED | Grid 4C L1 oracle reset/calibration sanity; exit `0:0`, elapsed `05:16:51`; reset every 4 and re-encoded oracle-goal planning solved `128/128`. |
 
 Check live state:
 
@@ -202,6 +202,17 @@ beam/reset method that solved the oracle-goal Grid 3D control, but with
 `goal_energy_calibration_records.jsonl`, `goal_energy_abs_error_by_step.png`,
 and `goal_energy_example_*.png`.
 
+Grid 4C result check at 17:53 CEST on 2026-06-03: `3695040` completed cleanly
+with exit `0:0`. Reset every 4 and re-encoded oracle-goal planning solved
+`128/128`; no-reset latent terminal-energy planning solved `79/128` and
+no-reset step-energy planning solved `26/128`. Learned energy calibration on
+reset-every-4 terminal trajectories has mean absolute error about `0.010`,
+predicted monotone-nonincreasing rate about `0.923`, true latent-distance
+monotone rate `1.0`, initial predicted/true means `0.213/0.214`, and final
+predicted/true means `0.00023/0.00002`. Interpretation: checkpoint dynamics are
+not the issue; the learned goal-energy scorer is close globally but too noisy
+locally to replace oracle latent MSE as an action-selection objective.
+
 Oversight cancellation at 14:41 CEST: by user request, pending successor
 `3692215` was cancelled and the recurring oversight wrapper/prompt were removed.
 Do not schedule further `puzzle_oversight` jobs.
@@ -250,7 +261,6 @@ For the older primitive-candidate hierarchy comparison diagnostic, run
 exact subgoal planner is recorded or if a direct comparison is needed.
 
 Recurring oversight is disabled by user request as of 2026-06-02 14:41 CEST.
-Do not schedule further `puzzle_oversight` jobs. The next safe step is to wait
-for Grid 4C `3695040`, then inspect whether oracle-goal reset/beam still solves
-on the L1 Grid 4A checkpoint and how learned goal energy is calibrated along
-those trajectories.
+Do not schedule further `puzzle_oversight` jobs. The next safe step is to debug
+or replace the learned goal-energy scorer, using Grid 4C calibration records and
+the Grid 3D/Grid 4C oracle-goal reset controls as baselines.

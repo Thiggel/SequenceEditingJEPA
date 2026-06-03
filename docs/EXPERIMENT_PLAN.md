@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-03 11:11 CEST
+Last updated: 2026-06-03 17:53 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -18,7 +18,7 @@ Grid 3B Sudoku follow-up:
 | Grid 3D reset-large confirmation | Confirm the reset/re-encoding branch on a larger paired sample before changing planner defaults or scaling. | Completed as `3683903`; reset every 4 solved `128/128`, reset every 8 solved `128/128` only under terminal-energy selection. |
 | Grid 4A goal-energy / hierarchy / CEM | Train one-, two-, and three-level JEPA variants with a learned goal-energy head and evaluate with categorical CEM plus exact report-style hierarchical subgoal CEM. | Completed: training `3688986_[0-2]`, learned-energy CEM `3689396_[0-2]`, and subgoal CEM `3689397_[0-1]` all exited `0:0`, but CEM solve rate was `0.0` across the grid. |
 | Grid 4B learned-energy reset beam | Test beam search with symbolic board state, learned goal-energy scoring, and reset/re-encode cadence 4 on the Grid 4A checkpoints. | Completed as `3691590_[0-2]`, exit `0:0`; learned-energy beam/reset solved `0/128` for L1/L2/L3. |
-| Grid 4C L1 oracle reset/calibration sanity | Reuse the exact L1 checkpoint from `3691590_0`, switch planning back to oracle solved-board latent MSE (`--planning-score latent_goal`), and write learned-energy-vs-true-distance trajectory calibration plots. | Submitted as `3695040`; pending for priority at 11:11 CEST. Output: `$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_goal_energy_hwm_l1/diagnostics_reset_oracle_calibration`. |
+| Grid 4C L1 oracle reset/calibration sanity | Reuse the exact L1 checkpoint from `3691590_0`, switch planning back to oracle solved-board latent MSE (`--planning-score latent_goal`), and write learned-energy-vs-true-distance trajectory calibration plots. | Completed as `3695040`, exit `0:0`; reset every 4 and re-encoded oracle-goal planning solved `128/128`. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
@@ -73,10 +73,10 @@ Grid 3A diagnostic decision:
    the beam/reset regime. Prioritize energy-head ranking/calibration or a
    verifier/goal objective before changing CEM, starting Maze, broad controls,
    or model-size sweeps.
-10. Grid 4C `3695040` is a sanity check, not a new training run: it reuses the
-    L1 Grid 4A checkpoint and reruns the successful oracle-goal reset/beam
-    method while recording learned-energy calibration along the selected
-    trajectories. Gate: if oracle-goal reset/beam still solves, the L1 checkpoint
-    dynamics are adequate and the learned-energy scorer is isolated as the
-    failure. If it fails, the Grid 4A checkpoint itself lost the oracle-goal
-    reset property.
+10. Grid 4C `3695040` passed the sanity check: the L1 Grid 4A checkpoint still
+    solves `128/128` with oracle solved-board latent MSE under reset every 4 and
+    re-encoded planning. This isolates the learned goal-energy scorer as the
+    blocker. Calibration is close in aggregate but imperfect locally: reset
+    every 4 terminal trajectories have mean absolute predicted-vs-true latent
+    distance error about `0.010`, predicted energy monotonicity about `0.923`,
+    and true latent distance monotonicity `1.0`.
