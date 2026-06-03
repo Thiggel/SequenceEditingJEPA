@@ -247,6 +247,16 @@ def run_diagnostics(
         with (destination / "hierarchical_subgoal_cem_records.jsonl").open("w") as handle:
             for record in subgoal_cem_planning_records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
+    calibration_records = goal_energy_calibration_records(
+        model,
+        world,
+        [*planning_records, *reencoded_planning_records, *paired_reset_planning_records],
+    )
+    if calibration_records:
+        with (destination / "goal_energy_calibration_records.jsonl").open("w") as handle:
+            for record in calibration_records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+        write_goal_energy_calibration_plots(destination, calibration_records)
     write_drift_plot(destination / "latent_energy_mse.png", drift_records)
     print(json.dumps(result, indent=2, sort_keys=True), flush=True)
     return result
@@ -1473,6 +1483,7 @@ def latent_beam_plan(
             "latent": start_latent,
             "steps": 0,
             "energy": float(F.mse_loss(start_latent, goal_latent).detach().cpu().item()),
+            "trajectory_states": [board_as_list(start)],
         }
     ]
     terminals = []
@@ -1550,6 +1561,7 @@ def latent_beam_plan(
                     "latent": next_latent,
                     "steps": next_steps,
                     "energy": energy,
+                    "trajectory_states": [*beam["trajectory_states"], board_as_list(next_state)],
                 }
                 if is_terminal_state(world, next_state, goal, clue_mask):
                     terminals.append(next_beam)
@@ -1574,6 +1586,7 @@ def latent_beam_plan(
         "remaining_hamming": float(np.not_equal(best["state"], goal).sum()),
         "final_state": board_as_list(best["state"]),
         "goal_state": board_as_list(goal),
+        "trajectory_states": best["trajectory_states"],
         "mismatches": mismatch_records(best["state"], goal),
         "planning_score": planning_score,
     }
@@ -1600,6 +1613,7 @@ def reencoded_beam_plan(
             "state": start,
             "steps": 0,
             "energy": encoded_state_energy(model, world, start, goal),
+            "trajectory_states": [board_as_list(start)],
         }
     ]
     terminals = []
@@ -1637,6 +1651,7 @@ def reencoded_beam_plan(
                     "state": next_state,
                     "steps": int(beam["steps"]) + 1,
                     "energy": float(-scores[index]),
+                    "trajectory_states": [*beam["trajectory_states"], board_as_list(next_state)],
                 }
                 if is_terminal_state(world, next_state, goal, clue_mask):
                     terminals.append(next_beam)
@@ -1661,6 +1676,7 @@ def reencoded_beam_plan(
         "remaining_hamming": float(np.not_equal(best["state"], goal).sum()),
         "final_state": board_as_list(best["state"]),
         "goal_state": board_as_list(goal),
+        "trajectory_states": best["trajectory_states"],
         "mismatches": mismatch_records(best["state"], goal),
         "planning_score": planning_score,
     }
@@ -1742,6 +1758,7 @@ def flatten_plan_records(summaries: dict[str, list[dict[str, Any]]], *, planner:
                 "planning_score": item.get("planning_score", "latent_goal"),
                 "final_state": item["final_state"],
                 "goal_state": item["goal_state"],
+                "trajectory_states": item.get("trajectory_states", []),
                 "mismatches": item["mismatches"],
             }
             records.append(record)
@@ -1767,6 +1784,7 @@ def flatten_paired_plan_records(summaries: dict[str, dict[str, list[dict[str, An
                     "planning_score": item.get("planning_score", "latent_goal"),
                     "final_state": item["final_state"],
                     "goal_state": item["goal_state"],
+                    "trajectory_states": item.get("trajectory_states", []),
                     "mismatches": item["mismatches"],
                 }
                 records.append(record)
@@ -2273,6 +2291,152 @@ def write_drift_plot(path: Path, records: list[DriftRecord]) -> None:
     plt.tight_layout()
     plt.savefig(path)
     plt.close()
+
+
+@torch.no_grad()
+def goal_energy_calibration_records(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    plan_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not model.use_goal_energy_head:
+        return []
+    records: list[dict[str, Any]] = []
+    for plan in plan_records:
+        trajectory = plan.get("trajectory_states") or []
+        if not trajectory:
+            continue
+        states = np.asarray(trajectory, dtype=np.int64)
+        goal = np.asarray(plan["goal_state"], dtype=np.int64)
+        initial = states[0]
+        predicted = predict_goal_energy_values(model, world, states, initial)
+        true = encoded_state_energies(model, world, states, goal)
+        remaining = np.not_equal(states, goal[None, ...]).sum(axis=(1, 2))
+        for step, (pred, target, hamming) in enumerate(zip(predicted, true, remaining, strict=True)):
+            records.append(
+                {
+                    "planner": plan["planner"],
+                    "mode": plan["mode"],
+                    "variant": plan.get("variant", ""),
+                    "reset_cadence": plan.get("reset_cadence"),
+                    "example_index": int(plan["example_index"]),
+                    "step": int(step),
+                    "predicted_goal_energy": float(pred),
+                    "true_goal_mse": float(target),
+                    "signed_error": float(pred - target),
+                    "absolute_error": float(abs(pred - target)),
+                    "remaining_hamming": float(hamming),
+                    "solved": float(plan["solved"]),
+                    "terminal": float(plan["terminal"]),
+                    "planning_score": plan.get("planning_score", "latent_goal"),
+                }
+            )
+    return records
+
+
+@torch.no_grad()
+def predict_goal_energy_values(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    states: np.ndarray,
+    initial_state: np.ndarray,
+) -> list[float]:
+    device = next(model.parameters()).device
+    state_tensor = torch.as_tensor(states, dtype=torch.long, device=device)
+    initial_tensor = torch.as_tensor(
+        np.repeat(initial_state[None, ...], len(states), axis=0),
+        dtype=torch.long,
+        device=device,
+    )
+    task_ids = torch.full((len(states),), world.task_id, dtype=torch.long, device=device)
+    values = model.predict_goal_energy(state_tensor, initial_tensor, task_ids)
+    return [float(item) for item in values.detach().cpu().tolist()]
+
+
+@torch.no_grad()
+def encoded_state_energies(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    states: np.ndarray,
+    goal: np.ndarray,
+) -> list[float]:
+    device = next(model.parameters()).device
+    task_ids = torch.full((len(states),), world.task_id, dtype=torch.long, device=device)
+    state_tensor = torch.as_tensor(states, dtype=torch.long, device=device)
+    goal_tensor = torch.as_tensor(
+        np.repeat(goal[None, ...], len(states), axis=0),
+        dtype=torch.long,
+        device=device,
+    )
+    latents = model.encoder(state_tensor, task_ids=task_ids)
+    goal_latents = model.target_encoder(goal_tensor, task_ids=task_ids)
+    values = F.mse_loss(latents, goal_latents, reduction="none").mean(dim=(1, 2))
+    return [float(item) for item in values.detach().cpu().tolist()]
+
+
+def write_goal_energy_calibration_plots(destination: Path, records: list[dict[str, Any]]) -> None:
+    if not records:
+        return
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # pragma: no cover - depends on cluster image.
+        (destination / "goal_energy_calibration.plot_error.txt").write_text(
+            f"matplotlib unavailable: {exc}\n"
+        )
+        return
+
+    keys = sorted({(item["planner"], item["mode"], item.get("variant", "")) for item in records})
+    plt.figure(figsize=(8, 5))
+    for planner, mode, variant in keys:
+        subset = [
+            item for item in records
+            if item["planner"] == planner and item["mode"] == mode and item.get("variant", "") == variant
+        ]
+        steps = sorted({int(item["step"]) for item in subset})
+        errors = [
+            mean([item["absolute_error"] for item in subset if int(item["step"]) == step])
+            for step in steps
+        ]
+        label = f"{planner}/{variant or mode}"
+        plt.plot(steps, errors, label=label)
+    plt.xlabel("planning step")
+    plt.ylabel("mean absolute energy error")
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(destination / "goal_energy_abs_error_by_step.png")
+    plt.close()
+
+    example_keys = []
+    for item in records:
+        key = (item["planner"], item["mode"], item.get("variant", ""), int(item["example_index"]))
+        if key not in example_keys:
+            example_keys.append(key)
+        if len(example_keys) >= 6:
+            break
+    for index, (planner, mode, variant, example_index) in enumerate(example_keys):
+        subset = [
+            item for item in records
+            if item["planner"] == planner
+            and item["mode"] == mode
+            and item.get("variant", "") == variant
+            and int(item["example_index"]) == example_index
+        ]
+        subset.sort(key=lambda item: int(item["step"]))
+        steps = [int(item["step"]) for item in subset]
+        predicted = [float(item["predicted_goal_energy"]) for item in subset]
+        true = [float(item["true_goal_mse"]) for item in subset]
+        hamming = [float(item["remaining_hamming"]) for item in subset]
+        plt.figure(figsize=(8, 5))
+        plt.plot(steps, predicted, marker="o", label="predicted goal energy")
+        plt.plot(steps, true, marker="o", label="true goal latent MSE")
+        plt.plot(steps, hamming, marker=".", label="remaining Hamming")
+        plt.xlabel("planning step")
+        plt.ylabel("value")
+        plt.title(f"{planner}/{variant or mode} example {example_index}")
+        plt.legend(fontsize=8)
+        plt.tight_layout()
+        plt.savefig(destination / f"goal_energy_example_{index}.png")
+        plt.close()
 
 
 def monotone_nonincreasing_rate(values: list[float]) -> float:

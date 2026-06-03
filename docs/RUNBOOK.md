@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-03 09:24 CEST
+Last updated: 2026-06-03 11:11 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -71,12 +71,13 @@ repo snapshot.
 | `3689396_[0-2]` | COMPLETED | Grid 4A learned-energy CEM diagnostics completed; solve `0/64` for L1/L2/L3. |
 | `3689397_[0-1]` | COMPLETED | Grid 4A report-style subgoal CEM diagnostics completed; solve `0/32` for L2/L3. |
 | `3691590_[0-2]` | COMPLETED | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; exit `0:0`; solved `0/128` for all three levels. |
+| `3695040` | PENDING | Grid 4C L1 oracle reset/calibration sanity; reuses `sudoku_jepa_5m_goal_energy_hwm_l1`, `--planning-score latent_goal`, reset cadence 4, and 128 examples. Pending for priority at 11:11 CEST. |
 
 Check live state:
 
 ```bash
-squeue -j 3691590,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3695040,3691590,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3695040,3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read
@@ -191,6 +192,16 @@ L3 `45.84`, with terminal rate `0.0`. Results live in
 `diagnostics_reset_goal_energy`; summary CSV:
 `../sequence-editing-report/assets/grid4a/grid4b_reset_goal_energy_summary.csv`.
 
+Grid 4C submission at 11:11 CEST on 2026-06-03: added trajectory calibration
+records/plots to `puzzle_jepa.eval.diagnostics` and submitted `3695040` via
+`scripts/slurm/run_grid4c_l1_oracle_reset_calibration.slurm`. This is the quick
+sanity check requested after Grid 4B: same L1 checkpoint as `3691590_0`, same
+beam/reset method that solved the oracle-goal Grid 3D control, but with
+`--planning-score latent_goal` instead of learned goal energy. It writes
+`diagnostics_reset_oracle_calibration`, including
+`goal_energy_calibration_records.jsonl`, `goal_energy_abs_error_by_step.png`,
+and `goal_energy_example_*.png`.
+
 Oversight cancellation at 14:41 CEST: by user request, pending successor
 `3692215` was cancelled and the recurring oversight wrapper/prompt were removed.
 Do not schedule further `puzzle_oversight` jobs.
@@ -239,6 +250,7 @@ For the older primitive-candidate hierarchy comparison diagnostic, run
 exact subgoal planner is recorded or if a direct comparison is needed.
 
 Recurring oversight is disabled by user request as of 2026-06-02 14:41 CEST.
-Do not schedule further `puzzle_oversight` jobs. The next safe step is to debug
-or replace the learned goal-energy objective before changing CEM or starting
-Maze/broad capacity sweeps.
+Do not schedule further `puzzle_oversight` jobs. The next safe step is to wait
+for Grid 4C `3695040`, then inspect whether oracle-goal reset/beam still solves
+on the L1 Grid 4A checkpoint and how learned goal energy is calibrated along
+those trajectories.

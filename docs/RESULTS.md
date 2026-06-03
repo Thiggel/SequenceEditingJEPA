@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-03 09:24 CEST
+Last updated: 2026-06-03 11:11 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -48,6 +48,11 @@ Grid 4B completed cleanly on 2026-06-02 and failed decisively: learned-energy
 beam/reset solved `0/128` for L1/L2/L3. Paired reset mean remaining Hamming was
 L1 `47.41`, L2 `46.23`, L3 `45.84`, with terminal rate `0.0`. This means the
 learned goal-energy scorer is the immediate blocker, not just CEM.
+
+Grid 4C `3695040` was submitted on 2026-06-03 as a sanity check. It reuses the
+L1 checkpoint from Grid 4B but switches the reset/beam planner back to oracle
+solved-board latent MSE and writes learned-energy calibration records/plots for
+the selected trajectories.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve
