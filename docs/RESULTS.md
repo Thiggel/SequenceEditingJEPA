@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-03 19:13 CEST
+Last updated: 2026-06-03 19:27 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -66,7 +66,8 @@ calibration diagnostics after training. First submission `3696588_[0-5]`
 failed before training on Hydra override syntax; second submission
 `3696609_[0-5]` failed before checkpointing because the auxiliary negative load
 was too large for memory. The live array uses auxiliary batch `64` and `8`
-negatives.
+negatives. At 19:27 CEST all six tasks were still running with empty stderr,
+but no first metrics file had appeared yet.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve

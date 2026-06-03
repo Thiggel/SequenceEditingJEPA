@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-03 19:13 CEST
+Last updated: 2026-06-03 19:27 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -94,4 +94,5 @@ Grid 3A diagnostic decision:
     Superseded `3696609_[0-5]` fixed that but failed before checkpointing
     because `512` auxiliary examples times `16` negatives was too memory-heavy;
     the live array uses auxiliary batch `64`, `8` negatives, and staggered
-    starts.
+    starts. At 19:27 CEST all six live tasks were still running with empty
+    stderr; no first `metrics.jsonl` had been written yet.
