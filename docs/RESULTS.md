@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-02 14:25 CEST
+Last updated: 2026-06-03 09:24 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -44,12 +44,10 @@ subgoal CEM diagnostics `3689397_[0-1]` also completed cleanly, but the actual
 CEM solve gates failed: learned-energy CEM solved `0/64` for every level, and
 subgoal CEM solved `0/32` for L2 and L3.
 
-Grid 4B learned-energy reset/beam diagnostics were submitted as `3691590_[0-2]`
-at `2026-06-02 10:49:08 CEST`. At the 14:25 CEST live check they were still
-running with empty stderr and no output directory written yet. They test the
-same Grid 4A checkpoints with beam search, symbolic board state, learned
-goal-energy scoring, and reset cadence 4, writing `diagnostics_reset_goal_energy`
-after the full diagnostics pass completes.
+Grid 4B completed cleanly on 2026-06-02 and failed decisively: learned-energy
+beam/reset solved `0/128` for L1/L2/L3. Paired reset mean remaining Hamming was
+L1 `47.41`, L2 `46.23`, L3 `45.84`, with terminal rate `0.0`. This means the
+learned goal-energy scorer is the immediate blocker, not just CEM.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-02 14:41 CEST
+Last updated: 2026-06-03 09:24 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -70,7 +70,7 @@ repo snapshot.
 | `3688986_[0-2]` | COMPLETED | Exact-recipe Grid 4A training completed cleanly on 2026-06-01; all three roots have final `checkpoint.pt` at step 5000. |
 | `3689396_[0-2]` | COMPLETED | Grid 4A learned-energy CEM diagnostics completed; solve `0/64` for L1/L2/L3. |
 | `3689397_[0-1]` | COMPLETED | Grid 4A report-style subgoal CEM diagnostics completed; solve `0/32` for L2/L3. |
-| `3691590_[0-2]` | RUNNING | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; started `2026-06-02 10:49:08 CEST` on `a0532`, `a0537`, `a0731`; at 14:25 stderr was empty and no `diagnostics_reset_goal_energy` directory had been written yet. |
+| `3691590_[0-2]` | COMPLETED | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; exit `0:0`; solved `0/128` for all three levels. |
 
 Check live state:
 
@@ -181,6 +181,16 @@ directory exists yet; this is not by itself a failure because
 re-encoded, and paired reset planning. `sstat` shows active CPU time and max RSS
 about `1.6-1.7 GiB` for observed tasks.
 
+Grid 4B result check at 09:24 CEST on 2026-06-03: `3691590_[0-2]` completed
+cleanly on 2026-06-02 with empty stderr. Learned-energy beam/reset solved
+`0/128` for L1/L2/L3. Paired reset `reset_every_4`, no-reset, and re-encoded
+variants all match because `--planning-score goal_energy` scores symbolic
+candidate boards directly, so latent reset cannot repair a bad learned energy
+ranking. Mean remaining Hamming for paired reset is L1 `47.41`, L2 `46.23`,
+L3 `45.84`, with terminal rate `0.0`. Results live in
+`diagnostics_reset_goal_energy`; summary CSV:
+`../sequence-editing-report/assets/grid4a/grid4b_reset_goal_energy_summary.csv`.
+
 Oversight cancellation at 14:41 CEST: by user request, pending successor
 `3692215` was cancelled and the recurring oversight wrapper/prompt were removed.
 Do not schedule further `puzzle_oversight` jobs.
@@ -218,15 +228,17 @@ collection because Python imports were stuck in shared filesystem waits
 (`rpc_wait_bit_killable`/`folio_wait_bit_common`). The Slurm wrapper syntax
 checks and `py_compile` for the changed Grid 4A modules passed.
 
-Grid 4A diagnostics completed cleanly but failed the solve gate. Grid 4B now
-tests whether learned goal energy works under the older beam/reset regime before
-changing CEM action parameterization or trying larger models.
+Grid 4A and Grid 4B diagnostics completed cleanly but failed the solve gates.
+Grid 4B isolates the issue: learned goal energy does not rank useful symbolic
+states even under beam/reset, so fix scorer/ranking/calibration or add a
+verifier/goal objective before changing CEM action parameterization or trying
+larger models.
 
 For the older primitive-candidate hierarchy comparison diagnostic, run
 `scripts/slurm/run_grid4a_hierarchical_cem_diagnostics.slurm` only after the
 exact subgoal planner is recorded or if a direct comparison is needed.
 
 Recurring oversight is disabled by user request as of 2026-06-02 14:41 CEST.
-Do not schedule further `puzzle_oversight` jobs. The next safe step is to wait
-for Grid 4B `3691590_[0-2]` to finish, then analyze learned-energy reset/beam
-results before changing CEM or starting Maze/broad capacity sweeps.
+Do not schedule further `puzzle_oversight` jobs. The next safe step is to debug
+or replace the learned goal-energy objective before changing CEM or starting
+Maze/broad capacity sweeps.

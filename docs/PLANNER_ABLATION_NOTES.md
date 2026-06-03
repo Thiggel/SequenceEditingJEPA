@@ -1,14 +1,14 @@
 # Planner Ablation Notes
 
-Last updated: 2026-06-02 13:01 CEST
+Last updated: 2026-06-03 09:24 CEST
 
-These notes are deferred until the active Grid 4B learned-energy reset/beam
-diagnostic finishes. If Sudoku is already saturated by the next result, keep
-this as a later/general-planning note rather than expanding the immediate grid.
+These notes are deferred. Grid 4B learned-energy reset/beam finished with
+`0/128` solves for L1/L2/L3, so the immediate gate is scorer/ranking calibration
+or a verifier/goal objective rather than expanding the planner optimizer grid.
 
 ## Current Gate
 
-Grid 4B `3691590_[0-2]` tests whether learned goal energy can replace oracle
+Grid 4B `3691590_[0-2]` tested whether learned goal energy can replace oracle
 solved-board latent MSE under the previously successful beam/reset regime:
 
 - beam search over legal Sudoku writes
@@ -17,12 +17,8 @@ solved-board latent MSE under the previously successful beam/reset regime:
 - reset/re-encode cadence 4
 - L1/L2/L3 Grid 4A checkpoints
 
-Interpretation:
-
-- If Grid 4B works well, the learned energy is usable and the CEM failure is
-  mostly optimizer/action-parameterization.
-- If Grid 4B fails badly, fix scorer/ranking/calibration before investing in
-  more CEM or gradient-planning variants.
+Result: all levels solved `0/128`; fix scorer/ranking/calibration before
+investing in more CEM or gradient-planning variants.
 
 ## Planning Cost
 
