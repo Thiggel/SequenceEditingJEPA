@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-03 17:53 CEST
+Last updated: 2026-06-03 19:13 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -57,6 +57,16 @@ This confirms the checkpoint dynamics are still compatible with the old
 oracle-goal reset result; the failure is the learned scorer. Calibration records
 show predicted energy follows the successful trajectories in aggregate but is
 not reliable enough for local action selection.
+
+Grid 4D `3696616_[0-5]` is running the next non-hierarchical L1 scorer
+ablation: existing goal-energy regression plus local successor negatives using
+`nce`, `infonce`, or `margin`, each with monotonicity off/on. Each task will
+write both learned-energy reset/beam diagnostics and oracle-goal reset
+calibration diagnostics after training. First submission `3696588_[0-5]`
+failed before training on Hydra override syntax; second submission
+`3696609_[0-5]` failed before checkpointing because the auxiliary negative load
+was too large for memory. The live array uses auxiliary batch `64` and `8`
+negatives.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve

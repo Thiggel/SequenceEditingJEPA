@@ -24,6 +24,7 @@ from puzzle_jepa.data import (
     sample_oracle_rollout_transition,
     sample_oracle_partial_transition,
 )
+from puzzle_jepa.data.trajectories import Transition
 from puzzle_jepa.data.worlds import PuzzleWorld, WorldAction
 from puzzle_jepa.models import ActionConditionedWorldModel
 
@@ -62,6 +63,10 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     rollout_weight = float(train_cfg.get("rollout_weight", 1.0 if rollout_steps > 1 else 0.0))
     rollout_batch_size = int(train_cfg.get("rollout_batch_size", batch_size))
     goal_energy_weight = float(train_cfg.get("goal_energy_weight", 0.0))
+    goal_energy_contrastive_weight = float(train_cfg.get("goal_energy_contrastive_weight", 0.0))
+    goal_energy_monotonicity_weight = float(train_cfg.get("goal_energy_monotonicity_weight", 0.0))
+    goal_energy_aux_batch_size = int(train_cfg.get("goal_energy_aux_batch_size", batch_size))
+    goal_energy_negative_count = int(train_cfg.get("goal_energy_negative_count", 8))
     hierarchy_weight = float(train_cfg.get("hierarchy_weight", 0.0))
     hierarchy_batch_size = int(train_cfg.get("hierarchy_batch_size", train_cfg.get("rollout_batch_size", batch_size)))
     hierarchy_rollout_steps = int(
@@ -90,6 +95,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
             loss = output.loss
             rollout_loss = None
             hierarchy_loss = None
+            energy_aux_loss = None
             if rollout_steps > 1 and rollout_weight > 0.0:
                 rollout_batch = _sample_rollout_batch(world, train_examples, rng, rollout_batch_size, rollout_steps, device)
                 rollout_output = model.rollout_loss(
@@ -116,6 +122,39 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 )
                 hierarchy_loss = hierarchy_output.loss
                 loss = loss + hierarchy_weight * hierarchy_loss
+            if goal_energy_contrastive_weight > 0.0 or goal_energy_monotonicity_weight > 0.0:
+                energy_transitions = _sample_transitions(
+                    world,
+                    train_examples,
+                    rng,
+                    goal_energy_aux_batch_size,
+                    oracle_probability=1.0,
+                )
+                energy_batch = collate_transitions(energy_transitions, device=device)
+                negative_states = _sample_local_negative_states(
+                    world,
+                    energy_transitions,
+                    rng,
+                    goal_energy_negative_count,
+                    device,
+                )
+                energy_output = model.goal_energy_loss(
+                    energy_batch.states,
+                    energy_batch.goals,
+                    task_ids=energy_batch.actions[:, 0],
+                    initial_states=_initial_states_from_batch(world, energy_batch),
+                    positive_states=energy_batch.next_states,
+                    negative_states=negative_states,
+                    contrastive_loss=str(train_cfg.get("goal_energy_contrastive_loss", "margin")),
+                    contrastive_temperature=float(train_cfg.get("goal_energy_contrastive_temperature", 0.1)),
+                    contrastive_margin=float(train_cfg.get("goal_energy_contrastive_margin", 0.05)),
+                    contrastive_weight=goal_energy_contrastive_weight,
+                    monotonicity_weight=goal_energy_monotonicity_weight,
+                    monotonicity_margin=float(train_cfg.get("goal_energy_monotonicity_margin", 0.0)),
+                    regression_weight=float(train_cfg.get("goal_energy_aux_regression_weight", 0.0)),
+                )
+                energy_aux_loss = energy_output.loss
+                loss = loss + energy_aux_loss
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
@@ -142,10 +181,17 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "train_hierarchy_loss": (
                         0.0 if hierarchy_loss is None else float(hierarchy_loss.detach().cpu().item())
                     ),
+                    "train_goal_energy_aux_loss": (
+                        0.0 if energy_aux_loss is None else float(energy_aux_loss.detach().cpu().item())
+                    ),
                     "rollout_steps": rollout_steps,
                     "rollout_weight": rollout_weight,
                     "rollout_batch_size": rollout_batch_size if rollout_steps > 1 else 0,
                     "goal_energy_weight": goal_energy_weight,
+                    "goal_energy_contrastive_loss": str(train_cfg.get("goal_energy_contrastive_loss", "none")),
+                    "goal_energy_contrastive_weight": goal_energy_contrastive_weight,
+                    "goal_energy_monotonicity_weight": goal_energy_monotonicity_weight,
+                    "goal_energy_negative_count": goal_energy_negative_count,
                     "hierarchy_weight": hierarchy_weight,
                     "hierarchy_levels": int(model.hierarchy_levels),
                     "hierarchy_span": int(model.hierarchy_span),
@@ -214,7 +260,18 @@ def _sample_batch(
     device: torch.device,
     oracle_probability: float = 1.0,
 ):
-    transitions = [
+    transitions = _sample_transitions(world, examples, rng, batch_size, oracle_probability)
+    return collate_transitions(transitions, device=device)
+
+
+def _sample_transitions(
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    batch_size: int,
+    oracle_probability: float = 1.0,
+) -> list[Transition]:
+    return [
         sample_curriculum_transition(
             world,
             examples[int(rng.integers(0, len(examples)))],
@@ -223,7 +280,6 @@ def _sample_batch(
         )
         for _ in range(batch_size)
     ]
-    return collate_transitions(transitions, device=device)
 
 
 def _sample_rollout_batch(
@@ -297,6 +353,61 @@ def _initial_states_from_batch(world: PuzzleWorld, batch) -> torch.Tensor:
     if isinstance(world, SudokuWorld) and batch.clue_masks is not None:
         return batch.states * batch.clue_masks.to(dtype=batch.states.dtype)
     return batch.states
+
+
+def _sample_local_negative_states(
+    world: PuzzleWorld,
+    transitions: list[Transition],
+    rng: np.random.Generator,
+    negative_count: int,
+    device: torch.device,
+) -> torch.Tensor:
+    if negative_count <= 0:
+        raise ValueError("goal_energy_negative_count must be positive when contrastive energy loss is enabled.")
+    rows: list[np.ndarray] = []
+    for transition in transitions:
+        candidates = _negative_successors_for_transition(world, transition)
+        if not candidates:
+            candidates = [transition.state.copy()]
+        indices = rng.choice(len(candidates), size=negative_count, replace=len(candidates) < negative_count)
+        rows.append(np.stack([candidates[int(index)] for index in indices]))
+    return torch.as_tensor(np.stack(rows), dtype=torch.long, device=device)
+
+
+def _negative_successors_for_transition(world: PuzzleWorld, transition: Transition) -> list[np.ndarray]:
+    state = world.validate_state(transition.state)
+    actions: list[WorldAction]
+    if isinstance(world, SudokuWorld):
+        if transition.clue_mask is None:
+            raise ValueError("Sudoku contrastive negatives require a clue mask.")
+        actions = world.legal_actions(
+            state,
+            clue_mask=transition.clue_mask,
+            allow_overwrite=True,
+            allow_conflicts=True,
+        )
+    else:
+        actions = world.legal_actions(state)
+    candidates: list[np.ndarray] = []
+    for action in actions:
+        if action == transition.action:
+            continue
+        try:
+            if isinstance(world, SudokuWorld):
+                next_state = world.apply(
+                    state,
+                    action,
+                    clue_mask=transition.clue_mask,
+                    allow_overwrite=True,
+                    allow_conflicts=True,
+                )
+            else:
+                next_state = world.apply(state, action)
+        except ValueError:
+            continue
+        if not np.array_equal(next_state, transition.next_state):
+            candidates.append(next_state)
+    return candidates
 
 
 def _max_hierarchy_horizon(model: ActionConditionedWorldModel) -> int:

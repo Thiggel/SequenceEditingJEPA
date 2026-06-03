@@ -213,6 +213,15 @@ class ActionConditionedWorldModel(nn.Module):
         *,
         task_ids: torch.Tensor,
         initial_states: torch.Tensor | None = None,
+        positive_states: torch.Tensor | None = None,
+        negative_states: torch.Tensor | None = None,
+        contrastive_loss: str = "none",
+        contrastive_temperature: float = 0.1,
+        contrastive_margin: float = 0.05,
+        contrastive_weight: float = 0.0,
+        monotonicity_weight: float = 0.0,
+        monotonicity_margin: float = 0.0,
+        regression_weight: float = 1.0,
     ) -> ActionConditionedJEPAOutput:
         if not self.use_goal_energy_head:
             raise ValueError("goal energy head is disabled for this model.")
@@ -223,16 +232,88 @@ class ActionConditionedWorldModel(nn.Module):
             state_latents = self.target_encoder(states, task_ids=task_ids)
             goal_latents = self.target_encoder(goals, task_ids=task_ids)
             target_energy = F.mse_loss(state_latents, goal_latents, reduction="none").mean(dim=(1, 2))
-        loss = F.mse_loss(pred_energy, target_energy)
+        regression_loss = F.mse_loss(pred_energy, target_energy)
+        loss = float(regression_weight) * regression_loss
+        components = {
+            "loss/goal_energy_mse": regression_loss.detach(),
+            "metric/goal_energy_pred_mean": pred_energy.detach().mean(),
+            "metric/goal_energy_target_mean": target_energy.detach().mean(),
+        }
+        if float(contrastive_weight) > 0.0:
+            if positive_states is None or negative_states is None:
+                raise ValueError("positive_states and negative_states are required for contrastive goal-energy loss.")
+            contrastive = self.goal_energy_contrastive_loss(
+                states,
+                goals,
+                task_ids=task_ids,
+                initial_states=initial_states,
+                positive_states=positive_states,
+                negative_states=negative_states,
+                mode=contrastive_loss,
+                temperature=contrastive_temperature,
+                margin=contrastive_margin,
+            )
+            loss = loss + float(contrastive_weight) * contrastive
+            components[f"loss/goal_energy_{contrastive_loss}"] = contrastive.detach()
+        if float(monotonicity_weight) > 0.0:
+            if positive_states is None:
+                raise ValueError("positive_states are required for goal-energy monotonicity loss.")
+            positive_energy = self.predict_goal_energy(positive_states, initial_states, task_ids)
+            monotone = F.relu(float(monotonicity_margin) + positive_energy - pred_energy).mean()
+            loss = loss + float(monotonicity_weight) * monotone
+            components["loss/goal_energy_monotonicity"] = monotone.detach()
         return ActionConditionedJEPAOutput(
             loss=loss,
             pred_latents=pred_energy[:, None, None],
             target_latents=target_energy[:, None, None],
-            components={
-                "loss/goal_energy_mse": loss.detach(),
-                "metric/goal_energy_pred_mean": pred_energy.detach().mean(),
-                "metric/goal_energy_target_mean": target_energy.detach().mean(),
-            },
+            components=components,
+        )
+
+    def goal_energy_contrastive_loss(
+        self,
+        states: torch.Tensor,
+        goals: torch.Tensor,
+        *,
+        task_ids: torch.Tensor,
+        initial_states: torch.Tensor,
+        positive_states: torch.Tensor,
+        negative_states: torch.Tensor,
+        mode: str,
+        temperature: float,
+        margin: float,
+    ) -> torch.Tensor:
+        mode = str(mode)
+        if mode not in {"nce", "infonce", "margin"}:
+            raise ValueError("contrastive goal-energy mode must be 'nce', 'infonce', or 'margin'.")
+        if negative_states.ndim != 4:
+            raise ValueError("negative_states must have shape [batch, negatives, height, width].")
+        batch, negatives, height, width = negative_states.shape
+        if batch != states.shape[0]:
+            raise ValueError("negative_states batch size must match states.")
+        pos_energy = self.predict_goal_energy(positive_states, initial_states, task_ids)
+        flat_negatives = negative_states.reshape(batch * negatives, height, width)
+        repeated_initial = initial_states[:, None].expand(batch, negatives, height, width).reshape(
+            batch * negatives,
+            height,
+            width,
+        )
+        repeated_task_ids = task_ids[:, None].expand(batch, negatives).reshape(batch * negatives)
+        neg_energy = self.predict_goal_energy(flat_negatives, repeated_initial, repeated_task_ids).reshape(
+            batch,
+            negatives,
+        )
+        if mode == "margin":
+            return F.relu(float(margin) + pos_energy[:, None] - neg_energy).mean()
+        temperature = max(float(temperature), 1.0e-6)
+        if mode == "infonce":
+            logits = -torch.cat([pos_energy[:, None], neg_energy], dim=1) / temperature
+            labels = torch.zeros(batch, dtype=torch.long, device=logits.device)
+            return F.cross_entropy(logits, labels)
+        pos_logits = -pos_energy / temperature
+        neg_logits = -neg_energy / temperature
+        return (
+            F.binary_cross_entropy_with_logits(pos_logits, torch.ones_like(pos_logits))
+            + F.binary_cross_entropy_with_logits(neg_logits, torch.zeros_like(neg_logits))
         )
 
     def rollout_loss(

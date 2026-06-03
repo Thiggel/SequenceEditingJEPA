@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-03 17:53 CEST
+Last updated: 2026-06-03 19:13 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -72,12 +72,15 @@ repo snapshot.
 | `3689397_[0-1]` | COMPLETED | Grid 4A report-style subgoal CEM diagnostics completed; solve `0/32` for L2/L3. |
 | `3691590_[0-2]` | COMPLETED | Grid 4B learned-energy reset/beam diagnostic for L1/L2/L3; exit `0:0`; solved `0/128` for all three levels. |
 | `3695040` | COMPLETED | Grid 4C L1 oracle reset/calibration sanity; exit `0:0`, elapsed `05:16:51`; reset every 4 and re-encoded oracle-goal planning solved `128/128`. |
+| `3696588_[0-5]` | FAILED | First Grid 4D submission failed immediately before training: Hydra rejected new `training.*` keys without `+` override syntax. |
+| `3696609_[0-5]` | FAILED | Second Grid 4D submission fixed Hydra overrides but failed before checkpointing: oversized auxiliary contrastive load (`512` examples x `16` negatives) caused OOM on five tasks; one task hit stale HF cache file handle. |
+| `3696616_[0-5]` | RUNNING | Live corrected Grid 4D L1 contrastive goal-energy ablation with auxiliary batch `64`, `8` negatives, and staggered starts; each task trains and then runs learned-energy and oracle-goal reset/beam evals. |
 
 Check live state:
 
 ```bash
-squeue -j 3695040,3691590,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3695040,3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3696616,3696609,3696588,3695040,3691590,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3696616,3696609,3696588,3695040,3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read

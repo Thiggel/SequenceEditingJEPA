@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-03 17:53 CEST
+Last updated: 2026-06-03 19:13 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -19,6 +19,7 @@ Grid 3B Sudoku follow-up:
 | Grid 4A goal-energy / hierarchy / CEM | Train one-, two-, and three-level JEPA variants with a learned goal-energy head and evaluate with categorical CEM plus exact report-style hierarchical subgoal CEM. | Completed: training `3688986_[0-2]`, learned-energy CEM `3689396_[0-2]`, and subgoal CEM `3689397_[0-1]` all exited `0:0`, but CEM solve rate was `0.0` across the grid. |
 | Grid 4B learned-energy reset beam | Test beam search with symbolic board state, learned goal-energy scoring, and reset/re-encode cadence 4 on the Grid 4A checkpoints. | Completed as `3691590_[0-2]`, exit `0:0`; learned-energy beam/reset solved `0/128` for L1/L2/L3. |
 | Grid 4C L1 oracle reset/calibration sanity | Reuse the exact L1 checkpoint from `3691590_0`, switch planning back to oracle solved-board latent MSE (`--planning-score latent_goal`), and write learned-energy-vs-true-distance trajectory calibration plots. | Completed as `3695040`, exit `0:0`; reset every 4 and re-encoded oracle-goal planning solved `128/128`. |
+| Grid 4D L1 contrastive goal-energy losses | Non-hierarchical L1 JEPA with existing goal-energy regression plus local successor negatives: `{nce,infonce,margin}` crossed with monotonicity off/on. | Live array `3696616_[0-5]`; `3696588_[0-5]` failed immediately on Hydra `+training.*` override syntax and `3696609_[0-5]` failed before checkpointing from oversized auxiliary negatives/OOM. Each live task trains, then runs learned-energy reset/beam eval and oracle-goal reset/calibration eval on 128 boards. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
@@ -80,3 +81,17 @@ Grid 3A diagnostic decision:
     every 4 terminal trajectories have mean absolute predicted-vs-true latent
     distance error about `0.010`, predicted energy monotonicity about `0.923`,
     and true latent distance monotonicity `1.0`.
+11. Grid 4D `3696616_[0-5]` tests whether the energy head needs local
+    negatives rather than pure scalar regression. The variants are `nce`,
+    `infonce`, `margin`, `nce_mono`, `infonce_mono`, and `margin_mono`.
+    Regression remains on the normal mixed batch; contrastive positives and
+    monotonicity use an oracle-only auxiliary batch, with 16 local successor
+    negatives sampled from the same Sudoku overwrite/conflict action space used
+    by learned-energy beam planning. Gate: learned-energy reset/beam should
+    solve nonzero boards and ideally approach the oracle-goal reset control.
+    Superseded submission `3696588_[0-5]` failed before training because Hydra
+    requires `+training.*` syntax for keys absent from the base YAML.
+    Superseded `3696609_[0-5]` fixed that but failed before checkpointing
+    because `512` auxiliary examples times `16` negatives was too memory-heavy;
+    the live array uses auxiliary batch `64`, `8` negatives, and staggered
+    starts.
