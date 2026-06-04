@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-04 15:44 CEST
+Last updated: 2026-06-04 16:25 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -23,7 +23,8 @@ Grid 3B Sudoku follow-up:
 | Grid 4E action-candidate rank analysis | For sampled oracle trajectories, compare the gold action at each step against all alternative mutable-cell/value actions under learned goal-energy scoring, grouped into same-cell wrong value, other-cell goal value, and other-cell wrong value. | Completed as `3698281_[0-6]`; original L1 top1 `0.040`, best contrastive top1 `0.049`, so current losses still fail local action ranking. |
 | Grid 4F value-method ablations | Test two literature-inspired scorer objectives on non-hierarchical L1: CVL multi-positive InfoNCE and MuZero-lite policy/value shaping. | Value-guided task `3698394_0` cancelled; active tasks `3698394_[1-2]` are running on two A100 nodes. |
 | Grid 4G stratified CVL scorer | Same CVL objective as Grid 4F, but the auxiliary batch is structured as multiple states per puzzle: `16` puzzles x `4` states/puzzle. | Submitted as `3698893`; running on `a0532`. |
-| Grid 4H terminal-correctness scorer | Replace scalar latent-energy regression with a direct balanced terminal-correctness target on the existing scalar head. | Submitted as `3698988`; running on `a0831`. |
+| Grid 4H terminal-correctness scorer | Replace scalar latent-energy regression with a direct balanced terminal-correctness target on the existing scalar head. | Cancelled as `3698988`; sparse target was wrong for reachable nonterminal boards. |
+| Grid 4I discounted reachability scorer | Corrected value target: scalar head predicts `0.99^N` for `N` remaining wrong cells, and `0` for impossible clue-corrupt states. | Submitted as `3699523`; running on `a0631`. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
@@ -129,8 +130,9 @@ Grid 3A diagnostic decision:
     states/puzzle, with `8` positives and `32` negatives per state. Local
     one-step smoke hung in startup/import and was killed; compile and Slurm
     syntax checks passed, and Slurm stderr was empty at startup.
-16. Grid 4H `3698988` tests direct terminal correctness. It keeps JEPA dynamics
-    training, disables the scalar latent-energy regression target, and trains
-    the existing scalar head with balanced BCE on solved boards vs random
-    mutable corruptions. The planner still uses the `goal_energy` score path,
-    but now higher score means higher predicted terminal correctness.
+16. Grid 4H `3698988` was cancelled because direct terminal correctness was too
+    sparse: all reachable nonterminal boards had label `0`.
+17. Grid 4I `3699523` is the corrected dense value experiment. It keeps JEPA
+    dynamics training, disables scalar latent-energy regression, and trains the
+    existing scalar head with soft BCE targets `0.99^N`, where `N` is the
+    remaining wrong-cell count to the solution.

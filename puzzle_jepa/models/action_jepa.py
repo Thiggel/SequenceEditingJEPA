@@ -231,6 +231,8 @@ class ActionConditionedWorldModel(nn.Module):
         monotonicity_weight: float = 0.0,
         monotonicity_margin: float = 0.0,
         terminal_correctness_weight: float = 0.0,
+        terminal_target_mode: str = "binary",
+        terminal_discount: float = 0.99,
         regression_weight: float = 1.0,
     ) -> ActionConditionedJEPAOutput:
         if not self.use_goal_energy_head:
@@ -250,7 +252,13 @@ class ActionConditionedWorldModel(nn.Module):
             "metric/goal_energy_target_mean": target_energy.detach().mean(),
         }
         if float(terminal_correctness_weight) > 0.0:
-            terminal_targets = (states == goals).flatten(start_dim=1).all(dim=1).to(dtype=pred_energy.dtype)
+            terminal_targets = self._terminal_value_targets(
+                states,
+                goals,
+                initial_states=initial_states,
+                mode=terminal_target_mode,
+                discount=terminal_discount,
+            ).to(dtype=pred_energy.dtype)
             terminal_loss = F.binary_cross_entropy_with_logits(pred_energy, terminal_targets)
             loss = loss + float(terminal_correctness_weight) * terminal_loss
             components["loss/goal_terminal_bce"] = terminal_loss.detach()
@@ -285,6 +293,27 @@ class ActionConditionedWorldModel(nn.Module):
             target_latents=target_energy[:, None, None],
             components=components,
         )
+
+    def _terminal_value_targets(
+        self,
+        states: torch.Tensor,
+        goals: torch.Tensor,
+        *,
+        initial_states: torch.Tensor,
+        mode: str,
+        discount: float,
+    ) -> torch.Tensor:
+        mode = str(mode)
+        if mode == "binary":
+            return (states == goals).flatten(start_dim=1).all(dim=1).float()
+        if mode != "discounted_reachability":
+            raise ValueError("terminal target mode must be 'binary' or 'discounted_reachability'.")
+        remaining = (states != goals).flatten(start_dim=1).sum(dim=1).float()
+        gamma = min(max(float(discount), 0.0), 1.0)
+        targets = torch.pow(torch.full_like(remaining, gamma), remaining)
+        fixed_mask = initial_states != 0
+        invalid_fixed = ((states != initial_states) & fixed_mask).flatten(start_dim=1).any(dim=1)
+        return torch.where(invalid_fixed, torch.zeros_like(targets), targets)
 
     def goal_energy_contrastive_loss(
         self,

@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 15:44 CEST
+Last updated: 2026-06-04 16:25 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -79,12 +79,11 @@ Grid 4G `3698893` is running on `a0532`. It tests the stratified-batch version
 of CVL: `16` puzzles x `4` oracle partial states per puzzle, with `8`
 goal-correct successor positives and `32` wrong local negatives per state.
 
-Grid 4H `3698988` is running on `a0831`. It tests a terminal-correctness
-scorer: the scalar head is trained with balanced BCE on solved boards vs random
-mutable corrupted states, while the JEPA dynamics training remains unchanged.
-At step 1000 the BCE auxiliary loss is already near zero, but the old
-`goal_energy_eval_mse` is not meaningful for this run because the scalar head
-now outputs terminal-correctness logits rather than latent-distance estimates.
+Grid 4H `3698988` was cancelled because binary terminal correctness was too
+sparse: it labeled solved boards as `1`, but reachable nonterminal boards as
+`0`. Grid 4I `3699523` replaces it with discounted reachability: the scalar
+head target is `0.99^N`, where `N` is remaining wrong-cell count to the
+solution; impossible clue-corrupt states get target `0`.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

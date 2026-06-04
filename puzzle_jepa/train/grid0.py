@@ -452,6 +452,8 @@ def _goal_terminal_correctness_loss(
         task_ids=task_ids,
         initial_states=initial,
         terminal_correctness_weight=float(train_cfg.get("goal_terminal_correctness_weight", 1.0)),
+        terminal_target_mode=str(train_cfg.get("goal_terminal_target_mode", "binary")),
+        terminal_discount=float(train_cfg.get("goal_terminal_discount", 0.99)),
         regression_weight=float(train_cfg.get("goal_terminal_regression_weight", 0.0)),
     )
 
