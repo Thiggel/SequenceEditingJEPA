@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 13:57 CEST
+Last updated: 2026-06-04 15:44 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -59,12 +59,11 @@ show predicted energy follows the successful trajectories in aggregate but is
 not reliable enough for local action selection.
 
 Grid 4D `3696616_[0-5]` trained all six non-hierarchical L1 scorer variants and
-completed the learned-energy reset/beam diagnostic. The result is still a hard
-fail for deployable learned-energy planning: every variant solved `0/128`.
-Paired reset mean remaining Hamming was InfoNCE `47.74`, InfoNCE+mono `47.27`,
-margin `51.20`, margin+mono `48.22`, NCE `53.14`, and NCE+mono `52.64`.
-The array is still running because the oracle-goal reset/calibration control
-has not written outputs yet.
+completed all diagnostics. The result is still a hard fail for deployable
+learned-energy planning: every variant solved `0/128`. Oracle-goal controls
+show that margin and margin+mono preserve reset dynamics best: reset every 4
+solved `128/128` for both, NCE solved `120/128`, and InfoNCE, NCE+mono, and
+InfoNCE+mono solved `0/128`.
 
 Grid 4E `3698281_[0-6]` completed cleanly. It confirms the local ranking
 failure: original L1 gold top1 is `0.040`, and the six Grid 4D contrastive
@@ -83,6 +82,9 @@ goal-correct successor positives and `32` wrong local negatives per state.
 Grid 4H `3698988` is running on `a0831`. It tests a terminal-correctness
 scorer: the scalar head is trained with balanced BCE on solved boards vs random
 mutable corrupted states, while the JEPA dynamics training remains unchanged.
+At step 1000 the BCE auxiliary loss is already near zero, but the old
+`goal_energy_eval_mse` is not meaningful for this run because the scalar head
+now outputs terminal-correctness logits rather than latent-distance estimates.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
