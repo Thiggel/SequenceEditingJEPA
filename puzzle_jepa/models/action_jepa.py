@@ -230,10 +230,6 @@ class ActionConditionedWorldModel(nn.Module):
         contrastive_weight: float = 0.0,
         monotonicity_weight: float = 0.0,
         monotonicity_margin: float = 0.0,
-        td_weight: float = 0.0,
-        td_gamma: float = 0.99,
-        td_step_cost: float = 0.0,
-        td_expectile: float = 0.7,
         regression_weight: float = 1.0,
     ) -> ActionConditionedJEPAOutput:
         if not self.use_goal_energy_head:
@@ -275,20 +271,6 @@ class ActionConditionedWorldModel(nn.Module):
             monotone = F.relu(float(monotonicity_margin) + positive_energy - pred_energy).mean()
             loss = loss + float(monotonicity_weight) * monotone
             components["loss/goal_energy_monotonicity"] = monotone.detach()
-        if float(td_weight) > 0.0:
-            if positive_states is None:
-                raise ValueError("positive_states are required for goal-energy TD loss.")
-            td_loss = self.goal_energy_td_loss(
-                pred_energy,
-                positive_states=positive_states,
-                initial_states=initial_states,
-                task_ids=task_ids,
-                gamma=td_gamma,
-                step_cost=td_step_cost,
-                expectile=td_expectile,
-            )
-            loss = loss + float(td_weight) * td_loss
-            components["loss/goal_energy_td"] = td_loss.detach()
         return ActionConditionedJEPAOutput(
             loss=loss,
             pred_latents=pred_energy[:, None, None],
@@ -365,43 +347,6 @@ class ActionConditionedWorldModel(nn.Module):
             F.binary_cross_entropy_with_logits(pos_logits, torch.ones_like(pos_logits))
             + F.binary_cross_entropy_with_logits(neg_logits, torch.zeros_like(neg_logits))
         )
-
-    def goal_energy_td_loss(
-        self,
-        pred_energy: torch.Tensor,
-        *,
-        positive_states: torch.Tensor,
-        initial_states: torch.Tensor,
-        task_ids: torch.Tensor,
-        gamma: float,
-        step_cost: float,
-        expectile: float,
-    ) -> torch.Tensor:
-        if positive_states.ndim == 3:
-            next_states = positive_states[:, None]
-        elif positive_states.ndim == 4:
-            next_states = positive_states
-        else:
-            raise ValueError("positive_states must have shape [batch, height, width] or [batch, positives, height, width].")
-        batch, positives, height, width = next_states.shape
-        with torch.no_grad():
-            flat_next = next_states.reshape(batch * positives, height, width)
-            repeated_initial = initial_states[:, None].expand(batch, positives, height, width).reshape(
-                batch * positives,
-                height,
-                width,
-            )
-            repeated_task_ids = task_ids[:, None].expand(batch, positives).reshape(batch * positives)
-            next_energy = self.predict_goal_energy(flat_next, repeated_initial, repeated_task_ids).reshape(
-                batch,
-                positives,
-            )
-            bootstrap = next_energy.mean(dim=1)
-            target = float(step_cost) + float(gamma) * bootstrap
-        diff = pred_energy - target
-        tau = min(max(float(expectile), 1.0e-4), 1.0 - 1.0e-4)
-        weights = torch.where(diff > 0, tau, 1.0 - tau)
-        return (weights * diff.square()).mean()
 
     def action_policy_loss(
         self,

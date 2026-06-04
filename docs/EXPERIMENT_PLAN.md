@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-04 10:19 CEST
+Last updated: 2026-06-04 13:07 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -21,7 +21,7 @@ Grid 3B Sudoku follow-up:
 | Grid 4C L1 oracle reset/calibration sanity | Reuse the exact L1 checkpoint from `3691590_0`, switch planning back to oracle solved-board latent MSE (`--planning-score latent_goal`), and write learned-energy-vs-true-distance trajectory calibration plots. | Completed as `3695040`, exit `0:0`; reset every 4 and re-encoded oracle-goal planning solved `128/128`. |
 | Grid 4D L1 contrastive goal-energy losses | Non-hierarchical L1 JEPA with existing goal-energy regression plus local successor negatives: `{nce,infonce,margin}` crossed with monotonicity off/on. | `3696616_[0-5]` is still running, but training and learned-energy reset/beam diagnostics are complete: all six variants solved `0/128`. Oracle-goal reset/calibration eval is still pending/running. |
 | Grid 4E action-candidate rank analysis | For sampled oracle trajectories, compare the gold action at each step against all alternative mutable-cell/value actions under learned goal-energy scoring, grouped into same-cell wrong value, other-cell goal value, and other-cell wrong value. | Completed as `3698281_[0-6]`; original L1 top1 `0.040`, best contrastive top1 `0.049`, so current losses still fail local action ranking. |
-| Grid 4F value-method ablations | Test three literature-inspired scorer objectives on non-hierarchical L1: value-guided JEPA TD/expectile energy, CVL multi-positive InfoNCE, and MuZero-lite policy/value shaping. | Submitted as `3698394_[0-2]`; running on three A100 nodes. |
+| Grid 4F value-method ablations | Test two literature-inspired scorer objectives on non-hierarchical L1: CVL multi-positive InfoNCE and MuZero-lite policy/value shaping. | Value-guided task `3698394_0` cancelled; active tasks `3698394_[1-2]` are running on two A100 nodes. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
@@ -118,6 +118,7 @@ Grid 3A diagnostic decision:
     use multi-positive future/reachable successors: in Sudoku, all currently
     wrong mutable cells filled with their goal value should be positives, and
     wrong fills should be negatives.
-14. Grid 4F `3698394_[0-2]` implements the first follow-up to that literature
-    read. All three one-step smokes passed before submission. The eval gate is
-    learned-energy reset/beam on 128 boards plus the oracle-goal reset control.
+14. Grid 4F `3698394_[1-2]` implements the first follow-up to that literature
+    read after cancelling the value-guided JEPA task. One-step smokes passed
+    before submission. The eval gate is learned-energy reset/beam on 128 boards
+    plus the oracle-goal reset control.

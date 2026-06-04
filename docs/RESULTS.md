@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 10:19 CEST
+Last updated: 2026-06-04 13:07 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -72,10 +72,9 @@ variants range only `0.024-0.049`. Other-cell goal-correct actions outrank the
 sampled gold action about half the time, so single-gold local negatives are the
 wrong target for Sudoku.
 
-Grid 4F `3698394_[0-2]` is running on three A100 nodes. It tests three
-non-hierarchical L1 scorer objectives: value-guided JEPA-style TD/expectile
-energy, CVL-style multi-positive InfoNCE, and MuZero-lite supervised
-policy/value shaping.
+Grid 4F value-guided task `3698394_0` was cancelled. Active tasks
+`3698394_[1-2]` are still running on two A100 nodes. They test CVL-style
+multi-positive InfoNCE and MuZero-lite supervised policy/value shaping.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

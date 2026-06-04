@@ -65,7 +65,6 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     goal_energy_weight = float(train_cfg.get("goal_energy_weight", 0.0))
     goal_energy_contrastive_weight = float(train_cfg.get("goal_energy_contrastive_weight", 0.0))
     goal_energy_monotonicity_weight = float(train_cfg.get("goal_energy_monotonicity_weight", 0.0))
-    goal_energy_td_weight = float(train_cfg.get("goal_energy_td_weight", 0.0))
     action_policy_weight = float(train_cfg.get("action_policy_weight", 0.0))
     goal_energy_aux_batch_size = int(train_cfg.get("goal_energy_aux_batch_size", batch_size))
     goal_energy_positive_count = int(train_cfg.get("goal_energy_positive_count", 1))
@@ -138,24 +137,6 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     goal_energy_negative_count,
                     goal_energy_contrastive_weight,
                     goal_energy_monotonicity_weight,
-                    goal_energy_td_weight,
-                )
-                energy_aux_loss = energy_output.loss
-                loss = loss + energy_aux_loss
-            elif goal_energy_td_weight > 0.0:
-                energy_output = _goal_energy_auxiliary_loss(
-                    model,
-                    world,
-                    train_examples,
-                    rng,
-                    train_cfg,
-                    device,
-                    goal_energy_aux_batch_size,
-                    goal_energy_positive_count,
-                    goal_energy_negative_count,
-                    goal_energy_contrastive_weight,
-                    goal_energy_monotonicity_weight,
-                    goal_energy_td_weight,
                 )
                 energy_aux_loss = energy_output.loss
                 loss = loss + energy_aux_loss
@@ -208,7 +189,6 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "goal_energy_contrastive_loss": str(train_cfg.get("goal_energy_contrastive_loss", "none")),
                     "goal_energy_contrastive_weight": goal_energy_contrastive_weight,
                     "goal_energy_monotonicity_weight": goal_energy_monotonicity_weight,
-                    "goal_energy_td_weight": goal_energy_td_weight,
                     "goal_energy_positive_count": goal_energy_positive_count,
                     "goal_energy_negative_count": goal_energy_negative_count,
                     "action_policy_weight": action_policy_weight,
@@ -381,7 +361,6 @@ def _goal_energy_auxiliary_loss(
     negative_count: int,
     contrastive_weight: float,
     monotonicity_weight: float,
-    td_weight: float,
 ):
     energy_transitions = _sample_transitions(
         world,
@@ -425,10 +404,6 @@ def _goal_energy_auxiliary_loss(
         contrastive_weight=contrastive_weight,
         monotonicity_weight=monotonicity_weight,
         monotonicity_margin=float(train_cfg.get("goal_energy_monotonicity_margin", 0.0)),
-        td_weight=td_weight,
-        td_gamma=float(train_cfg.get("goal_energy_td_gamma", 0.99)),
-        td_step_cost=float(train_cfg.get("goal_energy_td_step_cost", 0.0)),
-        td_expectile=float(train_cfg.get("goal_energy_td_expectile", 0.7)),
         regression_weight=float(train_cfg.get("goal_energy_aux_regression_weight", 0.0)),
     )
 

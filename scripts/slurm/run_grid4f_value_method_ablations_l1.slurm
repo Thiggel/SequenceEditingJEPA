@@ -7,14 +7,14 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
-#SBATCH --array=0-2
+#SBATCH --array=0-1
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 mkdir -p logs
 source ./scripts/env.sh
 
-METHODS=(value_guided_jepa cvl_multipositive muzero_lite)
+METHODS=(cvl_multipositive muzero_lite)
 METHOD="${METHODS[$SLURM_ARRAY_TASK_ID]}"
 RUN_NAME="sudoku_jepa_5m_value_method_l1_${METHOD}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/${RUN_NAME}"
@@ -31,17 +31,6 @@ COMMON_OVERRIDES=(
 
 METHOD_OVERRIDES=()
 case "$METHOD" in
-  value_guided_jepa)
-    METHOD_OVERRIDES=(
-      "+training.goal_energy_td_weight=1.0"
-      "+training.goal_energy_td_gamma=0.99"
-      "+training.goal_energy_td_step_cost=0.01"
-      "+training.goal_energy_td_expectile=0.7"
-      "+training.goal_energy_positive_mode=all_goal_correct"
-      "+training.goal_energy_positive_count=8"
-      "+training.goal_energy_negative_count=8"
-    )
-    ;;
   cvl_multipositive)
     METHOD_OVERRIDES=(
       "+training.goal_energy_contrastive_loss=infonce"
