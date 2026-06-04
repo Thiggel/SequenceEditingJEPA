@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-03 19:27 CEST
+Last updated: 2026-06-04 09:24 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -74,7 +74,7 @@ repo snapshot.
 | `3695040` | COMPLETED | Grid 4C L1 oracle reset/calibration sanity; exit `0:0`, elapsed `05:16:51`; reset every 4 and re-encoded oracle-goal planning solved `128/128`. |
 | `3696588_[0-5]` | FAILED | First Grid 4D submission failed immediately before training: Hydra rejected new `training.*` keys without `+` override syntax. |
 | `3696609_[0-5]` | FAILED | Second Grid 4D submission fixed Hydra overrides but failed before checkpointing: oversized auxiliary contrastive load (`512` examples x `16` negatives) caused OOM on five tasks; one task hit stale HF cache file handle. |
-| `3696616_[0-5]` | RUNNING | Live corrected Grid 4D L1 contrastive goal-energy ablation with auxiliary batch `64`, `8` negatives, and staggered starts; at 19:27 CEST all six tasks had run about 13.5 minutes with empty stderr, stdout only Slurm prologues, and run roots containing `config.json` but no `metrics.jsonl` yet. |
+| `3696616_[0-5]` | RUNNING | Grid 4D L1 contrastive goal-energy ablation. Training and learned-energy reset/beam diagnostics are complete for all six variants, and learned-energy reset/beam solved `0/128` for every variant. Tasks are still running because the oracle-goal reset/calibration eval has not written outputs yet. |
 
 Check live state:
 
