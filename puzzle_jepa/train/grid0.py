@@ -362,13 +362,7 @@ def _goal_energy_auxiliary_loss(
     contrastive_weight: float,
     monotonicity_weight: float,
 ):
-    energy_transitions = _sample_transitions(
-        world,
-        train_examples,
-        rng,
-        batch_size,
-        oracle_probability=1.0,
-    )
+    energy_transitions = _sample_goal_energy_aux_transitions(world, train_examples, rng, train_cfg, batch_size)
     energy_batch = collate_transitions(energy_transitions, device=device)
     positive_mode = str(train_cfg.get("goal_energy_positive_mode", "single_oracle"))
     if positive_mode == "all_goal_correct":
@@ -406,6 +400,39 @@ def _goal_energy_auxiliary_loss(
         monotonicity_margin=float(train_cfg.get("goal_energy_monotonicity_margin", 0.0)),
         regression_weight=float(train_cfg.get("goal_energy_aux_regression_weight", 0.0)),
     )
+
+
+def _sample_goal_energy_aux_transitions(
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    batch_size: int,
+) -> list[Transition]:
+    mode = str(train_cfg.get("goal_energy_aux_sampling", "random"))
+    if mode == "random":
+        return _sample_transitions(world, examples, rng, batch_size, oracle_probability=1.0)
+    if mode != "stratified_puzzle":
+        raise ValueError("goal_energy_aux_sampling must be 'random' or 'stratified_puzzle'.")
+    puzzles = int(train_cfg.get("goal_energy_aux_puzzles", 16))
+    states_per_puzzle = int(train_cfg.get("goal_energy_aux_states_per_puzzle", 4))
+    if puzzles <= 0 or states_per_puzzle <= 0:
+        raise ValueError("stratified goal-energy auxiliary sampling needs positive puzzle/state counts.")
+    selected = rng.choice(len(examples), size=puzzles, replace=len(examples) < puzzles)
+    transitions: list[Transition] = []
+    for example_index in selected:
+        example = examples[int(example_index)]
+        for _ in range(states_per_puzzle):
+            transitions.append(sample_oracle_partial_transition(world, example, rng))
+    if len(transitions) == batch_size:
+        return transitions
+    if len(transitions) > batch_size:
+        chosen = rng.choice(len(transitions), size=batch_size, replace=False)
+        return [transitions[int(index)] for index in chosen]
+    while len(transitions) < batch_size:
+        example = examples[int(selected[int(rng.integers(0, len(selected)))])]
+        transitions.append(sample_oracle_partial_transition(world, example, rng))
+    return transitions
 
 
 def _initial_states_from_batch(world: PuzzleWorld, batch) -> torch.Tensor:
