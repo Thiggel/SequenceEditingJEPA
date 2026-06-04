@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 09:33 CEST
+Last updated: 2026-06-04 10:04 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -71,6 +71,13 @@ original L1 and six Grid 4D checkpoints. It exhaustively scores the gold action
 against all other mutable-cell/value successor actions at sampled oracle steps,
 so it will show whether failures are caused by same-cell wrong values,
 other-cell goal-correct actions, or other-cell wrong actions outranking gold.
+
+Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
+non-RL target we need because they use reward, TD, or search labels. The closest
+adjacent recipe is contrastive goal-conditioned reachability/value learning:
+future or reachable states are positives and unrelated/wrong successors are
+negatives. This points toward a multi-positive scorer objective rather than the
+single-gold local-negative setup used in Grid 4D.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve

@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-04 09:33 CEST
+Last updated: 2026-06-04 10:04 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -109,3 +109,11 @@ Grid 3A diagnostic decision:
     margins against same-square wrong numbers, other-square goal-correct
     actions, and other-square wrong actions. This differs from Grid 4D training,
     which sampled 8 negatives per auxiliary example for memory reasons.
+13. Literature read on non-RL value analogs: MuZero/Dreamer/TD-MPC value heads
+    are not the clean recipe because they rely on reward, TD, or search targets.
+    JEPA/V-JEPA gives latent prediction and image-goal planning, but not a
+    standalone supervised value. The closest fit is contrastive
+    goal-conditioned reachability/value learning. For the next scorer design,
+    use multi-positive future/reachable successors: in Sudoku, all currently
+    wrong mutable cells filled with their goal value should be positives, and
+    wrong fills should be negatives.
