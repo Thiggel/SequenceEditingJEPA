@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-04 09:24 CEST
+Last updated: 2026-06-04 09:33 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -75,12 +75,13 @@ repo snapshot.
 | `3696588_[0-5]` | FAILED | First Grid 4D submission failed immediately before training: Hydra rejected new `training.*` keys without `+` override syntax. |
 | `3696609_[0-5]` | FAILED | Second Grid 4D submission fixed Hydra overrides but failed before checkpointing: oversized auxiliary contrastive load (`512` examples x `16` negatives) caused OOM on five tasks; one task hit stale HF cache file handle. |
 | `3696616_[0-5]` | RUNNING | Grid 4D L1 contrastive goal-energy ablation. Training and learned-energy reset/beam diagnostics are complete for all six variants, and learned-energy reset/beam solved `0/128` for every variant. Tasks are still running because the oracle-goal reset/calibration eval has not written outputs yet. |
+| `3698281_[0-6]` | RUNNING | Grid 4E action-candidate analysis for original L1 plus six Grid 4D checkpoints. For each sampled oracle step, exhaustively scores the gold action against all other mutable-cell/value successor actions under learned goal energy and summarizes ranks/margins by negative type. |
 
 Check live state:
 
 ```bash
-squeue -j 3696616,3696609,3696588,3695040,3691590,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3696616,3696609,3696588,3695040,3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3698281,3696616,3696609,3696588,3695040,3691590,3688587,3688921,3688986,3689396,3689397 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3698281,3696616,3696609,3696588,3695040,3688542,3689344,3689685,3691526,3692215,3688587,3688921,3688986,3689396,3689397,3691590 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read

@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-04 09:24 CEST
+Last updated: 2026-06-04 09:33 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -20,6 +20,7 @@ Grid 3B Sudoku follow-up:
 | Grid 4B learned-energy reset beam | Test beam search with symbolic board state, learned goal-energy scoring, and reset/re-encode cadence 4 on the Grid 4A checkpoints. | Completed as `3691590_[0-2]`, exit `0:0`; learned-energy beam/reset solved `0/128` for L1/L2/L3. |
 | Grid 4C L1 oracle reset/calibration sanity | Reuse the exact L1 checkpoint from `3691590_0`, switch planning back to oracle solved-board latent MSE (`--planning-score latent_goal`), and write learned-energy-vs-true-distance trajectory calibration plots. | Completed as `3695040`, exit `0:0`; reset every 4 and re-encoded oracle-goal planning solved `128/128`. |
 | Grid 4D L1 contrastive goal-energy losses | Non-hierarchical L1 JEPA with existing goal-energy regression plus local successor negatives: `{nce,infonce,margin}` crossed with monotonicity off/on. | `3696616_[0-5]` is still running, but training and learned-energy reset/beam diagnostics are complete: all six variants solved `0/128`. Oracle-goal reset/calibration eval is still pending/running. |
+| Grid 4E action-candidate rank analysis | For sampled oracle trajectories, compare the gold action at each step against all alternative mutable-cell/value actions under learned goal-energy scoring, grouped into same-cell wrong value, other-cell goal value, and other-cell wrong value. | Submitted as `3698281_[0-6]` for original L1 plus six Grid 4D checkpoints; running with empty stderr at 09:33 CEST. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
@@ -101,3 +102,10 @@ Grid 3A diagnostic decision:
     (margin), `48.22` (margin+mono), `53.14` (NCE), and `52.64`
     (NCE+mono). The jobs are still running because the oracle-goal
     reset/calibration control has not produced outputs yet.
+12. Grid 4E `3698281_[0-6]` is an analysis-only diagnostic, not a training
+    run. It exhaustively enumerates every legal Sudoku overwrite/conflict
+    planning action at each sampled oracle step, scores the resulting successor
+    state with learned goal energy, and reports the gold action rank plus
+    margins against same-square wrong numbers, other-square goal-correct
+    actions, and other-square wrong actions. This differs from Grid 4D training,
+    which sampled 8 negatives per auxiliary example for memory reasons.

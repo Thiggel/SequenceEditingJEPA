@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 09:24 CEST
+Last updated: 2026-06-04 09:33 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -65,6 +65,12 @@ Paired reset mean remaining Hamming was InfoNCE `47.74`, InfoNCE+mono `47.27`,
 margin `51.20`, margin+mono `48.22`, NCE `53.14`, and NCE+mono `52.64`.
 The array is still running because the oracle-goal reset/calibration control
 has not written outputs yet.
+
+Grid 4E `3698281_[0-6]` is running a direct action-candidate analysis for the
+original L1 and six Grid 4D checkpoints. It exhaustively scores the gold action
+against all other mutable-cell/value successor actions at sampled oracle steps,
+so it will show whether failures are caused by same-cell wrong values,
+other-cell goal-correct actions, or other-cell wrong actions outranking gold.
 
 Clarification: the Grid 3C/3D result uses the filled solution board as an
 oracle goal latent for planning diagnostics. It means reset every 4 can solve
