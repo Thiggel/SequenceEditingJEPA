@@ -230,6 +230,7 @@ class ActionConditionedWorldModel(nn.Module):
         contrastive_weight: float = 0.0,
         monotonicity_weight: float = 0.0,
         monotonicity_margin: float = 0.0,
+        terminal_correctness_weight: float = 0.0,
         regression_weight: float = 1.0,
     ) -> ActionConditionedJEPAOutput:
         if not self.use_goal_energy_head:
@@ -248,6 +249,13 @@ class ActionConditionedWorldModel(nn.Module):
             "metric/goal_energy_pred_mean": pred_energy.detach().mean(),
             "metric/goal_energy_target_mean": target_energy.detach().mean(),
         }
+        if float(terminal_correctness_weight) > 0.0:
+            terminal_targets = (states == goals).flatten(start_dim=1).all(dim=1).to(dtype=pred_energy.dtype)
+            terminal_loss = F.binary_cross_entropy_with_logits(pred_energy, terminal_targets)
+            loss = loss + float(terminal_correctness_weight) * terminal_loss
+            components["loss/goal_terminal_bce"] = terminal_loss.detach()
+            components["metric/goal_terminal_target_mean"] = terminal_targets.detach().mean()
+            components["metric/goal_terminal_prob_mean"] = torch.sigmoid(pred_energy.detach()).mean()
         if float(contrastive_weight) > 0.0:
             if positive_states is None or negative_states is None:
                 raise ValueError("positive_states and negative_states are required for contrastive goal-energy loss.")

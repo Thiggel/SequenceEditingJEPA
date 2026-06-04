@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 13:24 CEST
+Last updated: 2026-06-04 13:57 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -79,6 +79,10 @@ multi-positive InfoNCE and MuZero-lite supervised policy/value shaping.
 Grid 4G `3698893` is running on `a0532`. It tests the stratified-batch version
 of CVL: `16` puzzles x `4` oracle partial states per puzzle, with `8`
 goal-correct successor positives and `32` wrong local negatives per state.
+
+Grid 4H `3698988` is running on `a0831`. It tests a terminal-correctness
+scorer: the scalar head is trained with balanced BCE on solved boards vs random
+mutable corrupted states, while the JEPA dynamics training remains unchanged.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

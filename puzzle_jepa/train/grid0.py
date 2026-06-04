@@ -65,6 +65,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     goal_energy_weight = float(train_cfg.get("goal_energy_weight", 0.0))
     goal_energy_contrastive_weight = float(train_cfg.get("goal_energy_contrastive_weight", 0.0))
     goal_energy_monotonicity_weight = float(train_cfg.get("goal_energy_monotonicity_weight", 0.0))
+    goal_terminal_weight = float(train_cfg.get("goal_terminal_correctness_weight", 0.0))
     action_policy_weight = float(train_cfg.get("action_policy_weight", 0.0))
     goal_energy_aux_batch_size = int(train_cfg.get("goal_energy_aux_batch_size", batch_size))
     goal_energy_positive_count = int(train_cfg.get("goal_energy_positive_count", 1))
@@ -140,6 +141,17 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 )
                 energy_aux_loss = energy_output.loss
                 loss = loss + energy_aux_loss
+            if goal_terminal_weight > 0.0:
+                terminal_output = _goal_terminal_correctness_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                )
+                energy_aux_loss = terminal_output.loss if energy_aux_loss is None else energy_aux_loss + terminal_output.loss
+                loss = loss + terminal_output.loss
             if action_policy_weight > 0.0:
                 if not model.use_action_policy_head:
                     raise ValueError("training.action_policy_weight requires model.use_action_policy_head=true.")
@@ -189,6 +201,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "goal_energy_contrastive_loss": str(train_cfg.get("goal_energy_contrastive_loss", "none")),
                     "goal_energy_contrastive_weight": goal_energy_contrastive_weight,
                     "goal_energy_monotonicity_weight": goal_energy_monotonicity_weight,
+                    "goal_terminal_correctness_weight": goal_terminal_weight,
                     "goal_energy_positive_count": goal_energy_positive_count,
                     "goal_energy_negative_count": goal_energy_negative_count,
                     "action_policy_weight": action_policy_weight,
@@ -399,6 +412,47 @@ def _goal_energy_auxiliary_loss(
         monotonicity_weight=monotonicity_weight,
         monotonicity_margin=float(train_cfg.get("goal_energy_monotonicity_margin", 0.0)),
         regression_weight=float(train_cfg.get("goal_energy_aux_regression_weight", 0.0)),
+    )
+
+
+def _goal_terminal_correctness_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+):
+    if not model.use_goal_energy_head:
+        raise ValueError("terminal correctness training requires model.use_goal_energy_head=true.")
+    batch_size = int(train_cfg.get("goal_terminal_batch_size", train_cfg.get("goal_energy_aux_batch_size", 64)))
+    positive_fraction = float(train_cfg.get("goal_terminal_positive_fraction", 0.5))
+    positive_count = max(1, min(batch_size - 1, int(round(batch_size * positive_fraction))))
+    negative_count = batch_size - positive_count
+    examples = [train_examples[int(rng.integers(0, len(train_examples)))] for _ in range(batch_size)]
+    positive_states = [world.validate_state(example.goal).copy() for example in examples[:positive_count]]
+    negative_states = [
+        sample_random_mutable_transition(world, example, rng).next_state
+        for example in examples[positive_count:]
+    ]
+    states = torch.as_tensor(np.stack(positive_states + negative_states), dtype=torch.long, device=device)
+    goals = torch.as_tensor(np.stack([world.validate_state(example.goal) for example in examples]), dtype=torch.long, device=device)
+    if isinstance(world, SudokuWorld):
+        initial = torch.as_tensor(
+            np.stack([world.validate_state(example.state) for example in examples]),
+            dtype=torch.long,
+            device=device,
+        )
+    else:
+        initial = states
+    task_ids = torch.full((batch_size,), world.task_id, dtype=torch.long, device=device)
+    return model.goal_energy_loss(
+        states,
+        goals,
+        task_ids=task_ids,
+        initial_states=initial,
+        terminal_correctness_weight=float(train_cfg.get("goal_terminal_correctness_weight", 1.0)),
+        regression_weight=float(train_cfg.get("goal_terminal_regression_weight", 0.0)),
     )
 
 
