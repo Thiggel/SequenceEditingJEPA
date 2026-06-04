@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 10:04 CEST
+Last updated: 2026-06-04 10:19 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -66,11 +66,16 @@ margin `51.20`, margin+mono `48.22`, NCE `53.14`, and NCE+mono `52.64`.
 The array is still running because the oracle-goal reset/calibration control
 has not written outputs yet.
 
-Grid 4E `3698281_[0-6]` is running a direct action-candidate analysis for the
-original L1 and six Grid 4D checkpoints. It exhaustively scores the gold action
-against all other mutable-cell/value successor actions at sampled oracle steps,
-so it will show whether failures are caused by same-cell wrong values,
-other-cell goal-correct actions, or other-cell wrong actions outranking gold.
+Grid 4E `3698281_[0-6]` completed cleanly. It confirms the local ranking
+failure: original L1 gold top1 is `0.040`, and the six Grid 4D contrastive
+variants range only `0.024-0.049`. Other-cell goal-correct actions outrank the
+sampled gold action about half the time, so single-gold local negatives are the
+wrong target for Sudoku.
+
+Grid 4F `3698394_[0-2]` is running on three A100 nodes. It tests three
+non-hierarchical L1 scorer objectives: value-guided JEPA-style TD/expectile
+energy, CVL-style multi-positive InfoNCE, and MuZero-lite supervised
+policy/value shaping.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

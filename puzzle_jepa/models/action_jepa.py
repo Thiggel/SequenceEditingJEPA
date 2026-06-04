@@ -75,6 +75,7 @@ class ActionConditionedWorldModel(nn.Module):
         predict_residual: bool = False,
         use_cls_token: bool = False,
         use_goal_energy_head: bool = False,
+        use_action_policy_head: bool = False,
         hierarchy_levels: int = 1,
         hierarchy_stride: int = 2,
         hierarchy_span: int | None = None,
@@ -90,6 +91,7 @@ class ActionConditionedWorldModel(nn.Module):
         self.predict_residual = bool(predict_residual)
         self.use_cls_token = bool(use_cls_token)
         self.use_goal_energy_head = bool(use_goal_energy_head)
+        self.use_action_policy_head = bool(use_action_policy_head)
         self.hierarchy_levels = max(1, int(hierarchy_levels))
         self.hierarchy_span = max(1, int(hierarchy_span if hierarchy_span is not None else hierarchy_stride))
         self.hierarchy_stride = self.hierarchy_span
@@ -153,6 +155,13 @@ class ActionConditionedWorldModel(nn.Module):
                 nn.Linear(2 * hidden_size, hidden_size),
                 nn.SiLU(),
                 nn.Linear(hidden_size, 1),
+            )
+        if self.use_action_policy_head:
+            self.action_policy_head = nn.Sequential(
+                nn.LayerNorm(hidden_size),
+                nn.Linear(hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, max_height * max_width * action_value_vocab_size),
             )
 
     @torch.no_grad()
@@ -221,6 +230,10 @@ class ActionConditionedWorldModel(nn.Module):
         contrastive_weight: float = 0.0,
         monotonicity_weight: float = 0.0,
         monotonicity_margin: float = 0.0,
+        td_weight: float = 0.0,
+        td_gamma: float = 0.99,
+        td_step_cost: float = 0.0,
+        td_expectile: float = 0.7,
         regression_weight: float = 1.0,
     ) -> ActionConditionedJEPAOutput:
         if not self.use_goal_energy_head:
@@ -262,6 +275,20 @@ class ActionConditionedWorldModel(nn.Module):
             monotone = F.relu(float(monotonicity_margin) + positive_energy - pred_energy).mean()
             loss = loss + float(monotonicity_weight) * monotone
             components["loss/goal_energy_monotonicity"] = monotone.detach()
+        if float(td_weight) > 0.0:
+            if positive_states is None:
+                raise ValueError("positive_states are required for goal-energy TD loss.")
+            td_loss = self.goal_energy_td_loss(
+                pred_energy,
+                positive_states=positive_states,
+                initial_states=initial_states,
+                task_ids=task_ids,
+                gamma=td_gamma,
+                step_cost=td_step_cost,
+                expectile=td_expectile,
+            )
+            loss = loss + float(td_weight) * td_loss
+            components["loss/goal_energy_td"] = td_loss.detach()
         return ActionConditionedJEPAOutput(
             loss=loss,
             pred_latents=pred_energy[:, None, None],
@@ -290,7 +317,28 @@ class ActionConditionedWorldModel(nn.Module):
         batch, negatives, height, width = negative_states.shape
         if batch != states.shape[0]:
             raise ValueError("negative_states batch size must match states.")
-        pos_energy = self.predict_goal_energy(positive_states, initial_states, task_ids)
+        if positive_states.ndim == 3:
+            positives = 1
+            flat_positives = positive_states
+            positive_initial = initial_states
+            positive_task_ids = task_ids
+        elif positive_states.ndim == 4:
+            if positive_states.shape[0] != batch:
+                raise ValueError("positive_states batch size must match states.")
+            positives = positive_states.shape[1]
+            flat_positives = positive_states.reshape(batch * positives, height, width)
+            positive_initial = initial_states[:, None].expand(batch, positives, height, width).reshape(
+                batch * positives,
+                height,
+                width,
+            )
+            positive_task_ids = task_ids[:, None].expand(batch, positives).reshape(batch * positives)
+        else:
+            raise ValueError("positive_states must have shape [batch, height, width] or [batch, positives, height, width].")
+        pos_energy = self.predict_goal_energy(flat_positives, positive_initial, positive_task_ids).reshape(
+            batch,
+            positives,
+        )
         flat_negatives = negative_states.reshape(batch * negatives, height, width)
         repeated_initial = initial_states[:, None].expand(batch, negatives, height, width).reshape(
             batch * negatives,
@@ -303,17 +351,87 @@ class ActionConditionedWorldModel(nn.Module):
             negatives,
         )
         if mode == "margin":
-            return F.relu(float(margin) + pos_energy[:, None] - neg_energy).mean()
+            return F.relu(float(margin) + pos_energy[:, :, None] - neg_energy[:, None, :]).mean()
         temperature = max(float(temperature), 1.0e-6)
         if mode == "infonce":
-            logits = -torch.cat([pos_energy[:, None], neg_energy], dim=1) / temperature
-            labels = torch.zeros(batch, dtype=torch.long, device=logits.device)
-            return F.cross_entropy(logits, labels)
+            pos_logits = -pos_energy / temperature
+            neg_logits = -neg_energy / temperature
+            numerator = torch.logsumexp(pos_logits, dim=1)
+            denominator = torch.logsumexp(torch.cat([pos_logits, neg_logits], dim=1), dim=1)
+            return -(numerator - denominator).mean()
         pos_logits = -pos_energy / temperature
         neg_logits = -neg_energy / temperature
         return (
             F.binary_cross_entropy_with_logits(pos_logits, torch.ones_like(pos_logits))
             + F.binary_cross_entropy_with_logits(neg_logits, torch.zeros_like(neg_logits))
+        )
+
+    def goal_energy_td_loss(
+        self,
+        pred_energy: torch.Tensor,
+        *,
+        positive_states: torch.Tensor,
+        initial_states: torch.Tensor,
+        task_ids: torch.Tensor,
+        gamma: float,
+        step_cost: float,
+        expectile: float,
+    ) -> torch.Tensor:
+        if positive_states.ndim == 3:
+            next_states = positive_states[:, None]
+        elif positive_states.ndim == 4:
+            next_states = positive_states
+        else:
+            raise ValueError("positive_states must have shape [batch, height, width] or [batch, positives, height, width].")
+        batch, positives, height, width = next_states.shape
+        with torch.no_grad():
+            flat_next = next_states.reshape(batch * positives, height, width)
+            repeated_initial = initial_states[:, None].expand(batch, positives, height, width).reshape(
+                batch * positives,
+                height,
+                width,
+            )
+            repeated_task_ids = task_ids[:, None].expand(batch, positives).reshape(batch * positives)
+            next_energy = self.predict_goal_energy(flat_next, repeated_initial, repeated_task_ids).reshape(
+                batch,
+                positives,
+            )
+            bootstrap = next_energy.mean(dim=1)
+            target = float(step_cost) + float(gamma) * bootstrap
+        diff = pred_energy - target
+        tau = min(max(float(expectile), 1.0e-4), 1.0 - 1.0e-4)
+        weights = torch.where(diff > 0, tau, 1.0 - tau)
+        return (weights * diff.square()).mean()
+
+    def action_policy_loss(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> ActionConditionedJEPAOutput:
+        if not self.use_action_policy_head:
+            raise ValueError("action policy head is disabled for this model.")
+        if actions.ndim != 2 or actions.shape[-1] != 4:
+            raise ValueError("actions must have shape [batch, 4].")
+        task_ids = actions[:, 0]
+        latents = self.encoder(states, task_ids=task_ids)
+        logits = self.action_policy_head(self._state_summary(latents))
+        target = (
+            actions[:, 1].clamp(0, self.encoder.max_height - 1)
+            * self.max_width
+            * self.value_embedding.num_embeddings
+            + actions[:, 2].clamp(0, self.max_width - 1) * self.value_embedding.num_embeddings
+            + actions[:, 3].clamp(0, self.value_embedding.num_embeddings - 1)
+        )
+        loss = F.cross_entropy(logits, target)
+        accuracy = (logits.argmax(dim=-1) == target).float().mean()
+        return ActionConditionedJEPAOutput(
+            loss=loss,
+            pred_latents=logits[:, None],
+            target_latents=target[:, None].to(dtype=logits.dtype),
+            components={
+                "loss/action_policy_ce": loss.detach(),
+                "metric/action_policy_accuracy": accuracy.detach(),
+            },
         )
 
     def rollout_loss(

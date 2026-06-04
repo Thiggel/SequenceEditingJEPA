@@ -65,7 +65,10 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     goal_energy_weight = float(train_cfg.get("goal_energy_weight", 0.0))
     goal_energy_contrastive_weight = float(train_cfg.get("goal_energy_contrastive_weight", 0.0))
     goal_energy_monotonicity_weight = float(train_cfg.get("goal_energy_monotonicity_weight", 0.0))
+    goal_energy_td_weight = float(train_cfg.get("goal_energy_td_weight", 0.0))
+    action_policy_weight = float(train_cfg.get("action_policy_weight", 0.0))
     goal_energy_aux_batch_size = int(train_cfg.get("goal_energy_aux_batch_size", batch_size))
+    goal_energy_positive_count = int(train_cfg.get("goal_energy_positive_count", 1))
     goal_energy_negative_count = int(train_cfg.get("goal_energy_negative_count", 8))
     hierarchy_weight = float(train_cfg.get("hierarchy_weight", 0.0))
     hierarchy_batch_size = int(train_cfg.get("hierarchy_batch_size", train_cfg.get("rollout_batch_size", batch_size)))
@@ -123,6 +126,42 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 hierarchy_loss = hierarchy_output.loss
                 loss = loss + hierarchy_weight * hierarchy_loss
             if goal_energy_contrastive_weight > 0.0 or goal_energy_monotonicity_weight > 0.0:
+                energy_output = _goal_energy_auxiliary_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                    goal_energy_aux_batch_size,
+                    goal_energy_positive_count,
+                    goal_energy_negative_count,
+                    goal_energy_contrastive_weight,
+                    goal_energy_monotonicity_weight,
+                    goal_energy_td_weight,
+                )
+                energy_aux_loss = energy_output.loss
+                loss = loss + energy_aux_loss
+            elif goal_energy_td_weight > 0.0:
+                energy_output = _goal_energy_auxiliary_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                    goal_energy_aux_batch_size,
+                    goal_energy_positive_count,
+                    goal_energy_negative_count,
+                    goal_energy_contrastive_weight,
+                    goal_energy_monotonicity_weight,
+                    goal_energy_td_weight,
+                )
+                energy_aux_loss = energy_output.loss
+                loss = loss + energy_aux_loss
+            if action_policy_weight > 0.0:
+                if not model.use_action_policy_head:
+                    raise ValueError("training.action_policy_weight requires model.use_action_policy_head=true.")
                 energy_transitions = _sample_transitions(
                     world,
                     train_examples,
@@ -131,30 +170,8 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     oracle_probability=1.0,
                 )
                 energy_batch = collate_transitions(energy_transitions, device=device)
-                negative_states = _sample_local_negative_states(
-                    world,
-                    energy_transitions,
-                    rng,
-                    goal_energy_negative_count,
-                    device,
-                )
-                energy_output = model.goal_energy_loss(
-                    energy_batch.states,
-                    energy_batch.goals,
-                    task_ids=energy_batch.actions[:, 0],
-                    initial_states=_initial_states_from_batch(world, energy_batch),
-                    positive_states=energy_batch.next_states,
-                    negative_states=negative_states,
-                    contrastive_loss=str(train_cfg.get("goal_energy_contrastive_loss", "margin")),
-                    contrastive_temperature=float(train_cfg.get("goal_energy_contrastive_temperature", 0.1)),
-                    contrastive_margin=float(train_cfg.get("goal_energy_contrastive_margin", 0.05)),
-                    contrastive_weight=goal_energy_contrastive_weight,
-                    monotonicity_weight=goal_energy_monotonicity_weight,
-                    monotonicity_margin=float(train_cfg.get("goal_energy_monotonicity_margin", 0.0)),
-                    regression_weight=float(train_cfg.get("goal_energy_aux_regression_weight", 0.0)),
-                )
-                energy_aux_loss = energy_output.loss
-                loss = loss + energy_aux_loss
+                policy_output = model.action_policy_loss(energy_batch.states, energy_batch.actions)
+                loss = loss + action_policy_weight * policy_output.loss
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
@@ -191,7 +208,10 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "goal_energy_contrastive_loss": str(train_cfg.get("goal_energy_contrastive_loss", "none")),
                     "goal_energy_contrastive_weight": goal_energy_contrastive_weight,
                     "goal_energy_monotonicity_weight": goal_energy_monotonicity_weight,
+                    "goal_energy_td_weight": goal_energy_td_weight,
+                    "goal_energy_positive_count": goal_energy_positive_count,
                     "goal_energy_negative_count": goal_energy_negative_count,
+                    "action_policy_weight": action_policy_weight,
                     "hierarchy_weight": hierarchy_weight,
                     "hierarchy_levels": int(model.hierarchy_levels),
                     "hierarchy_span": int(model.hierarchy_span),
@@ -349,6 +369,70 @@ def _build_transition_loss_weights(
     return weights
 
 
+def _goal_energy_auxiliary_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+    batch_size: int,
+    positive_count: int,
+    negative_count: int,
+    contrastive_weight: float,
+    monotonicity_weight: float,
+    td_weight: float,
+):
+    energy_transitions = _sample_transitions(
+        world,
+        train_examples,
+        rng,
+        batch_size,
+        oracle_probability=1.0,
+    )
+    energy_batch = collate_transitions(energy_transitions, device=device)
+    positive_mode = str(train_cfg.get("goal_energy_positive_mode", "single_oracle"))
+    if positive_mode == "all_goal_correct":
+        positive_states = _sample_local_positive_states(
+            world,
+            energy_transitions,
+            rng,
+            max(1, positive_count),
+            device,
+        )
+    elif positive_mode == "single_oracle":
+        positive_states = energy_batch.next_states
+    else:
+        raise ValueError("goal_energy_positive_mode must be 'single_oracle' or 'all_goal_correct'.")
+    negative_states = _sample_local_negative_states(
+        world,
+        energy_transitions,
+        rng,
+        negative_count,
+        device,
+        exclude_goal_correct=positive_mode == "all_goal_correct",
+    )
+    return model.goal_energy_loss(
+        energy_batch.states,
+        energy_batch.goals,
+        task_ids=energy_batch.actions[:, 0],
+        initial_states=_initial_states_from_batch(world, energy_batch),
+        positive_states=positive_states,
+        negative_states=negative_states,
+        contrastive_loss=str(train_cfg.get("goal_energy_contrastive_loss", "margin")),
+        contrastive_temperature=float(train_cfg.get("goal_energy_contrastive_temperature", 0.1)),
+        contrastive_margin=float(train_cfg.get("goal_energy_contrastive_margin", 0.05)),
+        contrastive_weight=contrastive_weight,
+        monotonicity_weight=monotonicity_weight,
+        monotonicity_margin=float(train_cfg.get("goal_energy_monotonicity_margin", 0.0)),
+        td_weight=td_weight,
+        td_gamma=float(train_cfg.get("goal_energy_td_gamma", 0.99)),
+        td_step_cost=float(train_cfg.get("goal_energy_td_step_cost", 0.0)),
+        td_expectile=float(train_cfg.get("goal_energy_td_expectile", 0.7)),
+        regression_weight=float(train_cfg.get("goal_energy_aux_regression_weight", 0.0)),
+    )
+
+
 def _initial_states_from_batch(world: PuzzleWorld, batch) -> torch.Tensor:
     if isinstance(world, SudokuWorld) and batch.clue_masks is not None:
         return batch.states * batch.clue_masks.to(dtype=batch.states.dtype)
@@ -361,12 +445,14 @@ def _sample_local_negative_states(
     rng: np.random.Generator,
     negative_count: int,
     device: torch.device,
+    *,
+    exclude_goal_correct: bool = False,
 ) -> torch.Tensor:
     if negative_count <= 0:
         raise ValueError("goal_energy_negative_count must be positive when contrastive energy loss is enabled.")
     rows: list[np.ndarray] = []
     for transition in transitions:
-        candidates = _negative_successors_for_transition(world, transition)
+        candidates = _negative_successors_for_transition(world, transition, exclude_goal_correct=exclude_goal_correct)
         if not candidates:
             candidates = [transition.state.copy()]
         indices = rng.choice(len(candidates), size=negative_count, replace=len(candidates) < negative_count)
@@ -374,7 +460,68 @@ def _sample_local_negative_states(
     return torch.as_tensor(np.stack(rows), dtype=torch.long, device=device)
 
 
-def _negative_successors_for_transition(world: PuzzleWorld, transition: Transition) -> list[np.ndarray]:
+def _sample_local_positive_states(
+    world: PuzzleWorld,
+    transitions: list[Transition],
+    rng: np.random.Generator,
+    positive_count: int,
+    device: torch.device,
+) -> torch.Tensor:
+    if positive_count <= 0:
+        raise ValueError("goal_energy_positive_count must be positive when all_goal_correct positives are enabled.")
+    rows: list[np.ndarray] = []
+    for transition in transitions:
+        candidates = _positive_successors_for_transition(world, transition)
+        if not candidates:
+            candidates = [transition.next_state.copy()]
+        indices = rng.choice(len(candidates), size=positive_count, replace=len(candidates) < positive_count)
+        rows.append(np.stack([candidates[int(index)] for index in indices]))
+    return torch.as_tensor(np.stack(rows), dtype=torch.long, device=device)
+
+
+def _positive_successors_for_transition(world: PuzzleWorld, transition: Transition) -> list[np.ndarray]:
+    state = world.validate_state(transition.state)
+    goal = world.validate_state(transition.goal)
+    if isinstance(world, SudokuWorld):
+        if transition.clue_mask is None:
+            raise ValueError("Sudoku positives require a clue mask.")
+        actions = world.legal_actions(
+            state,
+            clue_mask=transition.clue_mask,
+            allow_overwrite=True,
+            allow_conflicts=True,
+        )
+    else:
+        actions = world.legal_actions(state)
+    candidates: list[np.ndarray] = []
+    for action in actions:
+        if state[action.row, action.col] == goal[action.row, action.col]:
+            continue
+        if action.value != int(goal[action.row, action.col]):
+            continue
+        try:
+            if isinstance(world, SudokuWorld):
+                next_state = world.apply(
+                    state,
+                    action,
+                    clue_mask=transition.clue_mask,
+                    allow_overwrite=True,
+                    allow_conflicts=True,
+                )
+            else:
+                next_state = world.apply(state, action)
+        except ValueError:
+            continue
+        candidates.append(next_state)
+    return candidates
+
+
+def _negative_successors_for_transition(
+    world: PuzzleWorld,
+    transition: Transition,
+    *,
+    exclude_goal_correct: bool = False,
+) -> list[np.ndarray]:
     state = world.validate_state(transition.state)
     actions: list[WorldAction]
     if isinstance(world, SudokuWorld):
@@ -391,6 +538,8 @@ def _negative_successors_for_transition(world: PuzzleWorld, transition: Transiti
     candidates: list[np.ndarray] = []
     for action in actions:
         if action == transition.action:
+            continue
+        if exclude_goal_correct and action.value == int(transition.goal[action.row, action.col]):
             continue
         try:
             if isinstance(world, SudokuWorld):
