@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-05 09:10 CEST
+Last updated: 2026-06-05 09:25 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -24,8 +24,9 @@ Grid 3B Sudoku follow-up:
 | Grid 4F value-method ablations | Test two literature-inspired scorer objectives on non-hierarchical L1: CVL multi-positive InfoNCE and MuZero-lite policy/value shaping. | Completed. Both solved `0/128` under learned-energy reset/beam; MuZero-lite preserved oracle-goal reset control, CVL did not. |
 | Grid 4G stratified CVL scorer | Same CVL objective as Grid 4F, but the auxiliary batch is structured as multiple states per puzzle: `16` puzzles x `4` states/puzzle. | Completed as `3698893`; solved `0/128` under learned-energy and oracle-goal reset controls. |
 | Grid 4H terminal-correctness scorer | Replace scalar latent-energy regression with a direct balanced terminal-correctness target on the existing scalar head. | Cancelled as `3698988`; sparse target was wrong for reachable nonterminal boards. |
-| Grid 4I discounted reachability scorer | Corrected value target: scalar head predicts `0.99^N` for `N` remaining wrong cells, and `0` for impossible clue-corrupt states. | Training completed in `3699523`, but node failed before diagnostics; replacement diagnostics-only job `3702008` is pending. |
+| Grid 4I discounted reachability scorer | Corrected value target: scalar head predicts `0.99^N` for `N` remaining wrong cells, and `0` for impossible clue-corrupt states. | Training completed in `3699523`, but node failed before diagnostics; replacement diagnostics-only job `3702008` is running. |
 | Grid 4J original L1 energy-action calibration | Qualitative and aggregate diagnostic comparing predicted scalar energy to true latent goal energy over all candidate actions. | Completed as `3702066`; small absolute errors but weak local correlation, with qualitative wrong-action wins. |
+| Grid 4K ListNet learned-energy ranking | Train the existing L1 scalar head with listwise action-candidate ranking. Array task 0 uses discounted remaining-wrong-cell relevance `0.99^N`; task 1 uses true terminal latent goal-distance relevance. | Submitted as `3702254_[0-1]`; both tasks are running. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
@@ -137,3 +138,7 @@ Grid 3A diagnostic decision:
     dynamics training, disables scalar latent-energy regression, and trains the
     existing scalar head with soft BCE targets `0.99^N`, where `N` is the
     remaining wrong-cell count to the solution.
+18. Grid 4K `3702254_[0-1]` is the next scorer experiment. It uses ListNet over
+    sampled local successor lists so the head is trained on relative action
+    ordering directly. The two label variants test task-native discounted
+    remaining-wrong-cell relevance versus oracle latent goal-distance relevance.

@@ -66,6 +66,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     goal_energy_contrastive_weight = float(train_cfg.get("goal_energy_contrastive_weight", 0.0))
     goal_energy_monotonicity_weight = float(train_cfg.get("goal_energy_monotonicity_weight", 0.0))
     goal_terminal_weight = float(train_cfg.get("goal_terminal_correctness_weight", 0.0))
+    goal_ranking_weight = float(train_cfg.get("goal_ranking_weight", 0.0))
     action_policy_weight = float(train_cfg.get("action_policy_weight", 0.0))
     goal_energy_aux_batch_size = int(train_cfg.get("goal_energy_aux_batch_size", batch_size))
     goal_energy_positive_count = int(train_cfg.get("goal_energy_positive_count", 1))
@@ -99,6 +100,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
             rollout_loss = None
             hierarchy_loss = None
             energy_aux_loss = None
+            ranking_loss = None
             if rollout_steps > 1 and rollout_weight > 0.0:
                 rollout_batch = _sample_rollout_batch(world, train_examples, rng, rollout_batch_size, rollout_steps, device)
                 rollout_output = model.rollout_loss(
@@ -152,6 +154,18 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 )
                 energy_aux_loss = terminal_output.loss if energy_aux_loss is None else energy_aux_loss + terminal_output.loss
                 loss = loss + terminal_output.loss
+            if goal_ranking_weight > 0.0:
+                ranking_loss = _goal_energy_ranking_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                )
+                scaled_ranking_loss = goal_ranking_weight * ranking_loss
+                energy_aux_loss = scaled_ranking_loss if energy_aux_loss is None else energy_aux_loss + scaled_ranking_loss
+                loss = loss + scaled_ranking_loss
             if action_policy_weight > 0.0:
                 if not model.use_action_policy_head:
                     raise ValueError("training.action_policy_weight requires model.use_action_policy_head=true.")
@@ -194,6 +208,9 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "train_goal_energy_aux_loss": (
                         0.0 if energy_aux_loss is None else float(energy_aux_loss.detach().cpu().item())
                     ),
+                    "train_goal_ranking_loss": (
+                        0.0 if ranking_loss is None else float(ranking_loss.detach().cpu().item())
+                    ),
                     "rollout_steps": rollout_steps,
                     "rollout_weight": rollout_weight,
                     "rollout_batch_size": rollout_batch_size if rollout_steps > 1 else 0,
@@ -202,6 +219,8 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "goal_energy_contrastive_weight": goal_energy_contrastive_weight,
                     "goal_energy_monotonicity_weight": goal_energy_monotonicity_weight,
                     "goal_terminal_correctness_weight": goal_terminal_weight,
+                    "goal_ranking_weight": goal_ranking_weight,
+                    "goal_ranking_label": str(train_cfg.get("goal_ranking_label", "none")),
                     "goal_energy_positive_count": goal_energy_positive_count,
                     "goal_energy_negative_count": goal_energy_negative_count,
                     "action_policy_weight": action_policy_weight,
@@ -456,6 +475,121 @@ def _goal_terminal_correctness_loss(
         terminal_discount=float(train_cfg.get("goal_terminal_discount", 0.99)),
         regression_weight=float(train_cfg.get("goal_terminal_regression_weight", 0.0)),
     )
+
+
+def _goal_energy_ranking_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+) -> torch.Tensor:
+    if not model.use_goal_energy_head:
+        raise ValueError("ranking training requires model.use_goal_energy_head=true.")
+    batch_size = int(train_cfg.get("goal_ranking_batch_size", train_cfg.get("goal_energy_aux_batch_size", 16)))
+    candidate_count = int(train_cfg.get("goal_ranking_candidates", 128))
+    if batch_size <= 0 or candidate_count <= 1:
+        raise ValueError("goal ranking needs a positive batch size and at least two candidates.")
+    transitions = _sample_goal_energy_aux_transitions(world, train_examples, rng, train_cfg, batch_size)
+    candidate_rows: list[np.ndarray] = []
+    goal_rows: list[np.ndarray] = []
+    initial_rows: list[np.ndarray] = []
+    remaining_rows: list[np.ndarray] = []
+    for transition in transitions:
+        candidates = _successors_for_ranking_query(world, transition)
+        if not candidates:
+            candidates = [transition.next_state.copy()]
+        indices = rng.choice(len(candidates), size=candidate_count, replace=len(candidates) < candidate_count)
+        sampled = np.stack([candidates[int(index)] for index in indices])
+        candidate_rows.append(sampled)
+        goal = world.validate_state(transition.goal)
+        goal_rows.append(np.broadcast_to(goal, sampled.shape).copy())
+        if isinstance(world, SudokuWorld):
+            if transition.clue_mask is None:
+                raise ValueError("Sudoku ranking queries require a clue mask.")
+            initial = world.validate_state(transition.state) * transition.clue_mask
+        else:
+            initial = world.validate_state(transition.state)
+        initial_rows.append(np.broadcast_to(initial, sampled.shape).copy())
+        remaining_rows.append((sampled != goal).reshape(sampled.shape[0], -1).sum(axis=1).astype(np.float32))
+    states = torch.as_tensor(np.stack(candidate_rows), dtype=torch.long, device=device)
+    goals = torch.as_tensor(np.stack(goal_rows), dtype=torch.long, device=device)
+    initial_states = torch.as_tensor(np.stack(initial_rows), dtype=torch.long, device=device)
+    remaining = torch.as_tensor(np.stack(remaining_rows), dtype=torch.float32, device=device)
+    query_count, candidates_per_query = states.shape[:2]
+    flat_states = states.reshape(query_count * candidates_per_query, *states.shape[2:])
+    flat_goals = goals.reshape(query_count * candidates_per_query, *goals.shape[2:])
+    flat_initials = initial_states.reshape(query_count * candidates_per_query, *initial_states.shape[2:])
+    task_ids = torch.full((query_count * candidates_per_query,), world.task_id, dtype=torch.long, device=device)
+    pred_energy = model.predict_goal_energy(flat_states, flat_initials, task_ids).reshape(query_count, candidates_per_query)
+    pred_scores = -pred_energy
+    label_mode = str(train_cfg.get("goal_ranking_label", "remaining_discounted"))
+    if label_mode == "remaining_discounted":
+        gamma = min(max(float(train_cfg.get("goal_ranking_discount", 0.99)), 0.0), 1.0)
+        relevance = torch.pow(torch.full_like(remaining, gamma), remaining)
+    elif label_mode == "remaining_wrong":
+        relevance = -remaining
+    elif label_mode == "latent_goal_distance":
+        with torch.no_grad():
+            flat_task_ids = task_ids
+            state_latents = model.target_encoder(flat_states, task_ids=flat_task_ids)
+            goal_latents = model.target_encoder(flat_goals, task_ids=flat_task_ids)
+            latent_distance = torch.nn.functional.mse_loss(
+                state_latents,
+                goal_latents,
+                reduction="none",
+            ).mean(dim=(1, 2)).reshape(query_count, candidates_per_query)
+        relevance = -latent_distance
+    else:
+        raise ValueError(
+            "goal_ranking_label must be 'remaining_discounted', 'remaining_wrong', or 'latent_goal_distance'."
+        )
+    label_temperature = max(float(train_cfg.get("goal_ranking_label_temperature", 1.0)), 1e-6)
+    score_temperature = max(float(train_cfg.get("goal_ranking_score_temperature", 0.05)), 1e-6)
+    target_logits = _standardize_query_values(relevance) / label_temperature
+    target_probs = torch.softmax(target_logits, dim=1)
+    log_pred_probs = torch.log_softmax(pred_scores / score_temperature, dim=1)
+    return -(target_probs * log_pred_probs).sum(dim=1).mean()
+
+
+def _successors_for_ranking_query(world: PuzzleWorld, transition: Transition) -> list[np.ndarray]:
+    state = world.validate_state(transition.state)
+    if isinstance(world, SudokuWorld):
+        if transition.clue_mask is None:
+            raise ValueError("Sudoku ranking queries require a clue mask.")
+        actions = world.legal_actions(
+            state,
+            clue_mask=transition.clue_mask,
+            allow_overwrite=True,
+            allow_conflicts=True,
+        )
+    else:
+        actions = world.legal_actions(state)
+    candidates: list[np.ndarray] = []
+    for action in actions:
+        try:
+            if isinstance(world, SudokuWorld):
+                candidates.append(
+                    world.apply(
+                        state,
+                        action,
+                        clue_mask=transition.clue_mask,
+                        allow_overwrite=True,
+                        allow_conflicts=True,
+                    )
+                )
+            else:
+                candidates.append(world.apply(state, action))
+        except ValueError:
+            continue
+    return candidates
+
+
+def _standardize_query_values(values: torch.Tensor) -> torch.Tensor:
+    centered = values - values.mean(dim=1, keepdim=True)
+    scale = centered.std(dim=1, keepdim=True).clamp_min(1e-6)
+    return centered / scale
 
 
 def _sample_goal_energy_aux_transitions(
