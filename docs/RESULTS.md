@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-05 09:07 CEST
+Last updated: 2026-06-05 09:10 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -86,10 +86,11 @@ solution; impossible clue-corrupt states get target `0`.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics;
 replacement diagnostics-only job `3702008` is pending.
 
-Grid 4J `3702066` is running. It targets the original L1 terminal-distance head
+Grid 4J `3702066` completed. It targets the original L1 terminal-distance head
 and compares predicted scalar energy against true latent goal energy for all
-candidate actions over 16 boards x 5 steps. It also saves small qualitative
-examples with the best predicted action and sampled neighboring alternatives.
+candidate actions over 16 boards x 5 steps. Mean all-action absolute error is
+small (`0.00443`), but mean within-step Pearson correlation is weak (`0.337`);
+qualitative examples show wrong actions beating gold under predicted energy.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
