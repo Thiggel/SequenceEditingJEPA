@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-04 16:25 CEST
+Last updated: 2026-06-05 08:56 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -71,19 +71,20 @@ variants range only `0.024-0.049`. Other-cell goal-correct actions outrank the
 sampled gold action about half the time, so single-gold local negatives are the
 wrong target for Sudoku.
 
-Grid 4F value-guided task `3698394_0` was cancelled. Active tasks
-`3698394_[1-2]` are still running on two A100 nodes. They test CVL-style
-multi-positive InfoNCE and MuZero-lite supervised policy/value shaping.
+Grid 4F completed. Unstratified CVL and MuZero-lite both solved `0/128` under
+learned-energy reset/beam. MuZero-lite preserved the oracle-goal reset control
+at `128/128`, while CVL did not.
 
-Grid 4G `3698893` is running on `a0532`. It tests the stratified-batch version
-of CVL: `16` puzzles x `4` oracle partial states per puzzle, with `8`
-goal-correct successor positives and `32` wrong local negatives per state.
+Grid 4G stratified CVL completed as `3698893`; it solved `0/128` under
+learned-energy reset/beam and also `0/128` under oracle-goal reset control.
 
 Grid 4H `3698988` was cancelled because binary terminal correctness was too
 sparse: it labeled solved boards as `1`, but reachable nonterminal boards as
 `0`. Grid 4I `3699523` replaces it with discounted reachability: the scalar
 head target is `0.99^N`, where `N` is remaining wrong-cell count to the
 solution; impossible clue-corrupt states get target `0`.
+Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics;
+replacement diagnostics-only job `3702008` is pending.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
