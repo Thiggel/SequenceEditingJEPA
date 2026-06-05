@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-05 09:25 CEST
+Last updated: 2026-06-05 15:23 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -83,8 +83,11 @@ sparse: it labeled solved boards as `1`, but reachable nonterminal boards as
 `0`. Grid 4I `3699523` replaces it with discounted reachability: the scalar
 head target is `0.99^N`, where `N` is remaining wrong-cell count to the
 solution; impossible clue-corrupt states get target `0`.
-Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics;
-replacement diagnostics-only job `3702008` is running.
+Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
+Replacement diagnostics-only job `3702008` has now written the learned-score
+reset/beam diagnostic: discounted reachability solved `0/128`, with
+reset-every-4 mean remaining Hamming `55.40` and terminal rate `0.0`. The same
+job is still running the oracle latent-goal calibration control.
 
 Grid 4J `3702066` completed. It targets the original L1 terminal-distance head
 and compares predicted scalar energy against true latent goal energy for all
@@ -92,11 +95,11 @@ candidate actions over 16 boards x 5 steps. Mean all-action absolute error is
 small (`0.00443`), but mean within-step Pearson correlation is weak (`0.337`);
 qualitative examples show wrong actions beating gold under predicted energy.
 
-Grid 4K `3702254_[0-1]` is now running. It trains the existing L1 scalar head
-with ListNet over sampled local successor lists. Task 0 uses discounted
-remaining-wrong-cell relevance `0.99^N`; task 1 uses oracle terminal latent
-goal-distance relevance. Both tasks run learned-energy reset/beam diagnostics
-and oracle-goal reset controls after training.
+Grid 4K `3702254_[0-1]` is running. Training has finished for both ListNet
+label variants; the jobs are currently in post-training diagnostics. Task 0
+uses discounted remaining-wrong-cell relevance `0.99^N`; task 1 uses oracle
+terminal latent goal-distance relevance. Final learned-energy reset/beam solve
+rates are not available yet.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

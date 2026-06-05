@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-05 09:25 CEST
+Last updated: 2026-06-05 15:23 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -76,9 +76,9 @@ repo snapshot.
 | `3696609_[0-5]` | FAILED | Second Grid 4D submission fixed Hydra overrides but failed before checkpointing: oversized auxiliary contrastive load (`512` examples x `16` negatives) caused OOM on five tasks; one task hit stale HF cache file handle. |
 | `3696616_[0-5]` | COMPLETED | Grid 4D L1 contrastive goal-energy ablation; learned-energy reset/beam solved `0/128` for every variant. |
 | `3698281_[0-6]` | COMPLETED | Grid 4E action-candidate rank analysis; original L1 top1 `0.040`, best contrastive top1 `0.049`. |
-| `3702008` | RUNNING | Grid 4I replacement diagnostics-only job for discounted reachability after `3699523` node failure. |
+| `3702008` | RUNNING | Grid 4I replacement diagnostics-only job for discounted reachability after `3699523` node failure. Learned-score reset/beam diagnostic has written `diagnostics_reset_discounted_reachability` and solved `0/128`; oracle latent-goal calibration is still running. |
 | `3702066` | COMPLETED | Grid 4J original L1 energy-action calibration; mean all-action absolute error `0.00443`, mean local Pearson `0.337`. |
-| `3702254_[0-1]` | RUNNING | Grid 4K ListNet learned-energy ranking. Task 0 uses `0.99^remaining_wrong_cells`; task 1 uses true latent goal-distance relevance. |
+| `3702254_[0-1]` | RUNNING | Grid 4K ListNet learned-energy ranking. Training is complete for both tasks; post-training learned-energy reset/beam and oracle controls are still running. |
 
 Check live state:
 
