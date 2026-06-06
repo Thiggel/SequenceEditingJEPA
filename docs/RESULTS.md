@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-05 15:23 CEST
+Last updated: 2026-06-06 09:07 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -84,10 +84,11 @@ sparse: it labeled solved boards as `1`, but reachable nonterminal boards as
 head target is `0.99^N`, where `N` is remaining wrong-cell count to the
 solution; impossible clue-corrupt states get target `0`.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
-Replacement diagnostics-only job `3702008` has now written the learned-score
-reset/beam diagnostic: discounted reachability solved `0/128`, with
-reset-every-4 mean remaining Hamming `55.40` and terminal rate `0.0`. The same
-job is still running the oracle latent-goal calibration control.
+Replacement diagnostics-only job `3702008` completed cleanly. Discounted
+reachability solved `0/128` under learned-score reset/beam, with reset-every-4
+mean remaining Hamming `55.40` and terminal rate `0.0`. The oracle latent-goal
+control still solved `128/128` with reset every 4 and re-encoded planning, so
+the dynamics were preserved; the learned value target is the failure.
 
 Grid 4J `3702066` completed. It targets the original L1 terminal-distance head
 and compares predicted scalar energy against true latent goal energy for all
@@ -95,11 +96,12 @@ candidate actions over 16 boards x 5 steps. Mean all-action absolute error is
 small (`0.00443`), but mean within-step Pearson correlation is weak (`0.337`);
 qualitative examples show wrong actions beating gold under predicted energy.
 
-Grid 4K `3702254_[0-1]` is running. Training has finished for both ListNet
-label variants; the jobs are currently in post-training diagnostics. Task 0
-uses discounted remaining-wrong-cell relevance `0.99^N`; task 1 uses oracle
-terminal latent goal-distance relevance. Final learned-energy reset/beam solve
-rates are not available yet.
+Grid 4K `3702254_[0-1]` completed cleanly. Both ListNet label variants still
+solved `0/128` under learned-score reset/beam. Remaining-wrong relevance filled
+boards but left mean remaining Hamming `47.72`; latent-goal relevance left
+mean remaining Hamming `49.21`. Oracle controls separate the variants:
+remaining-wrong relevance preserved reset-every-4 oracle planning at `128/128`,
+while latent-goal relevance degraded it to `112/128`.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
