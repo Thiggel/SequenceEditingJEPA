@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-06 09:07 CEST
+Last updated: 2026-06-06 10:08 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -102,6 +102,14 @@ boards but left mean remaining Hamming `47.72`; latent-goal relevance left
 mean remaining Hamming `49.21`. Oracle controls separate the variants:
 remaining-wrong relevance preserved reset-every-4 oracle planning at `128/128`,
 while latent-goal relevance degraded it to `112/128`.
+
+Grid 4L `3705899_[0-6]` is running/pending. It tests seven scorer-spread
+variants on non-hierarchical L1: scaled terminal energy, action advantage,
+local z-scored regression, local margin ranking, task-unit discounted value,
+latent progress shaping, and MuZero-like value+MCTS without a policy head. A
+fixed-sign Grid 4I diagnostic rerun is also pending as `3705900`; it evaluates
+the existing discounted reachability checkpoint with `--planning-score
+goal_value`, where higher scalar value is better.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

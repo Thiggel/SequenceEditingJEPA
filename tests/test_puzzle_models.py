@@ -10,6 +10,7 @@ from puzzle_jepa.data import (
     sample_oracle_transition,
 )
 from puzzle_jepa.data.worlds import PuzzleExample
+from puzzle_jepa.data.worlds import WorldAction
 from puzzle_jepa.eval.diagnostics import (
     evaluate_cem_planning,
     evaluate_hierarchical_subgoal_cem_planning,
@@ -18,6 +19,7 @@ from puzzle_jepa.eval.diagnostics import (
     evaluate_paired_reset_planning,
     evaluate_reencoded_planning,
     oracle_action_sequence,
+    score_symbolic_states_to_goal,
 )
 from puzzle_jepa.models import ActionConditionedWorldModel, HRMReasoner, PTRMSampler, TRMReasoner
 
@@ -453,6 +455,84 @@ def test_reset_planning_can_use_goal_energy_head():
     )
     assert summary["reset_every_2"]["terminal_energy"]["count"] == 1.0
     assert {record["planning_score"] for record in records} == {"goal_energy"}
+
+
+def test_goal_energy_and_goal_value_have_opposite_score_orientation():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_cls_token=True,
+        use_goal_energy_head=True,
+    )
+
+    def fake_predict(states, initial_states, task_ids):
+        del initial_states, task_ids
+        return torch.arange(states.shape[0], dtype=torch.float32, device=states.device)
+
+    model.predict_goal_energy = fake_predict  # type: ignore[method-assign]
+    states = [example.state.copy(), example.goal.copy()]
+    energy_scores = score_symbolic_states_to_goal(
+        model,
+        world,
+        states,
+        example.goal,
+        example.state,
+        planning_score="goal_energy",
+    )
+    value_scores = score_symbolic_states_to_goal(
+        model,
+        world,
+        states,
+        example.goal,
+        example.state,
+        planning_score="goal_value",
+    )
+    assert energy_scores == [0.0, -1.0]
+    assert value_scores == [0.0, 1.0]
+
+
+def test_action_advantage_scores_actions_with_higher_is_better():
+    world = SudokuWorld()
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_cls_token=True,
+        use_action_value_head=True,
+    )
+    actions = [WorldAction(0, 0, 1), WorldAction(0, 1, 9)]
+
+    def fake_action_value(states, initial_states, action_tensor):
+        del states, initial_states
+        return action_tensor[:, 3].to(torch.float32)
+
+    model.predict_action_value = fake_action_value  # type: ignore[method-assign]
+    scores = model.score_actions_with_value_head(
+        torch.zeros((9, 9), dtype=torch.long),
+        torch.zeros((9, 9), dtype=torch.long),
+        actions,
+        world.task_id,
+    )
+    assert scores.argmax().item() == 1
 
 
 def test_diagnostics_oracle_sequence_and_drift_smoke():

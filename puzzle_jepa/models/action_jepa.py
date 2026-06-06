@@ -76,6 +76,7 @@ class ActionConditionedWorldModel(nn.Module):
         use_cls_token: bool = False,
         use_goal_energy_head: bool = False,
         use_action_policy_head: bool = False,
+        use_action_value_head: bool = False,
         hierarchy_levels: int = 1,
         hierarchy_stride: int = 2,
         hierarchy_span: int | None = None,
@@ -92,6 +93,7 @@ class ActionConditionedWorldModel(nn.Module):
         self.use_cls_token = bool(use_cls_token)
         self.use_goal_energy_head = bool(use_goal_energy_head)
         self.use_action_policy_head = bool(use_action_policy_head)
+        self.use_action_value_head = bool(use_action_value_head)
         self.hierarchy_levels = max(1, int(hierarchy_levels))
         self.hierarchy_span = max(1, int(hierarchy_span if hierarchy_span is not None else hierarchy_stride))
         self.hierarchy_stride = self.hierarchy_span
@@ -163,6 +165,13 @@ class ActionConditionedWorldModel(nn.Module):
                 nn.SiLU(),
                 nn.Linear(hidden_size, max_height * max_width * action_value_vocab_size),
             )
+        if self.use_action_value_head:
+            self.action_value_head = nn.Sequential(
+                nn.LayerNorm(3 * hidden_size),
+                nn.Linear(3 * hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, 1),
+            )
 
     @torch.no_grad()
     def sync_target(self) -> None:
@@ -180,6 +189,7 @@ class ActionConditionedWorldModel(nn.Module):
         goals: torch.Tensor | None = None,
         initial_states: torch.Tensor | None = None,
         goal_energy_weight: float = 0.0,
+        goal_energy_target_scale: float = 1.0,
     ) -> ActionConditionedJEPAOutput:
         task_ids = actions[:, 0]
         pred_latents = self.predict_latent(states, actions)
@@ -205,6 +215,7 @@ class ActionConditionedWorldModel(nn.Module):
                 goals,
                 task_ids=task_ids,
                 initial_states=initial_states,
+                target_scale=goal_energy_target_scale,
             )
             loss = loss + float(goal_energy_weight) * energy_output.loss
             components.update(energy_output.components)
@@ -234,6 +245,7 @@ class ActionConditionedWorldModel(nn.Module):
         terminal_target_mode: str = "binary",
         terminal_discount: float = 0.99,
         regression_weight: float = 1.0,
+        target_scale: float = 1.0,
     ) -> ActionConditionedJEPAOutput:
         if not self.use_goal_energy_head:
             raise ValueError("goal energy head is disabled for this model.")
@@ -244,6 +256,7 @@ class ActionConditionedWorldModel(nn.Module):
             state_latents = self.target_encoder(states, task_ids=task_ids)
             goal_latents = self.target_encoder(goals, task_ids=task_ids)
             target_energy = F.mse_loss(state_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+            target_energy = target_energy * float(target_scale)
         regression_loss = F.mse_loss(pred_energy, target_energy)
         loss = float(regression_weight) * regression_loss
         components = {
@@ -413,6 +426,58 @@ class ActionConditionedWorldModel(nn.Module):
             components={
                 "loss/action_policy_ce": loss.detach(),
                 "metric/action_policy_accuracy": accuracy.detach(),
+            },
+        )
+
+    def predict_action_value(
+        self,
+        states: torch.Tensor,
+        initial_states: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> torch.Tensor:
+        if not self.use_action_value_head:
+            raise ValueError("action value head is disabled for this model.")
+        if actions.ndim != 2 or actions.shape[-1] != 4:
+            raise ValueError("actions must have shape [batch, 4].")
+        device = next(self.parameters()).device
+        states = states.to(device)
+        initial_states = initial_states.to(device)
+        actions = actions.to(device)
+        if states.ndim == 2:
+            states = states.unsqueeze(0)
+        if initial_states.ndim == 2:
+            initial_states = initial_states.unsqueeze(0)
+        task_ids = actions[:, 0]
+        state_latents = self.encoder(states, task_ids=task_ids)
+        initial_latents = self.encoder(initial_states, task_ids=task_ids)
+        features = torch.cat(
+            [
+                self._state_summary(state_latents),
+                self._state_summary(initial_latents),
+                self._action_embedding(actions),
+            ],
+            dim=-1,
+        )
+        return self.action_value_head(features).squeeze(-1)
+
+    def action_value_loss(
+        self,
+        states: torch.Tensor,
+        initial_states: torch.Tensor,
+        actions: torch.Tensor,
+        targets: torch.Tensor,
+    ) -> ActionConditionedJEPAOutput:
+        pred = self.predict_action_value(states, initial_states, actions)
+        targets = targets.to(device=pred.device, dtype=pred.dtype)
+        loss = F.mse_loss(pred, targets)
+        return ActionConditionedJEPAOutput(
+            loss=loss,
+            pred_latents=pred[:, None, None],
+            target_latents=targets[:, None, None],
+            components={
+                "loss/action_value_mse": loss.detach(),
+                "metric/action_value_pred_mean": pred.detach().mean(),
+                "metric/action_value_target_mean": targets.detach().mean(),
             },
         )
 
@@ -706,6 +771,30 @@ class ActionConditionedWorldModel(nn.Module):
         latents = self.encoder(states, task_ids=task_tensor)
         target = self.target_encoder(goals, task_ids=task_tensor)
         return -F.mse_loss(latents, target, reduction="none").mean(dim=(1, 2))
+
+    @torch.no_grad()
+    def score_actions_with_value_head(
+        self,
+        state: torch.Tensor,
+        initial_state: torch.Tensor,
+        actions: list[WorldAction],
+        task_id: int,
+    ) -> torch.Tensor:
+        if not self.use_action_value_head:
+            raise ValueError("action value head is disabled for this model.")
+        device = next(self.parameters()).device
+        state = state.to(device)
+        initial_state = initial_state.to(device)
+        if not actions:
+            return torch.empty(0, device=device)
+        action_tensor = torch.as_tensor(
+            [[task_id, action.row, action.col, action.value] for action in actions],
+            dtype=torch.long,
+            device=device,
+        )
+        states = state.unsqueeze(0).expand(len(actions), -1, -1)
+        initials = initial_state.unsqueeze(0).expand(len(actions), -1, -1)
+        return self.predict_action_value(states, initials, action_tensor)
 
     def predict_goal_energy(
         self,

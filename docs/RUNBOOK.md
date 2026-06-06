@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-06 09:07 CEST
+Last updated: 2026-06-06 10:08 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -79,12 +79,14 @@ repo snapshot.
 | `3702008` | COMPLETED | Grid 4I replacement diagnostics-only job. Learned discounted-reachability reset/beam solved `0/128`; oracle latent-goal reset control preserved dynamics with reset every 4 and re-encoded planning `128/128`. |
 | `3702066` | COMPLETED | Grid 4J original L1 energy-action calibration; mean all-action absolute error `0.00443`, mean local Pearson `0.337`. |
 | `3702254_[0-1]` | COMPLETED | Grid 4K ListNet learned-energy ranking. Learned-score reset/beam solved `0/128` for both label variants; oracle reset control solved `128/128` for remaining-wrong relevance and `112/128` for latent-goal relevance. |
+| `3705899_[0-6]` | RUNNING/PENDING | Grid 4L scorer-spread L1 ablation. Tasks 0-3 running and tasks 4-6 pending at 2026-06-06 10:08 CEST. Variants: scaled energy, action advantage, local z-score regression, local margin ranking, task value, latent progress shaping, and MuZero-like value+MCTS. |
+| `3705900` | PENDING | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value` on the existing discounted-reachability checkpoint. |
 
 Check live state:
 
 ```bash
-squeue -j 3702008,3702254 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3702008,3702254,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3705899,3705900 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3705899,3705900,3702254,3702008,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read

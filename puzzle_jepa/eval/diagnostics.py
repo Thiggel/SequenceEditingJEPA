@@ -769,10 +769,12 @@ def resolve_cem_score_mode(
 
 def resolve_planning_score_mode(model: ActionConditionedWorldModel, planning_score: str) -> str:
     mode = str(planning_score)
-    if mode not in {"latent_goal", "goal_energy"}:
-        raise ValueError("planning score must be 'latent_goal' or 'goal_energy'.")
-    if mode == "goal_energy" and not model.use_goal_energy_head:
-        raise ValueError("goal_energy planning requires a model with use_goal_energy_head=True.")
+    if mode not in {"latent_goal", "goal_energy", "goal_value", "action_advantage"}:
+        raise ValueError("planning score must be 'latent_goal', 'goal_energy', 'goal_value', or 'action_advantage'.")
+    if mode in {"goal_energy", "goal_value"} and not model.use_goal_energy_head:
+        raise ValueError(f"{mode} planning requires a model with use_goal_energy_head=True.")
+    if mode == "action_advantage" and not model.use_action_value_head:
+        raise ValueError("action_advantage planning requires a model with use_action_value_head=True.")
     return mode
 
 
@@ -1499,7 +1501,7 @@ def latent_beam_plan(
             if not legal:
                 continue
             next_items: list[tuple[WorldAction, np.ndarray, float]] = []
-            if planning_score == "goal_energy":
+            if planning_score in {"goal_energy", "goal_value"}:
                 next_states: list[np.ndarray] = []
                 next_actions: list[WorldAction] = []
                 for action in legal:
@@ -1521,6 +1523,21 @@ def latent_beam_plan(
                     (next_actions[index], next_states[index], float(scores[index]))
                     for index in order
                 ]
+            elif planning_score == "action_advantage":
+                scores = model.score_actions_with_value_head(
+                    torch.as_tensor(state, dtype=torch.long),
+                    torch.as_tensor(start, dtype=torch.long),
+                    legal,
+                    world.task_id,
+                )
+                order = scores.argsort(descending=True).detach().cpu().tolist()[: max(1, branch_size)]
+                for index in order:
+                    action = legal[index]
+                    try:
+                        next_state = apply_planning_action(world, state, action, clue_mask)
+                    except ValueError:
+                        continue
+                    next_items.append((action, next_state, float(scores[index].detach().cpu().item())))
             else:
                 scores = model.score_actions_to_goal(
                     torch.as_tensor(state, dtype=torch.long),
@@ -1553,6 +1570,10 @@ def latent_beam_plan(
                     next_tensor = torch.as_tensor(next_state[None, ...], dtype=torch.long, device=device)
                     next_latent = model.encoder(next_tensor, task_ids=task_ids)
                 if planning_score == "goal_energy":
+                    energy = float(-score)
+                elif planning_score == "goal_value":
+                    energy = float(-score)
+                elif planning_score == "action_advantage":
                     energy = float(-score)
                 else:
                     energy = float(F.mse_loss(next_latent, goal_latent).detach().cpu().item())
@@ -1636,14 +1657,23 @@ def reencoded_beam_plan(
                     next_actions.append(action)
                 except ValueError:
                     continue
-            scores = score_symbolic_states_to_goal(
-                model,
-                world,
-                next_states,
-                goal,
-                start,
-                planning_score=planning_score,
-            )
+            if planning_score == "action_advantage":
+                scores_tensor = model.score_actions_with_value_head(
+                    torch.as_tensor(state, dtype=torch.long),
+                    torch.as_tensor(start, dtype=torch.long),
+                    next_actions,
+                    world.task_id,
+                )
+                scores = [float(item) for item in scores_tensor.detach().cpu().tolist()]
+            else:
+                scores = score_symbolic_states_to_goal(
+                    model,
+                    world,
+                    next_states,
+                    goal,
+                    start,
+                    planning_score=planning_score,
+                )
             order = np.argsort(np.asarray(scores, dtype=np.float64))[::-1].tolist()[: max(1, branch_size)]
             for index in order:
                 next_state = next_states[index]
@@ -1713,15 +1743,16 @@ def score_symbolic_states_to_goal(
     mode = resolve_planning_score_mode(model, planning_score)
     state_array = np.stack(states, axis=0)
     goal_array = np.repeat(goal[None, ...], len(states), axis=0)
-    if mode == "goal_energy":
+    if mode == "action_advantage":
+        raise ValueError("action_advantage scores actions, not symbolic states.")
+    if mode in {"goal_energy", "goal_value"}:
         initial_array = np.repeat(initial_state[None, ...], len(states), axis=0)
-        scores = model.score_states_to_goal(
+        values = model.predict_goal_energy(
             torch.as_tensor(state_array, dtype=torch.long),
-            torch.as_tensor(goal_array, dtype=torch.long),
+            torch.as_tensor(initial_array, dtype=torch.long),
             world.task_id,
-            initial_states=torch.as_tensor(initial_array, dtype=torch.long),
-            use_goal_energy_head=True,
         )
+        scores = -values if mode == "goal_energy" else values
     else:
         scores = model.score_states_to_goal(
             torch.as_tensor(state_array, dtype=torch.long),
@@ -2480,7 +2511,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--drift-examples", type=int, default=8)
     parser.add_argument("--planning-examples", type=int, default=4)
     parser.add_argument("--cem-examples", type=int, default=0)
-    parser.add_argument("--planning-score", choices=["latent_goal", "goal_energy"], default="latent_goal")
+    parser.add_argument(
+        "--planning-score",
+        choices=["latent_goal", "goal_energy", "goal_value", "action_advantage"],
+        default="latent_goal",
+    )
     parser.add_argument("--planning-beam-size", type=int, default=4)
     parser.add_argument("--planning-branch-size", type=int, default=8)
     parser.add_argument("--cem-population", type=int, default=128)

@@ -67,6 +67,10 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     goal_energy_monotonicity_weight = float(train_cfg.get("goal_energy_monotonicity_weight", 0.0))
     goal_terminal_weight = float(train_cfg.get("goal_terminal_correctness_weight", 0.0))
     goal_ranking_weight = float(train_cfg.get("goal_ranking_weight", 0.0))
+    goal_local_regression_weight = float(train_cfg.get("goal_local_regression_weight", 0.0))
+    goal_local_margin_weight = float(train_cfg.get("goal_local_margin_weight", 0.0))
+    action_advantage_weight = float(train_cfg.get("action_advantage_weight", 0.0))
+    latent_progress_weight = float(train_cfg.get("latent_progress_weight", 0.0))
     action_policy_weight = float(train_cfg.get("action_policy_weight", 0.0))
     goal_energy_aux_batch_size = int(train_cfg.get("goal_energy_aux_batch_size", batch_size))
     goal_energy_positive_count = int(train_cfg.get("goal_energy_positive_count", 1))
@@ -95,6 +99,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 goals=batch.goals,
                 initial_states=_initial_states_from_batch(world, batch),
                 goal_energy_weight=goal_energy_weight,
+                goal_energy_target_scale=float(train_cfg.get("goal_energy_target_scale", 1.0)),
             )
             loss = output.loss
             rollout_loss = None
@@ -166,6 +171,54 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 scaled_ranking_loss = goal_ranking_weight * ranking_loss
                 energy_aux_loss = scaled_ranking_loss if energy_aux_loss is None else energy_aux_loss + scaled_ranking_loss
                 loss = loss + scaled_ranking_loss
+            if goal_local_regression_weight > 0.0:
+                local_loss = _goal_local_score_regression_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                )
+                scaled_local = goal_local_regression_weight * local_loss
+                energy_aux_loss = scaled_local if energy_aux_loss is None else energy_aux_loss + scaled_local
+                loss = loss + scaled_local
+            if goal_local_margin_weight > 0.0:
+                margin_loss = _goal_local_margin_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                )
+                scaled_margin = goal_local_margin_weight * margin_loss
+                energy_aux_loss = scaled_margin if energy_aux_loss is None else energy_aux_loss + scaled_margin
+                loss = loss + scaled_margin
+            if action_advantage_weight > 0.0:
+                advantage_output = _action_advantage_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                )
+                scaled_advantage = action_advantage_weight * advantage_output.loss
+                energy_aux_loss = scaled_advantage if energy_aux_loss is None else energy_aux_loss + scaled_advantage
+                loss = loss + scaled_advantage
+            if latent_progress_weight > 0.0:
+                progress_loss = _latent_progress_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                )
+                scaled_progress = latent_progress_weight * progress_loss
+                energy_aux_loss = scaled_progress if energy_aux_loss is None else energy_aux_loss + scaled_progress
+                loss = loss + scaled_progress
             if action_policy_weight > 0.0:
                 if not model.use_action_policy_head:
                     raise ValueError("training.action_policy_weight requires model.use_action_policy_head=true.")
@@ -221,6 +274,10 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "goal_terminal_correctness_weight": goal_terminal_weight,
                     "goal_ranking_weight": goal_ranking_weight,
                     "goal_ranking_label": str(train_cfg.get("goal_ranking_label", "none")),
+                    "goal_local_regression_weight": goal_local_regression_weight,
+                    "goal_local_margin_weight": goal_local_margin_weight,
+                    "action_advantage_weight": action_advantage_weight,
+                    "latent_progress_weight": latent_progress_weight,
                     "goal_energy_positive_count": goal_energy_positive_count,
                     "goal_energy_negative_count": goal_energy_negative_count,
                     "action_policy_weight": action_policy_weight,
@@ -431,6 +488,7 @@ def _goal_energy_auxiliary_loss(
         monotonicity_weight=monotonicity_weight,
         monotonicity_margin=float(train_cfg.get("goal_energy_monotonicity_margin", 0.0)),
         regression_weight=float(train_cfg.get("goal_energy_aux_regression_weight", 0.0)),
+        target_scale=float(train_cfg.get("goal_energy_target_scale", 1.0)),
     )
 
 
@@ -553,19 +611,189 @@ def _goal_energy_ranking_loss(
     return -(target_probs * log_pred_probs).sum(dim=1).mean()
 
 
+def _ranking_query_tensors(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    batch_size = int(train_cfg.get("goal_ranking_batch_size", train_cfg.get("goal_energy_aux_batch_size", 16)))
+    candidate_count = int(train_cfg.get("goal_ranking_candidates", 128))
+    transitions = _sample_goal_energy_aux_transitions(world, train_examples, rng, train_cfg, batch_size)
+    candidate_rows: list[np.ndarray] = []
+    goal_rows: list[np.ndarray] = []
+    initial_rows: list[np.ndarray] = []
+    current_rows: list[np.ndarray] = []
+    action_rows: list[np.ndarray] = []
+    for transition in transitions:
+        state = world.validate_state(transition.state)
+        actions = _successor_actions_for_ranking_query(world, transition)
+        candidates = []
+        kept_actions = []
+        for action in actions:
+            try:
+                if isinstance(world, SudokuWorld):
+                    if transition.clue_mask is None:
+                        raise ValueError("Sudoku ranking queries require a clue mask.")
+                    candidates.append(
+                        world.apply(state, action, clue_mask=transition.clue_mask, allow_overwrite=True, allow_conflicts=True)
+                    )
+                else:
+                    candidates.append(world.apply(state, action))
+                kept_actions.append(action)
+            except ValueError:
+                continue
+        if not candidates:
+            candidates = [transition.next_state.copy()]
+            kept_actions = [transition.action]
+        indices = rng.choice(len(candidates), size=candidate_count, replace=len(candidates) < candidate_count)
+        sampled = np.stack([candidates[int(index)] for index in indices])
+        sampled_actions = np.asarray(
+            [[world.task_id, kept_actions[int(index)].row, kept_actions[int(index)].col, kept_actions[int(index)].value] for index in indices],
+            dtype=np.int64,
+        )
+        candidate_rows.append(sampled)
+        current_rows.append(np.broadcast_to(state, sampled.shape).copy())
+        action_rows.append(sampled_actions)
+        goal = world.validate_state(transition.goal)
+        goal_rows.append(np.broadcast_to(goal, sampled.shape).copy())
+        if isinstance(world, SudokuWorld):
+            if transition.clue_mask is None:
+                raise ValueError("Sudoku ranking queries require a clue mask.")
+            initial = world.validate_state(transition.state) * transition.clue_mask
+        else:
+            initial = state
+        initial_rows.append(np.broadcast_to(initial, sampled.shape).copy())
+    states = torch.as_tensor(np.stack(candidate_rows), dtype=torch.long, device=device)
+    currents = torch.as_tensor(np.stack(current_rows), dtype=torch.long, device=device)
+    actions = torch.as_tensor(np.stack(action_rows), dtype=torch.long, device=device)
+    goals = torch.as_tensor(np.stack(goal_rows), dtype=torch.long, device=device)
+    initials = torch.as_tensor(np.stack(initial_rows), dtype=torch.long, device=device)
+    task_ids = torch.full((states.shape[0] * states.shape[1],), world.task_id, dtype=torch.long, device=device)
+    return states, currents, actions, goals, initials, task_ids
+
+
+def _goal_local_score_regression_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+) -> torch.Tensor:
+    states, _currents, _actions, goals, initials, task_ids = _ranking_query_tensors(
+        model, world, train_examples, rng, train_cfg, device
+    )
+    query_count, candidates = states.shape[:2]
+    flat_states = states.reshape(query_count * candidates, *states.shape[2:])
+    flat_goals = goals.reshape(query_count * candidates, *goals.shape[2:])
+    flat_initials = initials.reshape(query_count * candidates, *initials.shape[2:])
+    pred_energy = model.predict_goal_energy(flat_states, flat_initials, task_ids).reshape(query_count, candidates)
+    pred_score = -pred_energy
+    label_mode = str(train_cfg.get("goal_local_regression_label", "latent_goal_distance"))
+    if label_mode == "remaining_wrong":
+        remaining = (states != goals).flatten(start_dim=2).sum(dim=2).float()
+        target_score = -remaining
+    else:
+        with torch.no_grad():
+            state_latents = model.target_encoder(flat_states, task_ids=task_ids)
+            goal_latents = model.target_encoder(flat_goals, task_ids=task_ids)
+            distance = torch.nn.functional.mse_loss(state_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+            target_score = -distance.reshape(query_count, candidates)
+    pred_norm = _standardize_query_values(pred_score)
+    target_norm = _standardize_query_values(target_score)
+    return torch.nn.functional.mse_loss(pred_norm, target_norm)
+
+
+def _goal_local_margin_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+) -> torch.Tensor:
+    states, _currents, _actions, goals, initials, task_ids = _ranking_query_tensors(
+        model, world, train_examples, rng, train_cfg, device
+    )
+    query_count, candidates = states.shape[:2]
+    flat_states = states.reshape(query_count * candidates, *states.shape[2:])
+    flat_initials = initials.reshape(query_count * candidates, *initials.shape[2:])
+    pred_energy = model.predict_goal_energy(flat_states, flat_initials, task_ids).reshape(query_count, candidates)
+    remaining = (states != goals).flatten(start_dim=2).sum(dim=2)
+    best_remaining = remaining.min(dim=1, keepdim=True).values
+    positive = remaining == best_remaining
+    negative = remaining > best_remaining
+    losses = []
+    margin = float(train_cfg.get("goal_local_margin", 0.1))
+    for row in range(query_count):
+        pos = pred_energy[row][positive[row]]
+        neg = pred_energy[row][negative[row]]
+        if pos.numel() == 0 or neg.numel() == 0:
+            continue
+        losses.append(torch.nn.functional.relu(margin + pos[:, None] - neg[None, :]).mean())
+    if not losses:
+        return pred_energy.sum() * 0.0
+    return torch.stack(losses).mean()
+
+
+def _action_advantage_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+) -> Any:
+    if not model.use_action_value_head:
+        raise ValueError("training.action_advantage_weight requires model.use_action_value_head=true.")
+    states, currents, actions, goals, initials, task_ids = _ranking_query_tensors(
+        model, world, train_examples, rng, train_cfg, device
+    )
+    query_count, candidates = states.shape[:2]
+    flat_states = states.reshape(query_count * candidates, *states.shape[2:])
+    flat_currents = currents.reshape(query_count * candidates, *currents.shape[2:])
+    flat_goals = goals.reshape(query_count * candidates, *goals.shape[2:])
+    flat_initials = initials.reshape(query_count * candidates, *initials.shape[2:])
+    flat_actions = actions.reshape(query_count * candidates, actions.shape[-1])
+    with torch.no_grad():
+        current_latents = model.target_encoder(flat_currents, task_ids=task_ids)
+        next_latents = model.target_encoder(flat_states, task_ids=task_ids)
+        goal_latents = model.target_encoder(flat_goals, task_ids=task_ids)
+        current_energy = torch.nn.functional.mse_loss(current_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+        next_energy = torch.nn.functional.mse_loss(next_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+        advantage = (current_energy - next_energy).reshape(query_count, candidates)
+        if bool(train_cfg.get("action_advantage_standardize", True)):
+            advantage = _standardize_query_values(advantage)
+        targets = advantage.reshape(query_count * candidates)
+    return model.action_value_loss(flat_currents, flat_initials, flat_actions, targets)
+
+
+def _latent_progress_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+) -> torch.Tensor:
+    batch_size = int(train_cfg.get("latent_progress_batch_size", train_cfg.get("goal_energy_aux_batch_size", 64)))
+    transitions = _sample_goal_energy_aux_transitions(world, train_examples, rng, train_cfg, batch_size)
+    batch = collate_transitions(transitions, device=device)
+    task_ids = batch.actions[:, 0]
+    state_latents = model.encoder(batch.states, task_ids=task_ids)
+    goal_latents = model.encoder(batch.goals, task_ids=task_ids)
+    distance = torch.nn.functional.mse_loss(state_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+    remaining = (batch.states != batch.goals).flatten(start_dim=1).float().mean(dim=1)
+    scale = float(train_cfg.get("latent_progress_target_scale", 1.0))
+    return torch.nn.functional.mse_loss(distance, remaining * scale)
+
+
 def _successors_for_ranking_query(world: PuzzleWorld, transition: Transition) -> list[np.ndarray]:
     state = world.validate_state(transition.state)
-    if isinstance(world, SudokuWorld):
-        if transition.clue_mask is None:
-            raise ValueError("Sudoku ranking queries require a clue mask.")
-        actions = world.legal_actions(
-            state,
-            clue_mask=transition.clue_mask,
-            allow_overwrite=True,
-            allow_conflicts=True,
-        )
-    else:
-        actions = world.legal_actions(state)
+    actions = _successor_actions_for_ranking_query(world, transition)
     candidates: list[np.ndarray] = []
     for action in actions:
         try:
@@ -584,6 +812,20 @@ def _successors_for_ranking_query(world: PuzzleWorld, transition: Transition) ->
         except ValueError:
             continue
     return candidates
+
+
+def _successor_actions_for_ranking_query(world: PuzzleWorld, transition: Transition) -> list[WorldAction]:
+    state = world.validate_state(transition.state)
+    if isinstance(world, SudokuWorld):
+        if transition.clue_mask is None:
+            raise ValueError("Sudoku ranking queries require a clue mask.")
+        return world.legal_actions(
+            state,
+            clue_mask=transition.clue_mask,
+            allow_overwrite=True,
+            allow_conflicts=True,
+        )
+    return world.legal_actions(state)
 
 
 def _standardize_query_values(values: torch.Tensor) -> torch.Tensor:
