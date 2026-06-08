@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-08 09:24 CEST
+Last updated: 2026-06-08 09:50 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -121,6 +121,11 @@ Grid 4M `3711931_[0-3]` is pending. It tests whether a three-level
 diagnostic distinguishes flat learned-score reset, flat oracle reset, oracle
 top-level subgoal CEM, and learned top-level subgoal CEM for the state-scorer
 variants.
+
+Grid 4N `3711983` is pending. It adds the missing true macro-action advantage
+variant: the top-level CEM scores continuous level-2 macro-actions directly
+with a learned advantage head, while lower-level planning still uses latent
+distance to the generated subgoal.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

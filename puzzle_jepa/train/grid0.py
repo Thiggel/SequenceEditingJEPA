@@ -70,6 +70,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     goal_local_regression_weight = float(train_cfg.get("goal_local_regression_weight", 0.0))
     goal_local_margin_weight = float(train_cfg.get("goal_local_margin_weight", 0.0))
     action_advantage_weight = float(train_cfg.get("action_advantage_weight", 0.0))
+    macro_action_advantage_weight = float(train_cfg.get("macro_action_advantage_weight", 0.0))
     latent_progress_weight = float(train_cfg.get("latent_progress_weight", 0.0))
     action_policy_weight = float(train_cfg.get("action_policy_weight", 0.0))
     goal_energy_aux_batch_size = int(train_cfg.get("goal_energy_aux_batch_size", batch_size))
@@ -207,6 +208,18 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                 scaled_advantage = action_advantage_weight * advantage_output.loss
                 energy_aux_loss = scaled_advantage if energy_aux_loss is None else energy_aux_loss + scaled_advantage
                 loss = loss + scaled_advantage
+            if macro_action_advantage_weight > 0.0:
+                macro_output = _macro_action_advantage_loss(
+                    model,
+                    world,
+                    train_examples,
+                    rng,
+                    train_cfg,
+                    device,
+                )
+                scaled_macro = macro_action_advantage_weight * macro_output.loss
+                energy_aux_loss = scaled_macro if energy_aux_loss is None else energy_aux_loss + scaled_macro
+                loss = loss + scaled_macro
             if latent_progress_weight > 0.0:
                 progress_loss = _latent_progress_loss(
                     model,
@@ -277,6 +290,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "goal_local_regression_weight": goal_local_regression_weight,
                     "goal_local_margin_weight": goal_local_margin_weight,
                     "action_advantage_weight": action_advantage_weight,
+                    "macro_action_advantage_weight": macro_action_advantage_weight,
                     "latent_progress_weight": latent_progress_weight,
                     "goal_energy_positive_count": goal_energy_positive_count,
                     "goal_energy_negative_count": goal_energy_negative_count,
@@ -771,6 +785,32 @@ def _action_advantage_loss(
     return model.action_value_loss(flat_currents, flat_initials, flat_actions, targets)
 
 
+def _macro_action_advantage_loss(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    train_examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    train_cfg: dict[str, Any],
+    device: torch.device,
+) -> Any:
+    if not model.use_macro_action_value_head:
+        raise ValueError("training.macro_action_advantage_weight requires model.use_macro_action_value_head=true.")
+    level = int(train_cfg.get("macro_action_advantage_level", model.hierarchy_levels - 1))
+    if level <= 0 or level >= model.hierarchy_levels:
+        raise ValueError("macro_action_advantage_level must be in [1, hierarchy_levels).")
+    steps = int(model.hierarchy_span) ** level
+    batch_size = int(train_cfg.get("macro_action_advantage_batch_size", train_cfg.get("hierarchy_batch_size", 64)))
+    rollout_batch = _sample_rollout_batch(world, train_examples, rng, batch_size, steps, device)
+    return model.macro_action_value_loss(
+        rollout_batch.states,
+        _initial_states_from_rollout_batch(world, rollout_batch),
+        rollout_batch.actions,
+        rollout_batch.goals,
+        level=level,
+        standardize=bool(train_cfg.get("macro_action_advantage_standardize", True)),
+    )
+
+
 def _latent_progress_loss(
     model: ActionConditionedWorldModel,
     world: PuzzleWorld,
@@ -868,6 +908,12 @@ def _sample_goal_energy_aux_transitions(
 
 
 def _initial_states_from_batch(world: PuzzleWorld, batch) -> torch.Tensor:
+    if isinstance(world, SudokuWorld) and batch.clue_masks is not None:
+        return batch.states * batch.clue_masks.to(dtype=batch.states.dtype)
+    return batch.states
+
+
+def _initial_states_from_rollout_batch(world: PuzzleWorld, batch) -> torch.Tensor:
     if isinstance(world, SudokuWorld) and batch.clue_masks is not None:
         return batch.states * batch.clue_masks.to(dtype=batch.states.dtype)
     return batch.states

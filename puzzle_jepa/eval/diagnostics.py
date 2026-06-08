@@ -1223,10 +1223,14 @@ def validate_hierarchical_subgoal_level(model: ActionConditionedWorldModel, hier
 
 def resolve_subgoal_high_score_mode(model: ActionConditionedWorldModel, high_score_mode: str) -> str:
     mode = str(high_score_mode)
-    if mode not in {"latent_goal", "goal_energy", "goal_value"}:
-        raise ValueError("subgoal high score must be 'latent_goal', 'goal_energy', or 'goal_value'.")
+    if mode not in {"latent_goal", "goal_energy", "goal_value", "macro_action_advantage"}:
+        raise ValueError(
+            "subgoal high score must be 'latent_goal', 'goal_energy', 'goal_value', or 'macro_action_advantage'."
+        )
     if mode in {"goal_energy", "goal_value"} and not model.use_goal_energy_head:
         raise ValueError(f"{mode} subgoal scoring requires a model with use_goal_energy_head=True.")
+    if mode == "macro_action_advantage" and not model.use_macro_action_value_head:
+        raise ValueError("macro_action_advantage subgoal scoring requires model.use_macro_action_value_head=True.")
     return mode
 
 
@@ -1272,7 +1276,7 @@ def high_level_subgoal_cem(
     best_sequence = torch.zeros(macro_horizon, hidden_size, dtype=current_latent.dtype, device=device)
     goal_batch = goal_latent.expand(population_size, -1, -1)
     current_batch = current_latent.expand(population_size, -1, -1)
-    if score_mode in {"goal_energy", "goal_value"}:
+    if score_mode in {"goal_energy", "goal_value", "macro_action_advantage"}:
         if initial_latent is None:
             raise ValueError("initial_latent is required for learned high-level subgoal scoring.")
         initial_batch = initial_latent.expand(population_size, -1, -1)
@@ -1289,7 +1293,14 @@ def high_level_subgoal_cem(
         )
         latents = current_batch.clone()
         first_subgoals = None
+        macro_scores = []
         for step in range(macro_horizon):
+            if score_mode == "macro_action_advantage":
+                if initial_batch is None:
+                    raise RuntimeError("initial_batch was not prepared for macro_action_advantage scoring.")
+                macro_scores.append(
+                    model.predict_macro_action_value_from_latents(latents, initial_batch, samples[:, step])
+                )
             latents = model.predict_latent_from_abstract_action(
                 latents,
                 samples[:, step],
@@ -1307,6 +1318,10 @@ def high_level_subgoal_cem(
             if initial_batch is None:
                 raise RuntimeError("initial_batch was not prepared for goal_value scoring.")
             energies = -model.predict_goal_energy_from_latents(latents, initial_batch)
+        elif score_mode == "macro_action_advantage":
+            if not macro_scores:
+                raise RuntimeError("macro_action_advantage scoring did not produce any step scores.")
+            energies = -torch.stack(macro_scores, dim=0).sum(dim=0)
         else:
             raise ValueError(f"Unsupported high-level score mode: {score_mode}")
         order = torch.argsort(energies)
@@ -2581,7 +2596,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subgoal-smoothing", type=float, default=0.7)
     parser.add_argument("--subgoal-execute-steps", type=int, default=1)
     parser.add_argument("--subgoal-prior-samples", type=int, default=64)
-    parser.add_argument("--subgoal-high-score", choices=["latent_goal", "goal_energy", "goal_value"], default="latent_goal")
+    parser.add_argument(
+        "--subgoal-high-score",
+        choices=["latent_goal", "goal_energy", "goal_value", "macro_action_advantage"],
+        default="latent_goal",
+    )
     parser.add_argument("--trace-examples", type=int, default=3)
     parser.add_argument("--max-unroll-steps", type=int, default=256)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 4, 10, 20])

@@ -364,6 +364,7 @@ def test_cem_planning_records_with_goal_energy_head():
         action_injection="local_value",
         use_cls_token=True,
         use_goal_energy_head=True,
+        use_macro_action_value_head=True,
         hierarchy_levels=2,
         hierarchy_span=2,
     )
@@ -443,6 +444,27 @@ def test_cem_planning_records_with_goal_energy_head():
     )
     assert value_subgoal_summary["goal_value_subgoal"]["count"] == 1.0
     assert value_subgoal_records[0]["high_score_mode"] == "goal_value"
+
+    macro_subgoal_summary, macro_subgoal_records = evaluate_hierarchical_subgoal_cem_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(4),
+        num_examples=1,
+        max_steps=2,
+        hierarchy_level=1,
+        macro_horizon=1,
+        high_population_size=3,
+        low_population_size=3,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        execute_steps=1,
+        prior_samples=2,
+        high_score_mode="macro_action_advantage",
+    )
+    assert macro_subgoal_summary["macro_action_advantage_subgoal"]["count"] == 1.0
+    assert macro_subgoal_records[0]["high_score_mode"] == "macro_action_advantage"
 
 
 def test_reset_planning_can_use_goal_energy_head():

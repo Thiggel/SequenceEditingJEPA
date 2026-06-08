@@ -77,6 +77,7 @@ class ActionConditionedWorldModel(nn.Module):
         use_goal_energy_head: bool = False,
         use_action_policy_head: bool = False,
         use_action_value_head: bool = False,
+        use_macro_action_value_head: bool = False,
         hierarchy_levels: int = 1,
         hierarchy_stride: int = 2,
         hierarchy_span: int | None = None,
@@ -94,6 +95,7 @@ class ActionConditionedWorldModel(nn.Module):
         self.use_goal_energy_head = bool(use_goal_energy_head)
         self.use_action_policy_head = bool(use_action_policy_head)
         self.use_action_value_head = bool(use_action_value_head)
+        self.use_macro_action_value_head = bool(use_macro_action_value_head)
         self.hierarchy_levels = max(1, int(hierarchy_levels))
         self.hierarchy_span = max(1, int(hierarchy_span if hierarchy_span is not None else hierarchy_stride))
         self.hierarchy_stride = self.hierarchy_span
@@ -167,6 +169,13 @@ class ActionConditionedWorldModel(nn.Module):
             )
         if self.use_action_value_head:
             self.action_value_head = nn.Sequential(
+                nn.LayerNorm(3 * hidden_size),
+                nn.Linear(3 * hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, 1),
+            )
+        if self.use_macro_action_value_head:
+            self.macro_action_value_head = nn.Sequential(
                 nn.LayerNorm(3 * hidden_size),
                 nn.Linear(3 * hidden_size, hidden_size),
                 nn.SiLU(),
@@ -478,6 +487,80 @@ class ActionConditionedWorldModel(nn.Module):
                 "loss/action_value_mse": loss.detach(),
                 "metric/action_value_pred_mean": pred.detach().mean(),
                 "metric/action_value_target_mean": targets.detach().mean(),
+            },
+        )
+
+    def predict_macro_action_value_from_latents(
+        self,
+        state_latents: torch.Tensor,
+        initial_latents: torch.Tensor,
+        macro_actions: torch.Tensor,
+    ) -> torch.Tensor:
+        if not self.use_macro_action_value_head:
+            raise ValueError("macro action value head is disabled for this model.")
+        if state_latents.ndim != 3 or initial_latents.ndim != 3:
+            raise ValueError("state_latents and initial_latents must have shape [batch, tokens, hidden].")
+        if macro_actions.ndim != 2:
+            raise ValueError("macro_actions must have shape [batch, hidden].")
+        if initial_latents.shape[0] == 1 and state_latents.shape[0] != 1:
+            initial_latents = initial_latents.expand(state_latents.shape[0], -1, -1)
+        if state_latents.shape[0] != initial_latents.shape[0] or state_latents.shape[0] != macro_actions.shape[0]:
+            raise ValueError("state, initial, and macro-action batch sizes must match.")
+        features = torch.cat(
+            [
+                self._state_summary(state_latents),
+                self._state_summary(initial_latents),
+                macro_actions,
+            ],
+            dim=-1,
+        )
+        return self.macro_action_value_head(features).squeeze(-1)
+
+    def macro_action_value_loss(
+        self,
+        states: torch.Tensor,
+        initial_states: torch.Tensor,
+        action_sequences: torch.Tensor,
+        goals: torch.Tensor,
+        *,
+        level: int,
+        standardize: bool = False,
+    ) -> ActionConditionedJEPAOutput:
+        if not self.use_macro_action_value_head:
+            raise ValueError("macro action value head is disabled for this model.")
+        if action_sequences.ndim != 3 or action_sequences.shape[-1] != 4:
+            raise ValueError("action_sequences must have shape [batch, steps, 4].")
+        expected = self.hierarchy_span ** int(level)
+        if action_sequences.shape[1] != expected:
+            raise ValueError(f"level {level} expects {expected} primitive actions.")
+        task_ids = action_sequences[:, 0, 0]
+        state_latents = self.encoder(states, task_ids=task_ids)
+        initial_latents = self.encoder(initial_states, task_ids=task_ids)
+        macro_actions = self.encode_hierarchy_action(action_sequences, level=int(level))
+        pred = self.predict_macro_action_value_from_latents(state_latents, initial_latents, macro_actions)
+        with torch.no_grad():
+            goal_latents = self.target_encoder(goals, task_ids=task_ids)
+            next_latents = self.predict_latent_sequence_from_latent(
+                state_latents.detach(),
+                action_sequences,
+                height=int(states.shape[-2]),
+                width=int(states.shape[-1]),
+                level=int(level),
+            )
+            current_energy = F.mse_loss(state_latents.detach(), goal_latents, reduction="none").mean(dim=(1, 2))
+            next_energy = F.mse_loss(next_latents, goal_latents, reduction="none").mean(dim=(1, 2))
+            targets = current_energy - next_energy
+            if bool(standardize) and targets.numel() > 1:
+                targets = (targets - targets.mean()) / targets.std(unbiased=False).clamp_min(1.0e-6)
+        loss = F.mse_loss(pred, targets)
+        return ActionConditionedJEPAOutput(
+            loss=loss,
+            pred_latents=pred[:, None, None],
+            target_latents=targets[:, None, None],
+            components={
+                "loss/macro_action_value_mse": loss.detach(),
+                "metric/macro_action_value_pred_mean": pred.detach().mean(),
+                "metric/macro_action_value_target_mean": targets.detach().mean(),
             },
         )
 

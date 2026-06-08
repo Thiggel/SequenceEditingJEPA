@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-08 09:24 CEST
+Last updated: 2026-06-08 09:50 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -30,6 +30,7 @@ Grid 3B Sudoku follow-up:
 | Grid 4L scorer-spread L1 ablation | Seven non-hierarchical scorer variants: scaled terminal energy, action advantage, local z-scored regression, local margin ranking, task-unit discounted value, latent progress shaping, and MuZero-like value+MCTS without policy head. | Completed normal diagnostics as `3705899_[0-6]`; task 6 timed out only during extra MCTS. Every learned scorer solved `0/128`; every oracle reset control solved `128/128`. |
 | Grid 4I fixed-sign value diagnostic | Reuse existing discounted reachability checkpoint, but evaluate with `--planning-score goal_value` so higher value is selected. | Completed as `3705900`; correct sign improved terminal rate/remaining Hamming but solve stayed `0/128`. |
 | Grid 4M hierarchical value L3 span-4 | Three-level hierarchy with `hierarchy_span=4`: terminal energy, primitive action advantage, discounted state value, and contrastive-margin energy. Each run evaluates flat learned-score reset, flat oracle reset, and level-2 oracle subgoal CEM; the three state-scorer variants also evaluate learned top-level subgoal CEM. | Submitted as `3711931_[0-3]`; pending at 2026-06-08 09:24 CEST due requested `a100_80` nodes reserved for maintenance. |
+| Grid 4N macro-action advantage L3 span-4 | True macro-action advantage head on `(initial latent, current latent, continuous level-2 macro action)`, trained on oracle 16-step chunks and used as top-level subgoal CEM score. | Submitted as `3711983`; pending at 2026-06-08 09:50 CEST due requested `a100_80` nodes reserved for maintenance. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
