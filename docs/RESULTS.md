@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-08 08:43 CEST
+Last updated: 2026-06-08 09:24 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -115,6 +115,12 @@ terminal fill is not enough.
 Fixed-sign Grid 4I diagnostic `3705900` completed cleanly. Correct `goal_value`
 sign improved terminal rate from `0.0` to `0.172` and mean remaining Hamming
 from `55.40` to `49.83`, but solve stayed `0/128`.
+
+Grid 4M `3711931_[0-3]` is pending. It tests whether a three-level
+`hierarchy_span=4` model gives the top-level scorer a cleaner signal. The
+diagnostic distinguishes flat learned-score reset, flat oracle reset, oracle
+top-level subgoal CEM, and learned top-level subgoal CEM for the state-scorer
+variants.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

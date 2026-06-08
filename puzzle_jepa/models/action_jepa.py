@@ -817,6 +817,21 @@ class ActionConditionedWorldModel(nn.Module):
             task_tensor = task_ids.to(device)
         state_latents = self.encoder(states, task_ids=task_tensor)
         initial_latents = self.encoder(initial_states, task_ids=task_tensor)
+        return self.predict_goal_energy_from_latents(state_latents, initial_latents)
+
+    def predict_goal_energy_from_latents(
+        self,
+        state_latents: torch.Tensor,
+        initial_latents: torch.Tensor,
+    ) -> torch.Tensor:
+        if not self.use_goal_energy_head:
+            raise ValueError("goal energy head is disabled for this model.")
+        if state_latents.ndim != 3 or initial_latents.ndim != 3:
+            raise ValueError("state_latents and initial_latents must have shape [batch, tokens, hidden].")
+        if initial_latents.shape[0] == 1 and state_latents.shape[0] != 1:
+            initial_latents = initial_latents.expand(state_latents.shape[0], -1, -1)
+        if state_latents.shape[0] != initial_latents.shape[0]:
+            raise ValueError("state and initial latent batch sizes must match.")
         features = torch.cat([self._state_summary(state_latents), self._state_summary(initial_latents)], dim=-1)
         return self.goal_energy_head(features).squeeze(-1)
 

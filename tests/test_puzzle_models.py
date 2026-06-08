@@ -418,9 +418,31 @@ def test_cem_planning_records_with_goal_energy_head():
         execute_steps=1,
         prior_samples=2,
     )
-    assert subgoal_summary["oracle_latent_subgoal"]["count"] == 1.0
+    assert subgoal_summary["latent_goal_subgoal"]["count"] == 1.0
     assert subgoal_records[0]["planner"] == "hierarchical_subgoal_cem"
     assert subgoal_records[0]["hierarchy_level"] == 1.0
+    assert subgoal_records[0]["high_score_mode"] == "latent_goal"
+
+    value_subgoal_summary, value_subgoal_records = evaluate_hierarchical_subgoal_cem_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(3),
+        num_examples=1,
+        max_steps=2,
+        hierarchy_level=1,
+        macro_horizon=1,
+        high_population_size=3,
+        low_population_size=3,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        execute_steps=1,
+        prior_samples=2,
+        high_score_mode="goal_value",
+    )
+    assert value_subgoal_summary["goal_value_subgoal"]["count"] == 1.0
+    assert value_subgoal_records[0]["high_score_mode"] == "goal_value"
 
 
 def test_reset_planning_can_use_goal_energy_head():

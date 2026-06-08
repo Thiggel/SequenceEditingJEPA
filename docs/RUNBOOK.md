@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-08 08:43 CEST
+Last updated: 2026-06-08 09:24 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -82,12 +82,13 @@ repo snapshot.
 | `3705899_[0-5]` | COMPLETED | Grid 4L scorer-spread L1 ablation first six variants. Every learned-score reset/beam variant solved `0/128`; every oracle latent-goal reset control solved `128/128`. |
 | `3705899_6` | TIMEOUT | Grid 4L MuZero-like value+MCTS. Training plus normal learned-score/oracle diagnostics completed; extra MCTS diagnostic timed out. Learned reset/beam solved `0/128`, oracle reset control solved `128/128`. |
 | `3705900` | COMPLETED | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value`; solved `0/128`, terminal rate `0.172`, mean remaining Hamming `49.83`. |
+| `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Variants: terminal energy, action advantage, state value, contrastive margin. Pending at 2026-06-08 09:24 CEST because requested `a100_80` nodes are reserved for maintenance. |
 
 Check live state:
 
 ```bash
-squeue -j 3705899,3705900 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3705899,3705900,3702254,3702008,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3711931 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3711931,3705899,3705900,3702254,3702008,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read

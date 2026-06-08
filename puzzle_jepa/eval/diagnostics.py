@@ -77,6 +77,7 @@ def run_diagnostics(
     subgoal_smoothing: float,
     subgoal_execute_steps: int,
     subgoal_prior_samples: int,
+    subgoal_high_score: str,
     max_unroll_steps: int,
     horizons: list[int],
     depth_fractions: list[float],
@@ -193,6 +194,7 @@ def run_diagnostics(
         smoothing=subgoal_smoothing,
         execute_steps=subgoal_execute_steps,
         prior_samples=subgoal_prior_samples,
+        high_score_mode=subgoal_high_score,
     )
     traces = collect_planner_failure_traces(
         model,
@@ -998,6 +1000,7 @@ def evaluate_hierarchical_subgoal_cem_planning(
     smoothing: float,
     execute_steps: int,
     prior_samples: int,
+    high_score_mode: str = "latent_goal",
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if num_examples <= 0:
         return {}, []
@@ -1020,11 +1023,12 @@ def evaluate_hierarchical_subgoal_cem_planning(
             smoothing=smoothing,
             execute_steps=execute_steps,
             prior_samples=prior_samples,
+            high_score_mode=high_score_mode,
         )
         plan["example_index"] = int(example_index)
         items.append(plan)
     return (
-        {"oracle_latent_subgoal": summarize_plan_summaries(items)},
+        {f"{high_score_mode}_subgoal": summarize_plan_summaries(items)},
         flatten_hierarchical_subgoal_cem_records(items),
     )
 
@@ -1046,8 +1050,10 @@ def hierarchical_subgoal_cem_plan(
     smoothing: float,
     execute_steps: int,
     prior_samples: int,
+    high_score_mode: str = "latent_goal",
 ) -> dict[str, Any]:
     validate_hierarchical_subgoal_level(model, hierarchy_level)
+    high_score_mode = resolve_subgoal_high_score_mode(model, high_score_mode)
     start = world.validate_state(example.state).copy()
     goal = world.validate_state(example.goal)
     clue_mask = clue_mask_for_planning(world, start)
@@ -1083,6 +1089,7 @@ def hierarchical_subgoal_cem_plan(
             "mean_high_energy": 0.0,
             "mean_low_subgoal_energy": 0.0,
             "prior_samples": float(prior_samples),
+            "high_score_mode": high_score_mode,
         }
 
     action_space = cem_action_space(world, start, clue_mask)
@@ -1109,6 +1116,7 @@ def hierarchical_subgoal_cem_plan(
             "mean_high_energy": math.inf,
             "mean_low_subgoal_energy": math.inf,
             "prior_samples": float(prior_samples),
+            "high_score_mode": high_score_mode,
         }
 
     current = start.copy()
@@ -1120,8 +1128,10 @@ def hierarchical_subgoal_cem_plan(
         device = next(model.parameters()).device
         task_ids = torch.full((1,), world.task_id, dtype=torch.long, device=device)
         current_tensor = torch.as_tensor(current[None, ...], dtype=torch.long, device=device)
+        initial_tensor = torch.as_tensor(start[None, ...], dtype=torch.long, device=device)
         goal_tensor = torch.as_tensor(goal[None, ...], dtype=torch.long, device=device)
         current_latent = model.encoder(current_tensor, task_ids=task_ids)
+        initial_latent = model.encoder(initial_tensor, task_ids=task_ids)
         goal_latent = model.target_encoder(goal_tensor, task_ids=task_ids)
         prior = estimate_macro_action_prior(
             model,
@@ -1145,6 +1155,8 @@ def hierarchical_subgoal_cem_plan(
             iterations=iterations,
             smoothing=smoothing,
             prior=prior,
+            initial_latent=initial_latent,
+            score_mode=high_score_mode,
         )
         remaining = max(1, limit - steps)
         low_plan = low_level_subgoal_cem(
@@ -1196,6 +1208,7 @@ def hierarchical_subgoal_cem_plan(
         "mean_high_energy": mean(high_energies),
         "mean_low_subgoal_energy": mean(low_energies),
         "prior_samples": float(prior_samples),
+        "high_score_mode": high_score_mode,
     }
 
 
@@ -1206,6 +1219,15 @@ def validate_hierarchical_subgoal_level(model: ActionConditionedWorldModel, hier
         raise ValueError("subgoal hierarchy level must be lower than model.hierarchy_levels.")
     if getattr(model, "checkpoint_missing_hierarchy_action_encoders", False):
         raise ValueError("hierarchical subgoal CEM requires a checkpoint with trained action encoders.")
+
+
+def resolve_subgoal_high_score_mode(model: ActionConditionedWorldModel, high_score_mode: str) -> str:
+    mode = str(high_score_mode)
+    if mode not in {"latent_goal", "goal_energy", "goal_value"}:
+        raise ValueError("subgoal high score must be 'latent_goal', 'goal_energy', or 'goal_value'.")
+    if mode in {"goal_energy", "goal_value"} and not model.use_goal_energy_head:
+        raise ValueError(f"{mode} subgoal scoring requires a model with use_goal_energy_head=True.")
+    return mode
 
 
 @torch.no_grad()
@@ -1222,6 +1244,8 @@ def high_level_subgoal_cem(
     iterations: int,
     smoothing: float,
     prior: torch.Tensor | None,
+    initial_latent: torch.Tensor | None = None,
+    score_mode: str = "latent_goal",
 ) -> dict[str, Any]:
     del rng
     device = current_latent.device
@@ -1248,6 +1272,12 @@ def high_level_subgoal_cem(
     best_sequence = torch.zeros(macro_horizon, hidden_size, dtype=current_latent.dtype, device=device)
     goal_batch = goal_latent.expand(population_size, -1, -1)
     current_batch = current_latent.expand(population_size, -1, -1)
+    if score_mode in {"goal_energy", "goal_value"}:
+        if initial_latent is None:
+            raise ValueError("initial_latent is required for learned high-level subgoal scoring.")
+        initial_batch = initial_latent.expand(population_size, -1, -1)
+    else:
+        initial_batch = None
 
     for _ in range(iterations):
         samples = mu.unsqueeze(0) + std.unsqueeze(0) * torch.randn(
@@ -1267,7 +1297,18 @@ def high_level_subgoal_cem(
             )
             if step == 0:
                 first_subgoals = latents
-        energies = F.mse_loss(latents, goal_batch, reduction="none").mean(dim=(1, 2))
+        if score_mode == "latent_goal":
+            energies = F.mse_loss(latents, goal_batch, reduction="none").mean(dim=(1, 2))
+        elif score_mode == "goal_energy":
+            if initial_batch is None:
+                raise RuntimeError("initial_batch was not prepared for goal_energy scoring.")
+            energies = model.predict_goal_energy_from_latents(latents, initial_batch)
+        elif score_mode == "goal_value":
+            if initial_batch is None:
+                raise RuntimeError("initial_batch was not prepared for goal_value scoring.")
+            energies = -model.predict_goal_energy_from_latents(latents, initial_batch)
+        else:
+            raise ValueError(f"Unsupported high-level score mode: {score_mode}")
         order = torch.argsort(energies)
         best_index = int(order[0].detach().cpu().item())
         energy = float(energies[best_index].detach().cpu().item())
@@ -1287,6 +1328,7 @@ def high_level_subgoal_cem(
         "subgoal_latent": best_subgoal,
         "energy": float(best_energy),
         "latent_action_sequence": best_sequence,
+        "high_score_mode": score_mode,
     }
 
 
@@ -1856,7 +1898,8 @@ def flatten_hierarchical_subgoal_cem_records(items: list[dict[str, Any]]) -> lis
         records.append(
             {
                 "planner": "hierarchical_subgoal_cem",
-                "mode": "oracle_latent_subgoal",
+                "mode": f"{item.get('high_score_mode', 'latent_goal')}_subgoal",
+                "high_score_mode": item.get("high_score_mode", "latent_goal"),
                 "example_index": int(item["example_index"]),
                 "solved": float(item["solved"]),
                 "terminal": float(item["terminal"]),
@@ -2538,6 +2581,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subgoal-smoothing", type=float, default=0.7)
     parser.add_argument("--subgoal-execute-steps", type=int, default=1)
     parser.add_argument("--subgoal-prior-samples", type=int, default=64)
+    parser.add_argument("--subgoal-high-score", choices=["latent_goal", "goal_energy", "goal_value"], default="latent_goal")
     parser.add_argument("--trace-examples", type=int, default=3)
     parser.add_argument("--max-unroll-steps", type=int, default=256)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 4, 10, 20])
@@ -2574,6 +2618,7 @@ def main() -> None:
         subgoal_smoothing=args.subgoal_smoothing,
         subgoal_execute_steps=args.subgoal_execute_steps,
         subgoal_prior_samples=args.subgoal_prior_samples,
+        subgoal_high_score=args.subgoal_high_score,
         max_unroll_steps=args.max_unroll_steps,
         horizons=args.horizons,
         depth_fractions=args.depth_fractions,
