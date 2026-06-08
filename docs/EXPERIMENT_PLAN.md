@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-06 10:08 CEST
+Last updated: 2026-06-08 08:43 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -27,8 +27,8 @@ Grid 3B Sudoku follow-up:
 | Grid 4I discounted reachability scorer | Corrected value target: scalar head predicts `0.99^N` for `N` remaining wrong cells, and `0` for impossible clue-corrupt states. | Completed via replacement diagnostics `3702008`; learned-score reset/beam solved `0/128`, while oracle reset every 4 solved `128/128`. |
 | Grid 4J original L1 energy-action calibration | Qualitative and aggregate diagnostic comparing predicted scalar energy to true latent goal energy over all candidate actions. | Completed as `3702066`; small absolute errors but weak local correlation, with qualitative wrong-action wins. |
 | Grid 4K ListNet learned-energy ranking | Train the existing L1 scalar head with listwise action-candidate ranking. Array task 0 uses discounted remaining-wrong-cell relevance `0.99^N`; task 1 uses true terminal latent goal-distance relevance. | Completed as `3702254_[0-1]`; learned-score reset/beam solved `0/128` for both. Oracle reset control solved `128/128` for remaining-wrong and `112/128` for latent-goal. |
-| Grid 4L scorer-spread L1 ablation | Seven non-hierarchical scorer variants: scaled terminal energy, action advantage, local z-scored regression, local margin ranking, task-unit discounted value, latent progress shaping, and MuZero-like value+MCTS without policy head. | Submitted as `3705899_[0-6]`; tasks 0-3 running and tasks 4-6 pending at 2026-06-06 10:08 CEST. |
-| Grid 4I fixed-sign value diagnostic | Reuse existing discounted reachability checkpoint, but evaluate with `--planning-score goal_value` so higher value is selected. | Submitted as `3705900`; pending at 2026-06-06 10:08 CEST. |
+| Grid 4L scorer-spread L1 ablation | Seven non-hierarchical scorer variants: scaled terminal energy, action advantage, local z-scored regression, local margin ranking, task-unit discounted value, latent progress shaping, and MuZero-like value+MCTS without policy head. | Completed normal diagnostics as `3705899_[0-6]`; task 6 timed out only during extra MCTS. Every learned scorer solved `0/128`; every oracle reset control solved `128/128`. |
+| Grid 4I fixed-sign value diagnostic | Reuse existing discounted reachability checkpoint, but evaluate with `--planning-score goal_value` so higher value is selected. | Completed as `3705900`; correct sign improved terminal rate/remaining Hamming but solve stayed `0/128`. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:

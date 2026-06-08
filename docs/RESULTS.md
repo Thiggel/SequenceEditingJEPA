@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-06 10:08 CEST
+Last updated: 2026-06-08 08:43 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -103,13 +103,18 @@ mean remaining Hamming `49.21`. Oracle controls separate the variants:
 remaining-wrong relevance preserved reset-every-4 oracle planning at `128/128`,
 while latent-goal relevance degraded it to `112/128`.
 
-Grid 4L `3705899_[0-6]` is running/pending. It tests seven scorer-spread
-variants on non-hierarchical L1: scaled terminal energy, action advantage,
-local z-scored regression, local margin ranking, task-unit discounted value,
-latent progress shaping, and MuZero-like value+MCTS without a policy head. A
-fixed-sign Grid 4I diagnostic rerun is also pending as `3705900`; it evaluates
-the existing discounted reachability checkpoint with `--planning-score
-goal_value`, where higher scalar value is better.
+Grid 4L `3705899_[0-6]` completed normal diagnostics for all seven variants;
+task 6 timed out only during the extra MCTS diagnostic. Every learned-score
+reset/beam variant solved `0/128`; every oracle latent-goal reset control
+solved `128/128`. Learned reset-every-4 remaining Hamming was: scaled energy
+`45.78`, action advantage `53.93`, local z-score `48.83`, local margin `42.20`,
+task value `49.39`, latent progress `46.91`, and MuZero-like value `49.86`.
+Local z-score and local margin filled every board but still solved none, so
+terminal fill is not enough.
+
+Fixed-sign Grid 4I diagnostic `3705900` completed cleanly. Correct `goal_value`
+sign improved terminal rate from `0.0` to `0.172` and mean remaining Hamming
+from `55.40` to `49.83`, but solve stayed `0/128`.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-06 10:08 CEST
+Last updated: 2026-06-08 08:43 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -79,8 +79,9 @@ repo snapshot.
 | `3702008` | COMPLETED | Grid 4I replacement diagnostics-only job. Learned discounted-reachability reset/beam solved `0/128`; oracle latent-goal reset control preserved dynamics with reset every 4 and re-encoded planning `128/128`. |
 | `3702066` | COMPLETED | Grid 4J original L1 energy-action calibration; mean all-action absolute error `0.00443`, mean local Pearson `0.337`. |
 | `3702254_[0-1]` | COMPLETED | Grid 4K ListNet learned-energy ranking. Learned-score reset/beam solved `0/128` for both label variants; oracle reset control solved `128/128` for remaining-wrong relevance and `112/128` for latent-goal relevance. |
-| `3705899_[0-6]` | RUNNING/PENDING | Grid 4L scorer-spread L1 ablation. Tasks 0-3 running and tasks 4-6 pending at 2026-06-06 10:08 CEST. Variants: scaled energy, action advantage, local z-score regression, local margin ranking, task value, latent progress shaping, and MuZero-like value+MCTS. |
-| `3705900` | PENDING | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value` on the existing discounted-reachability checkpoint. |
+| `3705899_[0-5]` | COMPLETED | Grid 4L scorer-spread L1 ablation first six variants. Every learned-score reset/beam variant solved `0/128`; every oracle latent-goal reset control solved `128/128`. |
+| `3705899_6` | TIMEOUT | Grid 4L MuZero-like value+MCTS. Training plus normal learned-score/oracle diagnostics completed; extra MCTS diagnostic timed out. Learned reset/beam solved `0/128`, oracle reset control solved `128/128`. |
+| `3705900` | COMPLETED | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value`; solved `0/128`, terminal rate `0.172`, mean remaining Hamming `49.83`. |
 
 Check live state:
 
