@@ -89,6 +89,11 @@ repo snapshot.
 | `3714107` | PENDING | User-requested one-shot Grid 4O oversight; begin `2026-06-09 00:33:59 CEST`. Non-recurring. |
 | `3714108` | PENDING | User-requested one-shot Grid 4O oversight; begin `2026-06-09 02:33:59 CEST`. Non-recurring. |
 
+Push note: the 2026-06-08 22:37 CEST oversight docs were committed locally in
+both repos, but `git push` failed for both with `ssh: connect to host github.com
+port 22: Connection timed out` followed by `fatal: Could not read from remote
+repository.`
+
 Check live state:
 
 ```bash
