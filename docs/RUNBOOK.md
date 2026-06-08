@@ -82,10 +82,10 @@ repo snapshot.
 | `3705899_[0-5]` | COMPLETED | Grid 4L scorer-spread L1 ablation first six variants. Every learned-score reset/beam variant solved `0/128`; every oracle latent-goal reset control solved `128/128`. |
 | `3705899_6` | TIMEOUT | Grid 4L MuZero-like value+MCTS. Training plus normal learned-score/oracle diagnostics completed; extra MCTS diagnostic timed out. Learned reset/beam solved `0/128`, oracle reset control solved `128/128`. |
 | `3705900` | COMPLETED | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value`; solved `0/128`, terminal rate `0.172`, mean remaining Hamming `49.83`. |
-| `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Variants: terminal energy, action advantage, state value, contrastive margin. Pending at 2026-06-08 09:24 CEST because requested `a100_80` nodes are reserved for maintenance. |
-| `3711983` | PENDING | Grid 4N true macro-action advantage L3 span-4. Trains a level-2 macro-action value head and evaluates oracle vs macro-advantage top-level subgoal CEM. Pending at 2026-06-08 09:50 CEST for the same `a100_80` maintenance reservation. |
-| `3714062_[0-3]` | RUNNING | Grid 4O inference-only MCTS diagnostics on existing original L1 checkpoint. Running on `a0632` as of 2026-06-08 20:26 CEST. Tasks are learned `goal_energy` depth 8/16 and oracle `latent_goal` depth 8/16; 8-hour wall time, 512 simulations, expansion cap 64, symbolic transitions with leaf re-encoding, root-action debug records. |
-| `3714106` | PENDING | User-requested one-shot Grid 4O oversight; begin `2026-06-08 22:33:59 CEST`. Non-recurring. |
+| `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Still pending at 2026-06-08 22:35 CEST because requested `a100_80` nodes are reserved for maintenance; no logs yet. |
+| `3711983` | PENDING | Grid 4N true macro-action advantage L3 span-4. Still pending at 2026-06-08 22:35 CEST for the same `a100_80` maintenance reservation; no logs yet. |
+| `3714062_[0-3]` | RUNNING | Grid 4O inference-only MCTS diagnostics on existing original L1 checkpoint. Running on `a0632` as of 2026-06-08 22:35 CEST, elapsed about `02:11`. The first one-shot check found only Slurm prologue logs, empty stderr, active CPU time, and no `diagnostics_mcts_*` artifacts yet. |
+| `3714106` | RUNNING | First user-requested one-shot Grid 4O oversight, started 2026-06-08 22:34:18 CEST on `a0225`. Non-recurring; do not submit successors. |
 | `3714107` | PENDING | User-requested one-shot Grid 4O oversight; begin `2026-06-09 00:33:59 CEST`. Non-recurring. |
 | `3714108` | PENDING | User-requested one-shot Grid 4O oversight; begin `2026-06-09 02:33:59 CEST`. Non-recurring. |
 
