@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-08 20:26 CEST
+Last updated: 2026-06-08 20:34 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -32,6 +32,7 @@ Grid 3B Sudoku follow-up:
 | Grid 4M hierarchical value L3 span-4 | Three-level hierarchy with `hierarchy_span=4`: terminal energy, primitive action advantage, discounted state value, and contrastive-margin energy. Each run evaluates flat learned-score reset, flat oracle reset, and level-2 oracle subgoal CEM; the three state-scorer variants also evaluate learned top-level subgoal CEM. | Submitted as `3711931_[0-3]`; pending at 2026-06-08 09:24 CEST due requested `a100_80` nodes reserved for maintenance. |
 | Grid 4N macro-action advantage L3 span-4 | True macro-action advantage head on `(initial latent, current latent, continuous level-2 macro action)`, trained on oracle 16-step chunks and used as top-level subgoal CEM score. | Submitted as `3711983`; pending at 2026-06-08 09:50 CEST due requested `a100_80` nodes reserved for maintenance. |
 | Grid 4O inference-only MCTS value diagnostic | Existing original L1 goal-energy checkpoint, no training. MCTS uses exact symbolic Sudoku transitions, re-encodes leaf boards, and scores leaves with learned `goal_energy` or oracle `latent_goal`. Depths 8/16 test whether deeper tree search can rescue a locally flat scorer; oracle tasks control the MCTS implementation. | Submitted as `3714062_[0-3]`; running as of 2026-06-08 20:26 CEST on `a0632`. |
+| Grid 4O one-shot oversight | User-requested non-recurring Codex checks for Grid 4O/4M/4N health, logs, results, bug fixes, analysis, and handoff updates. | Submitted as `3714106`, `3714107`, `3714108` with begin times 22:33, 00:33, and 02:33 CEST. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 
 Grid 3A Sudoku local-edit ablation:
