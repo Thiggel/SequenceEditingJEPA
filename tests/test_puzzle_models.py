@@ -12,14 +12,22 @@ from puzzle_jepa.data import (
 from puzzle_jepa.data.worlds import PuzzleExample
 from puzzle_jepa.data.worlds import WorldAction
 from puzzle_jepa.eval.diagnostics import (
+    MCTSNode,
+    backup_mcts_value,
+    build_mcts_tree,
     evaluate_cem_planning,
     evaluate_hierarchical_subgoal_cem_planning,
     evaluate_latent_drift,
     evaluate_latent_planning,
+    evaluate_mcts_planning,
     evaluate_paired_reset_planning,
     evaluate_reencoded_planning,
+    mcts_root_debug_record,
+    mcts_ucb_score,
     oracle_action_sequence,
+    score_leaf_state,
     score_symbolic_states_to_goal,
+    select_mcts_root_child,
 )
 from puzzle_jepa.models import ActionConditionedWorldModel, HRMReasoner, PTRMSampler, TRMReasoner
 
@@ -614,6 +622,197 @@ def test_diagnostics_oracle_sequence_and_drift_smoke():
     )
     assert records
     assert summary["count"] == len(records)
+
+
+class _HammingEnergyModel(torch.nn.Module):
+    use_goal_energy_head = True
+
+    def __init__(self):
+        super().__init__()
+        self.anchor = torch.nn.Parameter(torch.zeros(()))
+
+    def encoder(self, states, task_ids=None):
+        del task_ids
+        return states.reshape(states.shape[0], -1, 1).float() / 9.0 + self.anchor * 0.0
+
+    def target_encoder(self, states, task_ids=None):
+        return self.encoder(states, task_ids=task_ids)
+
+    def predict_goal_energy(self, states, initial_states, task_id):
+        del initial_states, task_id
+        goal = torch.as_tensor(_NEAR_SOLVED_GOAL, dtype=states.dtype, device=states.device)
+        return (states != goal).reshape(states.shape[0], -1).float().sum(dim=1)
+
+
+_NEAR_SOLVED_GOAL = SudokuWorld.from_string(SUDOKU_SOLUTION)
+_NEAR_SOLVED_PUZZLE = _NEAR_SOLVED_GOAL.copy()
+_NEAR_SOLVED_PUZZLE[0, 2] = 0
+
+
+def test_mcts_backup_and_ucb_score_are_self_contained():
+    root = MCTSNode(
+        state=np.zeros((1, 1), dtype=np.int64),
+        parent=None,
+        action=None,
+        depth=0,
+        untried_actions=[],
+        children={},
+    )
+    child = MCTSNode(
+        state=np.ones((1, 1), dtype=np.int64),
+        parent=root,
+        action=WorldAction(0, 0, 1),
+        depth=1,
+        untried_actions=[],
+        children={},
+    )
+    root.children[child.action] = child
+    backup_mcts_value(child, 3.0)
+    backup_mcts_value(child, 1.0)
+
+    assert root.visits == 2
+    assert child.visits == 2
+    assert child.mean_value == 2.0
+    assert mcts_ucb_score(root, child, exploration=0.0) == 2.0
+
+
+def test_mcts_leaf_scoring_uses_correct_sign_for_energy():
+    world = SudokuWorld()
+    model = _HammingEnergyModel()
+    wrong_score = score_leaf_state(
+        model,
+        world,
+        _NEAR_SOLVED_PUZZLE,
+        _NEAR_SOLVED_GOAL,
+        _NEAR_SOLVED_PUZZLE,
+        score_mode="goal_energy",
+    )
+    correct_score = score_leaf_state(
+        model,
+        world,
+        _NEAR_SOLVED_GOAL,
+        _NEAR_SOLVED_GOAL,
+        _NEAR_SOLVED_PUZZLE,
+        score_mode="goal_energy",
+    )
+
+    assert correct_score > wrong_score
+    assert correct_score == 0.0
+    assert wrong_score == -1.0
+
+
+def test_mcts_tree_with_hamming_energy_prefers_goal_write():
+    world = SudokuWorld()
+    model = _HammingEnergyModel()
+    clue_mask = world.clue_mask_from_puzzle(_NEAR_SOLVED_PUZZLE)
+    root = build_mcts_tree(
+        model,
+        world,
+        _NEAR_SOLVED_PUZZLE,
+        _NEAR_SOLVED_GOAL,
+        _NEAR_SOLVED_PUZZLE,
+        clue_mask,
+        np.random.default_rng(0),
+        simulations=64,
+        max_depth=1,
+        score_mode="goal_energy",
+        exploration=0.5,
+        expansion_actions=9,
+    )
+    child = select_mcts_root_child(root)
+
+    assert child is not None
+    assert child.action == WorldAction(0, 2, int(_NEAR_SOLVED_GOAL[0, 2]))
+    assert child.visits > 1
+    assert child.mean_value == 0.0
+
+
+def test_mcts_expansion_cap_allows_tree_to_reach_deeper_nodes():
+    world = SudokuWorld()
+    model = _HammingEnergyModel()
+    puzzle = _NEAR_SOLVED_GOAL.copy()
+    puzzle[0, 2] = 0
+    puzzle[0, 3] = 0
+    clue_mask = world.clue_mask_from_puzzle(puzzle)
+    root = build_mcts_tree(
+        model,
+        world,
+        puzzle,
+        _NEAR_SOLVED_GOAL,
+        puzzle,
+        clue_mask,
+        np.random.default_rng(3),
+        simulations=12,
+        max_depth=2,
+        score_mode="goal_energy",
+        exploration=1.0,
+        expansion_actions=2,
+    )
+
+    assert len(root.children) == 2
+    assert any(child.children for child in root.children.values())
+
+
+def test_mcts_debug_record_reports_action_ranking_details():
+    world = SudokuWorld()
+    model = _HammingEnergyModel()
+    clue_mask = world.clue_mask_from_puzzle(_NEAR_SOLVED_PUZZLE)
+    root = build_mcts_tree(
+        model,
+        world,
+        _NEAR_SOLVED_PUZZLE,
+        _NEAR_SOLVED_GOAL,
+        _NEAR_SOLVED_PUZZLE,
+        clue_mask,
+        np.random.default_rng(1),
+        simulations=64,
+        max_depth=1,
+        score_mode="goal_energy",
+        exploration=0.5,
+        expansion_actions=9,
+    )
+    record = mcts_root_debug_record(
+        model,
+        world,
+        root,
+        _NEAR_SOLVED_GOAL,
+        _NEAR_SOLVED_PUZZLE,
+        step=0,
+        score_mode="goal_energy",
+        debug_actions=4,
+    )
+
+    assert record["root_visits"] == 64
+    assert record["expanded_actions"] == 9
+    assert record["best_writes_goal_value"] is True
+    assert record["actions"][0]["leaf_score"] == 0.0
+    assert record["actions"][0]["oracle_leaf_energy"] == 0.0
+
+
+def test_mcts_planning_solves_one_blank_board_with_reencoded_leaf_scoring():
+    world = SudokuWorld()
+    model = _HammingEnergyModel()
+    example = PuzzleExample(_NEAR_SOLVED_PUZZLE, _NEAR_SOLVED_GOAL)
+    summary, records, debug = evaluate_mcts_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(2),
+        num_examples=1,
+        max_steps=1,
+        simulations=64,
+        max_depth=1,
+        score_mode="goal_energy",
+        exploration=0.5,
+        expansion_actions=9,
+        debug_examples=1,
+        debug_actions=4,
+    )
+
+    assert summary["goal_energy"]["solve_rate"] == 1.0
+    assert records[0]["solved"] == 1.0
+    assert records[0]["steps"] == 1.0
+    assert debug[0]["best_writes_goal_value"] is True
 
 
 def test_hrm_forward_backward():

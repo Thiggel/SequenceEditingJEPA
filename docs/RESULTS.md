@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-08 09:50 CEST
+Last updated: 2026-06-08 20:26 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -83,6 +83,12 @@ sparse: it labeled solved boards as `1`, but reachable nonterminal boards as
 `0`. Grid 4I `3699523` replaces it with discounted reachability: the scalar
 head target is `0.99^N`, where `N` is remaining wrong-cell count to the
 solution; impossible clue-corrupt states get target `0`.
+
+Grid 4O `3714062_[0-3]` is running on `a0632`. It is an inference-only MCTS diagnostic on
+the existing original L1 checkpoint: symbolic transitions, leaf re-encoding,
+learned `goal_energy` versus oracle `latent_goal`, depths 8/16, 512
+simulations, and root-action debug records. This tests whether MCTS can rescue
+the existing learned scorer without adding predictor-rollout drift.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
 Replacement diagnostics-only job `3702008` completed cleanly. Discounted
 reachability solved `0/128` under learned-score reset/beam, with reset-every-4

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-08 09:50 CEST
+Last updated: 2026-06-08 20:26 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -84,12 +84,13 @@ repo snapshot.
 | `3705900` | COMPLETED | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value`; solved `0/128`, terminal rate `0.172`, mean remaining Hamming `49.83`. |
 | `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Variants: terminal energy, action advantage, state value, contrastive margin. Pending at 2026-06-08 09:24 CEST because requested `a100_80` nodes are reserved for maintenance. |
 | `3711983` | PENDING | Grid 4N true macro-action advantage L3 span-4. Trains a level-2 macro-action value head and evaluates oracle vs macro-advantage top-level subgoal CEM. Pending at 2026-06-08 09:50 CEST for the same `a100_80` maintenance reservation. |
+| `3714062_[0-3]` | RUNNING | Grid 4O inference-only MCTS diagnostics on existing original L1 checkpoint. Running on `a0632` as of 2026-06-08 20:26 CEST. Tasks are learned `goal_energy` depth 8/16 and oracle `latent_goal` depth 8/16; 8-hour wall time, 512 simulations, expansion cap 64, symbolic transitions with leaf re-encoding, root-action debug records. |
 
 Check live state:
 
 ```bash
-squeue -j 3711931,3711983 -o "%.18i %.9T %.28j %.10M %.20S %R"
-sacct -j 3711931,3711983,3705899,3705900,3702254,3702008,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
+squeue -j 3714062,3711931,3711983 -o "%.18i %.9T %.28j %.10M %.20S %R"
+sacct -j 3714062,3711931,3711983,3705899,3705900,3702254,3702008,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
 ## Current Operational Read

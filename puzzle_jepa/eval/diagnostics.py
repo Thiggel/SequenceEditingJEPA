@@ -67,6 +67,14 @@ def run_diagnostics(
     cem_smoothing: float,
     cem_score: str,
     cem_hierarchy_level: int,
+    mcts_examples: int,
+    mcts_simulations: int,
+    mcts_depth: int,
+    mcts_score: str,
+    mcts_exploration: float,
+    mcts_expansion_actions: int,
+    mcts_debug_examples: int,
+    mcts_debug_actions: int,
     subgoal_cem_examples: int,
     subgoal_hierarchy_level: int,
     subgoal_macro_horizon: int,
@@ -178,6 +186,21 @@ def run_diagnostics(
         score_mode=cem_score,
         hierarchy_level=cem_hierarchy_level,
     )
+    mcts_planning, mcts_planning_records, mcts_debug_records = evaluate_mcts_planning(
+        model,
+        world,
+        examples,
+        rng,
+        num_examples=mcts_examples,
+        max_steps=max_unroll_steps,
+        simulations=mcts_simulations,
+        max_depth=mcts_depth,
+        score_mode=mcts_score,
+        exploration=mcts_exploration,
+        expansion_actions=mcts_expansion_actions,
+        debug_examples=mcts_debug_examples,
+        debug_actions=mcts_debug_actions,
+    )
     subgoal_cem_planning, subgoal_cem_planning_records = evaluate_hierarchical_subgoal_cem_planning(
         model,
         world,
@@ -216,6 +239,7 @@ def run_diagnostics(
         "reencoded_planning": reencoded_planning,
         "paired_reset_planning": paired_reset_planning,
         "cem_planning": cem_planning,
+        "mcts_planning": mcts_planning,
         "hierarchical_subgoal_cem": subgoal_cem_planning,
         "planner_traces": traces,
     }
@@ -244,6 +268,14 @@ def run_diagnostics(
     if cem_planning_records:
         with (destination / "cem_planning_records.jsonl").open("w") as handle:
             for record in cem_planning_records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if mcts_planning_records:
+        with (destination / "mcts_planning_records.jsonl").open("w") as handle:
+            for record in mcts_planning_records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if mcts_debug_records:
+        with (destination / "mcts_debug_records.jsonl").open("w") as handle:
+            for record in mcts_debug_records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
     if subgoal_cem_planning_records:
         with (destination / "hierarchical_subgoal_cem_records.jsonl").open("w") as handle:
@@ -619,6 +651,339 @@ def evaluate_cem_planning(
         },
         flatten_cem_plan_records(summaries),
     )
+
+
+@dataclass(slots=True)
+class MCTSNode:
+    state: np.ndarray
+    parent: "MCTSNode | None"
+    action: WorldAction | None
+    depth: int
+    untried_actions: list[WorldAction]
+    children: dict[WorldAction, "MCTSNode"]
+    visits: int = 0
+    value_sum: float = 0.0
+    leaf_score: float = math.nan
+    oracle_leaf_energy: float = math.nan
+
+    @property
+    def mean_value(self) -> float:
+        return self.value_sum / self.visits if self.visits else 0.0
+
+
+@torch.no_grad()
+def evaluate_mcts_planning(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    num_examples: int,
+    max_steps: int,
+    simulations: int,
+    max_depth: int,
+    score_mode: str,
+    exploration: float,
+    expansion_actions: int,
+    debug_examples: int,
+    debug_actions: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    if num_examples <= 0:
+        return {}, [], []
+    summaries = []
+    debug_records = []
+    resolved_score_mode = resolve_mcts_score_mode(model, score_mode)
+    for example_index in range(num_examples):
+        example = examples[int(rng.integers(0, len(examples)))]
+        plan = mcts_plan(
+            model,
+            world,
+            example,
+            rng,
+            max_steps=max_steps,
+            simulations=simulations,
+            max_depth=max_depth,
+            score_mode=resolved_score_mode,
+            exploration=exploration,
+            expansion_actions=expansion_actions,
+            collect_debug=example_index < max(0, int(debug_examples)),
+            debug_actions=debug_actions,
+        )
+        debug_records.extend(plan.pop("debug_records", []))
+        plan["example_index"] = int(example_index)
+        summaries.append(plan)
+    return (
+        {resolved_score_mode: summarize_plan_summaries(summaries)},
+        flatten_mcts_plan_records(summaries),
+        debug_records,
+    )
+
+
+@torch.no_grad()
+def mcts_plan(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    *,
+    max_steps: int,
+    simulations: int,
+    max_depth: int,
+    score_mode: str,
+    exploration: float,
+    expansion_actions: int,
+    collect_debug: bool = False,
+    debug_actions: int = 8,
+) -> dict[str, Any]:
+    score_mode = resolve_mcts_score_mode(model, score_mode)
+    current = world.validate_state(example.state).copy()
+    goal = world.validate_state(example.goal)
+    initial = current.copy()
+    clue_mask = clue_mask_for_planning(world, initial)
+    limit = min(int(max_steps), terminal_step_limit(world, example, max_steps))
+    trajectory_states = [board_as_list(current)]
+    debug_records: list[dict[str, Any]] = []
+
+    for step in range(max(0, limit)):
+        if world.is_goal(current, goal) or is_terminal_state(world, current, goal, clue_mask):
+            break
+        root = build_mcts_tree(
+            model,
+            world,
+            current,
+            goal,
+            initial,
+            clue_mask,
+            rng,
+            simulations=simulations,
+            max_depth=max_depth,
+            score_mode=score_mode,
+            exploration=exploration,
+            expansion_actions=expansion_actions,
+        )
+        if collect_debug:
+            debug_records.append(
+                mcts_root_debug_record(
+                    model,
+                    world,
+                    root,
+                    goal,
+                    initial,
+                    step=step,
+                    score_mode=score_mode,
+                    debug_actions=debug_actions,
+                )
+            )
+        child = select_mcts_root_child(root)
+        if child is None or child.action is None:
+            break
+        current = child.state.copy()
+        trajectory_states.append(board_as_list(current))
+
+    return {
+        "solved": float(world.is_goal(current, goal)),
+        "terminal": float(is_terminal_state(world, current, goal, clue_mask)),
+        "steps": float(len(trajectory_states) - 1),
+        "energy": float(-score_leaf_state(model, world, current, goal, initial, score_mode=score_mode)),
+        "remaining_hamming": float(np.not_equal(current, goal).sum()),
+        "final_state": board_as_list(current),
+        "goal_state": board_as_list(goal),
+        "trajectory_states": trajectory_states,
+        "mismatches": mismatch_records(current, goal),
+        "score_mode": score_mode,
+        "simulations": float(simulations),
+        "max_depth": float(max_depth),
+        "exploration": float(exploration),
+        "expansion_actions": float(expansion_actions),
+        "debug_records": debug_records,
+    }
+
+
+@torch.no_grad()
+def build_mcts_tree(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    root_state: np.ndarray,
+    goal: np.ndarray,
+    initial_state: np.ndarray,
+    clue_mask: np.ndarray | None,
+    rng: np.random.Generator,
+    *,
+    simulations: int,
+    max_depth: int,
+    score_mode: str,
+    exploration: float,
+    expansion_actions: int,
+) -> MCTSNode:
+    expansion_actions = max(1, int(expansion_actions))
+    root = MCTSNode(
+        state=world.validate_state(root_state).copy(),
+        parent=None,
+        action=None,
+        depth=0,
+        untried_actions=shuffled_actions(
+            legal_planning_actions(world, root_state, clue_mask),
+            rng,
+            limit=expansion_actions,
+        ),
+        children={},
+    )
+    for _ in range(max(1, int(simulations))):
+        node = select_mcts_leaf(root, exploration=exploration)
+        if node.depth < max(0, int(max_depth)) and node.untried_actions and not is_terminal_state(world, node.state, goal, clue_mask):
+            node = expand_mcts_node(world, node, clue_mask, rng, expansion_actions=expansion_actions)
+        value = score_leaf_state(model, world, node.state, goal, initial_state, score_mode=score_mode)
+        node.leaf_score = float(value)
+        node.oracle_leaf_energy = encoded_state_energy(model, world, node.state, goal)
+        backup_mcts_value(node, float(value))
+    return root
+
+
+def select_mcts_leaf(root: MCTSNode, *, exploration: float) -> MCTSNode:
+    node = root
+    while not node.untried_actions and node.children:
+        node = max(node.children.values(), key=lambda child: mcts_ucb_score(node, child, exploration=exploration))
+    return node
+
+
+def expand_mcts_node(
+    world: PuzzleWorld,
+    node: MCTSNode,
+    clue_mask: np.ndarray | None,
+    rng: np.random.Generator,
+    *,
+    expansion_actions: int,
+) -> MCTSNode:
+    action = node.untried_actions.pop()
+    next_state = apply_planning_action(world, node.state, action, clue_mask)
+    child = MCTSNode(
+        state=next_state,
+        parent=node,
+        action=action,
+        depth=node.depth + 1,
+        untried_actions=shuffled_actions(
+            legal_planning_actions(world, next_state, clue_mask),
+            rng,
+            limit=expansion_actions,
+        ),
+        children={},
+    )
+    node.children[action] = child
+    return child
+
+
+def mcts_ucb_score(parent: MCTSNode, child: MCTSNode, *, exploration: float) -> float:
+    if child.visits <= 0:
+        return math.inf
+    bonus = float(exploration) * math.sqrt(math.log(max(parent.visits, 1) + 1.0) / child.visits)
+    return child.mean_value + bonus
+
+
+def backup_mcts_value(node: MCTSNode, value: float) -> None:
+    current: MCTSNode | None = node
+    while current is not None:
+        current.visits += 1
+        current.value_sum += float(value)
+        current = current.parent
+
+
+def select_mcts_root_child(root: MCTSNode) -> MCTSNode | None:
+    if not root.children:
+        return None
+    return max(root.children.values(), key=lambda child: (child.visits, child.mean_value))
+
+
+def shuffled_actions(
+    actions: list[WorldAction],
+    rng: np.random.Generator,
+    *,
+    limit: int | None = None,
+) -> list[WorldAction]:
+    if not actions:
+        return []
+    order = rng.permutation(len(actions))
+    if limit is not None:
+        order = order[: max(0, int(limit))]
+    return [actions[int(index)] for index in order]
+
+
+@torch.no_grad()
+def score_leaf_state(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    state: np.ndarray,
+    goal: np.ndarray,
+    initial_state: np.ndarray,
+    *,
+    score_mode: str,
+) -> float:
+    mode = resolve_mcts_score_mode(model, score_mode)
+    if mode == "latent_goal":
+        return -encoded_state_energy(model, world, state, goal)
+    if mode in {"goal_energy", "goal_value"}:
+        return score_symbolic_states_to_goal(
+            model,
+            world,
+            [state],
+            goal,
+            initial_state,
+            planning_score=mode,
+        )[0]
+    raise ValueError(f"Unsupported MCTS score mode: {score_mode}")
+
+
+def resolve_mcts_score_mode(model: ActionConditionedWorldModel, score_mode: str) -> str:
+    mode = str(score_mode)
+    if mode == "auto":
+        return "goal_energy" if model.use_goal_energy_head else "latent_goal"
+    if mode not in {"goal_energy", "goal_value", "latent_goal"}:
+        raise ValueError("MCTS score mode must be 'auto', 'goal_energy', 'goal_value', or 'latent_goal'.")
+    if mode in {"goal_energy", "goal_value"} and not model.use_goal_energy_head:
+        raise ValueError(f"{mode} MCTS scoring requires a checkpoint with use_goal_energy_head=True.")
+    return mode
+
+
+@torch.no_grad()
+def mcts_root_debug_record(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    root: MCTSNode,
+    goal: np.ndarray,
+    initial_state: np.ndarray,
+    *,
+    step: int,
+    score_mode: str,
+    debug_actions: int,
+) -> dict[str, Any]:
+    children = sorted(root.children.values(), key=lambda child: (child.visits, child.mean_value), reverse=True)
+    root_actions = []
+    for child in children[: max(0, int(debug_actions))]:
+        action = child.action
+        if action is None:
+            continue
+        leaf_score = score_leaf_state(model, world, child.state, goal, initial_state, score_mode=score_mode)
+        oracle_energy = encoded_state_energy(model, world, child.state, goal)
+        root_actions.append(
+            {
+                "action": asdict(action),
+                "visits": int(child.visits),
+                "mean_value": float(child.mean_value),
+                "leaf_score": float(leaf_score),
+                "oracle_leaf_energy": float(oracle_energy),
+                "remaining_hamming": int(np.not_equal(child.state, goal).sum()),
+                "writes_goal_value": bool(action.value == int(goal[action.row, action.col])),
+            }
+        )
+    best = root_actions[0] if root_actions else None
+    return {
+        "step": int(step),
+        "score_mode": score_mode,
+        "root_visits": int(root.visits),
+        "expanded_actions": int(len(root.children)),
+        "best_action": None if best is None else best["action"],
+        "best_writes_goal_value": None if best is None else bool(best["writes_goal_value"]),
+        "actions": root_actions,
+    }
 
 
 @torch.no_grad()
@@ -1907,6 +2272,32 @@ def flatten_cem_plan_records(summaries: dict[str, list[dict[str, Any]]]) -> list
     return records
 
 
+def flatten_mcts_plan_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    records = []
+    for item in items:
+        records.append(
+            {
+                "planner": "mcts",
+                "score_mode": item["score_mode"],
+                "example_index": int(item["example_index"]),
+                "solved": float(item["solved"]),
+                "terminal": float(item["terminal"]),
+                "steps": float(item["steps"]),
+                "energy": float(item["energy"]),
+                "remaining_hamming": float(item["remaining_hamming"]),
+                "simulations": float(item["simulations"]),
+                "max_depth": float(item["max_depth"]),
+                "exploration": float(item["exploration"]),
+                "expansion_actions": float(item["expansion_actions"]),
+                "final_state": item["final_state"],
+                "goal_state": item["goal_state"],
+                "trajectory_states": item.get("trajectory_states", []),
+                "mismatches": item["mismatches"],
+            }
+        )
+    return records
+
+
 def flatten_hierarchical_subgoal_cem_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     records = []
     for item in items:
@@ -2586,6 +2977,18 @@ def parse_args() -> argparse.Namespace:
         default="auto",
     )
     parser.add_argument("--cem-hierarchy-level", type=int, default=0)
+    parser.add_argument("--mcts-examples", type=int, default=0)
+    parser.add_argument("--mcts-simulations", type=int, default=512)
+    parser.add_argument("--mcts-depth", type=int, default=8)
+    parser.add_argument(
+        "--mcts-score",
+        choices=["auto", "goal_energy", "goal_value", "latent_goal"],
+        default="auto",
+    )
+    parser.add_argument("--mcts-exploration", type=float, default=1.0)
+    parser.add_argument("--mcts-expansion-actions", type=int, default=64)
+    parser.add_argument("--mcts-debug-examples", type=int, default=3)
+    parser.add_argument("--mcts-debug-actions", type=int, default=12)
     parser.add_argument("--subgoal-cem-examples", type=int, default=0)
     parser.add_argument("--subgoal-hierarchy-level", type=int, default=1)
     parser.add_argument("--subgoal-macro-horizon", type=int, default=3)
@@ -2627,6 +3030,14 @@ def main() -> None:
         cem_smoothing=args.cem_smoothing,
         cem_score=args.cem_score,
         cem_hierarchy_level=args.cem_hierarchy_level,
+        mcts_examples=args.mcts_examples,
+        mcts_simulations=args.mcts_simulations,
+        mcts_depth=args.mcts_depth,
+        mcts_score=args.mcts_score,
+        mcts_exploration=args.mcts_exploration,
+        mcts_expansion_actions=args.mcts_expansion_actions,
+        mcts_debug_examples=args.mcts_debug_examples,
+        mcts_debug_actions=args.mcts_debug_actions,
         subgoal_cem_examples=args.subgoal_cem_examples,
         subgoal_hierarchy_level=args.subgoal_hierarchy_level,
         subgoal_macro_horizon=args.subgoal_macro_horizon,
