@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-08 20:34 CEST
+Last updated: 2026-06-09 02:35 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -87,9 +87,9 @@ solution; impossible clue-corrupt states get target `0`.
 Grid 4O `3714062_[0-3]` is running on `a0632`. It is an inference-only MCTS
 diagnostic on the existing original L1 checkpoint: symbolic transitions, leaf
 re-encoding, learned `goal_energy` versus oracle `latent_goal`, depths 8/16,
-512 simulations, and root-action debug records. The 2026-06-09 00:36 CEST
-second one-shot check found no `diagnostics_mcts_*` directories or MCTS
-JSON/JSONL records yet. The diagnostics writer emits those files only after
+512 simulations, and root-action debug records. The 2026-06-09 02:35 CEST
+third and final one-shot check found no `diagnostics_mcts_*` directories or
+MCTS JSON/JSONL records yet. The diagnostics writer emits those files only after
 MCTS evaluation returns, so learned-vs-oracle MCTS solve/terminal/Hamming and
 root-action metrics are still unavailable.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
