@@ -22,6 +22,7 @@ from puzzle_jepa.eval.diagnostics import (
     evaluate_mcts_planning,
     evaluate_paired_reset_planning,
     evaluate_reencoded_planning,
+    evaluate_recursive_hierarchical_subgoal_planning,
     mcts_root_debug_record,
     mcts_ucb_score,
     oracle_action_sequence,
@@ -474,6 +475,55 @@ def test_cem_planning_records_with_goal_energy_head():
     assert macro_subgoal_summary["macro_action_advantage_subgoal"]["count"] == 1.0
     assert macro_subgoal_records[0]["high_score_mode"] == "macro_action_advantage"
 
+    recursive_summary, recursive_records = evaluate_recursive_hierarchical_subgoal_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(5),
+        num_examples=1,
+        max_steps=1,
+        hierarchy_level=1,
+        macro_horizon=1,
+        high_population_size=3,
+        low_population_size=3,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        execute_steps=1,
+        prior_samples=2,
+        high_score_mode="goal_value",
+        optimizer="cem",
+    )
+    assert recursive_summary["goal_value_cem_recursive_subgoal"]["count"] == 1.0
+    assert recursive_records[0]["planner"] == "recursive_hierarchical_subgoal"
+    assert recursive_records[0]["high_score_mode"] == "goal_value"
+    assert recursive_records[0]["optimizer"] == "cem"
+
+    gd_summary, gd_records = evaluate_recursive_hierarchical_subgoal_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(6),
+        num_examples=1,
+        max_steps=1,
+        hierarchy_level=1,
+        macro_horizon=1,
+        high_population_size=3,
+        low_population_size=3,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        execute_steps=1,
+        prior_samples=2,
+        high_score_mode="latent_goal",
+        optimizer="gd_reachability",
+        gd_steps=2,
+        gd_lr=0.01,
+        reachability_weight=0.1,
+    )
+    assert gd_summary["latent_goal_gd_reachability_recursive_subgoal"]["count"] == 1.0
+    assert gd_records[0]["optimizer"] == "gd_reachability"
+
 
 def test_reset_planning_can_use_goal_energy_head():
     world = SudokuWorld()
@@ -789,7 +839,7 @@ def test_mcts_debug_record_reports_action_ranking_details():
     assert record["actions"][0]["oracle_leaf_energy"] == 0.0
 
 
-def test_mcts_planning_solves_one_blank_board_with_reencoded_leaf_scoring():
+def test_mcts_planning_solves_one_blank_board_with_reencoded_leaf_scoring(tmp_path):
     world = SudokuWorld()
     model = _HammingEnergyModel()
     example = PuzzleExample(_NEAR_SOLVED_PUZZLE, _NEAR_SOLVED_GOAL)
@@ -807,12 +857,15 @@ def test_mcts_planning_solves_one_blank_board_with_reencoded_leaf_scoring():
         expansion_actions=9,
         debug_examples=1,
         debug_actions=4,
+        stream_dir=tmp_path,
     )
 
     assert summary["goal_energy"]["solve_rate"] == 1.0
     assert records[0]["solved"] == 1.0
     assert records[0]["steps"] == 1.0
     assert debug[0]["best_writes_goal_value"] is True
+    assert len((tmp_path / "mcts_planning_records.jsonl").read_text().splitlines()) == 1
+    assert len((tmp_path / "mcts_debug_records.jsonl").read_text().splitlines()) == 1
 
 
 def test_hrm_forward_backward():

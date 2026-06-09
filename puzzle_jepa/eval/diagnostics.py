@@ -86,6 +86,21 @@ def run_diagnostics(
     subgoal_execute_steps: int,
     subgoal_prior_samples: int,
     subgoal_high_score: str,
+    recursive_subgoal_examples: int,
+    recursive_hierarchy_level: int,
+    recursive_macro_horizon: int,
+    recursive_high_population: int,
+    recursive_low_population: int,
+    recursive_iterations: int,
+    recursive_elite_frac: float,
+    recursive_smoothing: float,
+    recursive_execute_steps: int,
+    recursive_prior_samples: int,
+    recursive_high_score: str,
+    recursive_optimizer: str,
+    recursive_gd_steps: int,
+    recursive_gd_lr: float,
+    recursive_reachability_weight: float,
     max_unroll_steps: int,
     horizons: list[int],
     depth_fractions: list[float],
@@ -109,6 +124,8 @@ def run_diagnostics(
     model = ActionConditionedWorldModel(vocab_size=world.vocab_size, **model_cfg).to(device)
     load_model_checkpoint_state(model, checkpoint["model"])
     model.eval()
+    destination = output_dir or (run_root / "diagnostics")
+    destination.mkdir(parents=True, exist_ok=True)
 
     rank_records = evaluate_action_ranks(
         model,
@@ -200,6 +217,7 @@ def run_diagnostics(
         expansion_actions=mcts_expansion_actions,
         debug_examples=mcts_debug_examples,
         debug_actions=mcts_debug_actions,
+        stream_dir=destination,
     )
     subgoal_cem_planning, subgoal_cem_planning_records = evaluate_hierarchical_subgoal_cem_planning(
         model,
@@ -218,6 +236,28 @@ def run_diagnostics(
         execute_steps=subgoal_execute_steps,
         prior_samples=subgoal_prior_samples,
         high_score_mode=subgoal_high_score,
+    )
+    recursive_subgoal_planning, recursive_subgoal_records = evaluate_recursive_hierarchical_subgoal_planning(
+        model,
+        world,
+        examples,
+        rng,
+        num_examples=recursive_subgoal_examples,
+        max_steps=max_unroll_steps,
+        hierarchy_level=recursive_hierarchy_level,
+        macro_horizon=recursive_macro_horizon,
+        high_population_size=recursive_high_population,
+        low_population_size=recursive_low_population,
+        elite_frac=recursive_elite_frac,
+        iterations=recursive_iterations,
+        smoothing=recursive_smoothing,
+        execute_steps=recursive_execute_steps,
+        prior_samples=recursive_prior_samples,
+        high_score_mode=recursive_high_score,
+        optimizer=recursive_optimizer,
+        gd_steps=recursive_gd_steps,
+        gd_lr=recursive_gd_lr,
+        reachability_weight=recursive_reachability_weight,
     )
     traces = collect_planner_failure_traces(
         model,
@@ -241,10 +281,9 @@ def run_diagnostics(
         "cem_planning": cem_planning,
         "mcts_planning": mcts_planning,
         "hierarchical_subgoal_cem": subgoal_cem_planning,
+        "recursive_hierarchical_subgoal": recursive_subgoal_planning,
         "planner_traces": traces,
     }
-    destination = output_dir or (run_root / "diagnostics")
-    destination.mkdir(parents=True, exist_ok=True)
     (destination / "diagnostics.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     with (destination / "rank_records.jsonl").open("w") as handle:
         for record in rank_records:
@@ -280,6 +319,10 @@ def run_diagnostics(
     if subgoal_cem_planning_records:
         with (destination / "hierarchical_subgoal_cem_records.jsonl").open("w") as handle:
             for record in subgoal_cem_planning_records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if recursive_subgoal_records:
+        with (destination / "recursive_hierarchical_subgoal_records.jsonl").open("w") as handle:
+            for record in recursive_subgoal_records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
     calibration_records = goal_energy_calibration_records(
         model,
@@ -687,31 +730,53 @@ def evaluate_mcts_planning(
     expansion_actions: int,
     debug_examples: int,
     debug_actions: int,
+    stream_dir: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     if num_examples <= 0:
         return {}, [], []
     summaries = []
     debug_records = []
     resolved_score_mode = resolve_mcts_score_mode(model, score_mode)
-    for example_index in range(num_examples):
-        example = examples[int(rng.integers(0, len(examples)))]
-        plan = mcts_plan(
-            model,
-            world,
-            example,
-            rng,
-            max_steps=max_steps,
-            simulations=simulations,
-            max_depth=max_depth,
-            score_mode=resolved_score_mode,
-            exploration=exploration,
-            expansion_actions=expansion_actions,
-            collect_debug=example_index < max(0, int(debug_examples)),
-            debug_actions=debug_actions,
-        )
-        debug_records.extend(plan.pop("debug_records", []))
-        plan["example_index"] = int(example_index)
-        summaries.append(plan)
+    planning_handle = None
+    debug_handle = None
+    if stream_dir is not None:
+        stream_dir.mkdir(parents=True, exist_ok=True)
+        planning_handle = (stream_dir / "mcts_planning_records.jsonl").open("w")
+        debug_handle = (stream_dir / "mcts_debug_records.jsonl").open("w")
+    try:
+        for example_index in range(num_examples):
+            example = examples[int(rng.integers(0, len(examples)))]
+            plan = mcts_plan(
+                model,
+                world,
+                example,
+                rng,
+                max_steps=max_steps,
+                simulations=simulations,
+                max_depth=max_depth,
+                score_mode=resolved_score_mode,
+                exploration=exploration,
+                expansion_actions=expansion_actions,
+                collect_debug=example_index < max(0, int(debug_examples)),
+                debug_actions=debug_actions,
+            )
+            plan_debug = plan.pop("debug_records", [])
+            plan["example_index"] = int(example_index)
+            summaries.append(plan)
+            debug_records.extend(plan_debug)
+            if planning_handle is not None:
+                for record in flatten_mcts_plan_records([plan]):
+                    planning_handle.write(json.dumps(record, sort_keys=True) + "\n")
+                planning_handle.flush()
+            if debug_handle is not None:
+                for record in plan_debug:
+                    debug_handle.write(json.dumps(record, sort_keys=True) + "\n")
+                debug_handle.flush()
+    finally:
+        if planning_handle is not None:
+            planning_handle.close()
+        if debug_handle is not None:
+            debug_handle.close()
     return (
         {resolved_score_mode: summarize_plan_summaries(summaries)},
         flatten_mcts_plan_records(summaries),
@@ -743,6 +808,7 @@ def mcts_plan(
     limit = min(int(max_steps), terminal_step_limit(world, example, max_steps))
     trajectory_states = [board_as_list(current)]
     debug_records: list[dict[str, Any]] = []
+    score_cache: dict[tuple[str, bytes], float] = {}
 
     for step in range(max(0, limit)):
         if world.is_goal(current, goal) or is_terminal_state(world, current, goal, clue_mask):
@@ -760,6 +826,7 @@ def mcts_plan(
             score_mode=score_mode,
             exploration=exploration,
             expansion_actions=expansion_actions,
+            score_cache=score_cache,
         )
         if collect_debug:
             debug_records.append(
@@ -772,6 +839,7 @@ def mcts_plan(
                     step=step,
                     score_mode=score_mode,
                     debug_actions=debug_actions,
+                    cache=score_cache,
                 )
             )
         child = select_mcts_root_child(root)
@@ -784,7 +852,7 @@ def mcts_plan(
         "solved": float(world.is_goal(current, goal)),
         "terminal": float(is_terminal_state(world, current, goal, clue_mask)),
         "steps": float(len(trajectory_states) - 1),
-        "energy": float(-score_leaf_state(model, world, current, goal, initial, score_mode=score_mode)),
+        "energy": float(-score_leaf_state(model, world, current, goal, initial, score_mode=score_mode, cache=score_cache)),
         "remaining_hamming": float(np.not_equal(current, goal).sum()),
         "final_state": board_as_list(current),
         "goal_state": board_as_list(goal),
@@ -814,6 +882,7 @@ def build_mcts_tree(
     score_mode: str,
     exploration: float,
     expansion_actions: int,
+    score_cache: dict[tuple[str, bytes], float] | None = None,
 ) -> MCTSNode:
     expansion_actions = max(1, int(expansion_actions))
     root = MCTSNode(
@@ -832,9 +901,16 @@ def build_mcts_tree(
         node = select_mcts_leaf(root, exploration=exploration)
         if node.depth < max(0, int(max_depth)) and node.untried_actions and not is_terminal_state(world, node.state, goal, clue_mask):
             node = expand_mcts_node(world, node, clue_mask, rng, expansion_actions=expansion_actions)
-        value = score_leaf_state(model, world, node.state, goal, initial_state, score_mode=score_mode)
+        value = score_leaf_state(
+            model,
+            world,
+            node.state,
+            goal,
+            initial_state,
+            score_mode=score_mode,
+            cache=score_cache,
+        )
         node.leaf_score = float(value)
-        node.oracle_leaf_energy = encoded_state_energy(model, world, node.state, goal)
         backup_mcts_value(node, float(value))
     return root
 
@@ -916,12 +992,19 @@ def score_leaf_state(
     initial_state: np.ndarray,
     *,
     score_mode: str,
+    cache: dict[tuple[str, bytes], float] | None = None,
 ) -> float:
     mode = resolve_mcts_score_mode(model, score_mode)
+    cache_key = (mode, np.ascontiguousarray(state).tobytes())
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
     if mode == "latent_goal":
-        return -encoded_state_energy(model, world, state, goal)
+        value = -encoded_state_energy(model, world, state, goal)
+        if cache is not None:
+            cache[cache_key] = float(value)
+        return float(value)
     if mode in {"goal_energy", "goal_value"}:
-        return score_symbolic_states_to_goal(
+        value = score_symbolic_states_to_goal(
             model,
             world,
             [state],
@@ -929,6 +1012,9 @@ def score_leaf_state(
             initial_state,
             planning_score=mode,
         )[0]
+        if cache is not None:
+            cache[cache_key] = float(value)
+        return float(value)
     raise ValueError(f"Unsupported MCTS score mode: {score_mode}")
 
 
@@ -954,6 +1040,7 @@ def mcts_root_debug_record(
     step: int,
     score_mode: str,
     debug_actions: int,
+    cache: dict[tuple[str, bytes], float] | None = None,
 ) -> dict[str, Any]:
     children = sorted(root.children.values(), key=lambda child: (child.visits, child.mean_value), reverse=True)
     root_actions = []
@@ -961,7 +1048,7 @@ def mcts_root_debug_record(
         action = child.action
         if action is None:
             continue
-        leaf_score = score_leaf_state(model, world, child.state, goal, initial_state, score_mode=score_mode)
+        leaf_score = score_leaf_state(model, world, child.state, goal, initial_state, score_mode=score_mode, cache=cache)
         oracle_energy = encoded_state_energy(model, world, child.state, goal)
         root_actions.append(
             {
@@ -1577,6 +1664,364 @@ def hierarchical_subgoal_cem_plan(
     }
 
 
+@torch.no_grad()
+def evaluate_recursive_hierarchical_subgoal_planning(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    num_examples: int,
+    max_steps: int,
+    hierarchy_level: int,
+    macro_horizon: int,
+    high_population_size: int,
+    low_population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    execute_steps: int,
+    prior_samples: int,
+    high_score_mode: str = "latent_goal",
+    optimizer: str = "cem",
+    gd_steps: int = 32,
+    gd_lr: float = 0.05,
+    reachability_weight: float = 0.01,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if num_examples <= 0:
+        return {}, []
+    validate_hierarchical_subgoal_level(model, hierarchy_level)
+    optimizer = resolve_subgoal_high_optimizer(optimizer)
+    high_score_mode = resolve_subgoal_high_score_mode(model, high_score_mode)
+    items: list[dict[str, Any]] = []
+    for example_index in range(num_examples):
+        example = examples[int(rng.integers(0, len(examples)))]
+        plan = recursive_hierarchical_subgoal_plan(
+            model,
+            world,
+            example,
+            rng,
+            max_steps=max_steps,
+            hierarchy_level=hierarchy_level,
+            macro_horizon=macro_horizon,
+            high_population_size=high_population_size,
+            low_population_size=low_population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+            execute_steps=execute_steps,
+            prior_samples=prior_samples,
+            high_score_mode=high_score_mode,
+            optimizer=optimizer,
+            gd_steps=gd_steps,
+            gd_lr=gd_lr,
+            reachability_weight=reachability_weight,
+        )
+        plan["example_index"] = int(example_index)
+        items.append(plan)
+    mode = f"{high_score_mode}_{optimizer}_recursive_subgoal"
+    return (
+        {mode: summarize_plan_summaries(items)},
+        flatten_recursive_hierarchical_subgoal_records(items),
+    )
+
+
+@torch.no_grad()
+def recursive_hierarchical_subgoal_plan(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    *,
+    max_steps: int,
+    hierarchy_level: int,
+    macro_horizon: int,
+    high_population_size: int,
+    low_population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    execute_steps: int,
+    prior_samples: int,
+    high_score_mode: str = "latent_goal",
+    optimizer: str = "cem",
+    gd_steps: int = 32,
+    gd_lr: float = 0.05,
+    reachability_weight: float = 0.01,
+) -> dict[str, Any]:
+    validate_hierarchical_subgoal_level(model, hierarchy_level)
+    high_score_mode = resolve_subgoal_high_score_mode(model, high_score_mode)
+    optimizer = resolve_subgoal_high_optimizer(optimizer)
+    start = world.validate_state(example.state).copy()
+    goal = world.validate_state(example.goal)
+    clue_mask = clue_mask_for_planning(world, start)
+    limit = min(int(max_steps), terminal_step_limit(world, example, max_steps))
+    block = int(model.hierarchy_span) ** int(hierarchy_level)
+    high_population_size = max(1, int(high_population_size))
+    low_population_size = max(1, int(low_population_size))
+    iterations = max(1, int(iterations))
+    execute_steps = max(1, int(execute_steps))
+    macro_horizon = max(1, int(macro_horizon))
+    gd_steps = max(1, int(gd_steps))
+    gd_lr = max(float(gd_lr), 1.0e-8)
+    smoothing = min(max(float(smoothing), 0.0), 1.0)
+
+    metadata = {
+        "hierarchy_level": float(hierarchy_level),
+        "macro_horizon": float(macro_horizon),
+        "macro_block": float(block),
+        "high_population_size": float(high_population_size),
+        "low_population_size": float(low_population_size),
+        "elite_frac": float(elite_frac),
+        "iterations": float(iterations),
+        "smoothing": float(smoothing),
+        "execute_steps": float(execute_steps),
+        "prior_samples": float(prior_samples),
+        "high_score_mode": high_score_mode,
+        "optimizer": optimizer,
+        "gd_steps": float(gd_steps),
+        "gd_lr": float(gd_lr),
+        "reachability_weight": float(reachability_weight),
+    }
+    if limit <= 0 or world.is_goal(start, goal):
+        return {
+            "solved": float(world.is_goal(start, goal)),
+            "terminal": float(is_terminal_state(world, start, goal, clue_mask)),
+            "steps": 0.0,
+            "energy": 0.0,
+            "remaining_hamming": float(np.not_equal(start, goal).sum()),
+            "final_state": board_as_list(start),
+            "goal_state": board_as_list(goal),
+            "mismatches": mismatch_records(start, goal),
+            "replans": 0.0,
+            "mean_top_energy": 0.0,
+            "mean_recursive_energy": 0.0,
+            "mean_leaf_subgoal_energy": 0.0,
+            **metadata,
+        }
+
+    action_space = cem_action_space(world, start, clue_mask)
+    if not action_space["positions"] or not action_space["values"]:
+        return {
+            "solved": 0.0,
+            "terminal": float(is_terminal_state(world, start, goal, clue_mask)),
+            "steps": 0.0,
+            "energy": math.inf,
+            "remaining_hamming": float(np.not_equal(start, goal).sum()),
+            "final_state": board_as_list(start),
+            "goal_state": board_as_list(goal),
+            "mismatches": mismatch_records(start, goal),
+            "replans": 0.0,
+            "mean_top_energy": math.inf,
+            "mean_recursive_energy": math.inf,
+            "mean_leaf_subgoal_energy": math.inf,
+            **metadata,
+        }
+
+    current = start.copy()
+    steps = 0
+    replans = 0
+    top_energies: list[float] = []
+    recursive_energies: list[float] = []
+    leaf_energies: list[float] = []
+    while steps < limit and not is_terminal_state(world, current, goal, clue_mask):
+        device = next(model.parameters()).device
+        task_ids = torch.full((1,), world.task_id, dtype=torch.long, device=device)
+        initial_tensor = torch.as_tensor(start[None, ...], dtype=torch.long, device=device)
+        goal_tensor = torch.as_tensor(goal[None, ...], dtype=torch.long, device=device)
+        initial_latent = model.encoder(initial_tensor, task_ids=task_ids)
+        goal_latent = model.target_encoder(goal_tensor, task_ids=task_ids)
+        action_plan = recursive_subgoal_action_plan(
+            model,
+            world,
+            current,
+            goal,
+            start,
+            clue_mask,
+            rng,
+            target_latent=goal_latent,
+            initial_latent=initial_latent,
+            level=hierarchy_level,
+            top_level=hierarchy_level,
+            top_score_mode=high_score_mode,
+            optimizer=optimizer,
+            macro_horizon=macro_horizon,
+            high_population_size=high_population_size,
+            low_population_size=low_population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+            prior_samples=prior_samples,
+            gd_steps=gd_steps,
+            gd_lr=gd_lr,
+            reachability_weight=reachability_weight,
+            steps_remaining=limit - steps,
+        )
+        actions = list(action_plan["actions"])
+        if not actions:
+            break
+        prefix = actions[: min(execute_steps, len(actions), limit - steps)]
+        if not prefix:
+            break
+        for action in prefix:
+            current = apply_planning_action(world, current, action, clue_mask)
+        steps += len(prefix)
+        replans += 1
+        level_records = action_plan.get("level_records", [])
+        if level_records:
+            top_energies.append(float(level_records[0]["energy"]))
+            recursive_energies.extend(float(record["energy"]) for record in level_records)
+            leaf_energies.append(float(level_records[-1]["energy"]))
+
+    return {
+        "solved": float(world.is_goal(current, goal)),
+        "terminal": float(is_terminal_state(world, current, goal, clue_mask)),
+        "steps": float(steps),
+        "energy": float(encoded_state_energy(model, world, current, goal)),
+        "remaining_hamming": float(np.not_equal(current, goal).sum()),
+        "final_state": board_as_list(current),
+        "goal_state": board_as_list(goal),
+        "mismatches": mismatch_records(current, goal),
+        "replans": float(replans),
+        "mean_top_energy": mean(top_energies),
+        "mean_recursive_energy": mean(recursive_energies),
+        "mean_leaf_subgoal_energy": mean(leaf_energies),
+        **metadata,
+    }
+
+
+@torch.no_grad()
+def recursive_subgoal_action_plan(
+    model: ActionConditionedWorldModel,
+    world: PuzzleWorld,
+    current: np.ndarray,
+    goal: np.ndarray,
+    initial_state: np.ndarray,
+    clue_mask: np.ndarray | None,
+    rng: np.random.Generator,
+    *,
+    target_latent: torch.Tensor,
+    initial_latent: torch.Tensor,
+    level: int,
+    top_level: int,
+    top_score_mode: str,
+    optimizer: str,
+    macro_horizon: int,
+    high_population_size: int,
+    low_population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    prior_samples: int,
+    gd_steps: int,
+    gd_lr: float,
+    reachability_weight: float,
+    steps_remaining: int,
+) -> dict[str, Any]:
+    if level <= 0:
+        low_plan = low_level_subgoal_cem(
+            model,
+            world,
+            current,
+            goal,
+            clue_mask,
+            rng,
+            subgoal_latent=target_latent,
+            horizon=min(max(1, int(model.hierarchy_span)), max(1, int(steps_remaining))),
+            population_size=low_population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+        )
+        return {
+            "actions": list(low_plan["actions"]),
+            "level_records": [
+                {
+                    "level": 0,
+                    "optimizer": "cem_discrete",
+                    "score_mode": "latent_goal",
+                    "macro_horizon": float(min(max(1, int(model.hierarchy_span)), max(1, int(steps_remaining)))),
+                    "energy": float(low_plan["energy"]),
+                }
+            ],
+        }
+
+    device = next(model.parameters()).device
+    task_ids = torch.full((1,), world.task_id, dtype=torch.long, device=device)
+    current_tensor = torch.as_tensor(current[None, ...], dtype=torch.long, device=device)
+    current_latent = model.encoder(current_tensor, task_ids=task_ids)
+    level_score_mode = top_score_mode if level == top_level else "latent_goal"
+    level_horizon = max(1, int(macro_horizon) if level == top_level else int(model.hierarchy_span))
+    prior = estimate_macro_action_prior(
+        model,
+        world,
+        current,
+        goal,
+        clue_mask,
+        rng,
+        hierarchy_level=level,
+        samples=prior_samples,
+    )
+    high_plan = optimize_high_level_subgoal(
+        model,
+        current_latent,
+        target_latent,
+        rng,
+        hierarchy_level=level,
+        macro_horizon=level_horizon,
+        population_size=high_population_size,
+        elite_frac=elite_frac,
+        iterations=iterations,
+        smoothing=smoothing,
+        prior=prior,
+        initial_latent=initial_latent,
+        score_mode=level_score_mode,
+        optimizer=optimizer,
+        gd_steps=gd_steps,
+        gd_lr=gd_lr,
+        reachability_weight=reachability_weight,
+    )
+    lower = recursive_subgoal_action_plan(
+        model,
+        world,
+        current,
+        goal,
+        initial_state,
+        clue_mask,
+        rng,
+        target_latent=high_plan["subgoal_latent"],
+        initial_latent=initial_latent,
+        level=level - 1,
+        top_level=top_level,
+        top_score_mode=top_score_mode,
+        optimizer=optimizer,
+        macro_horizon=macro_horizon,
+        high_population_size=high_population_size,
+        low_population_size=low_population_size,
+        elite_frac=elite_frac,
+        iterations=iterations,
+        smoothing=smoothing,
+        prior_samples=prior_samples,
+        gd_steps=gd_steps,
+        gd_lr=gd_lr,
+        reachability_weight=reachability_weight,
+        steps_remaining=steps_remaining,
+    )
+    return {
+        "actions": list(lower["actions"]),
+        "level_records": [
+            {
+                "level": int(level),
+                "optimizer": optimizer,
+                "score_mode": level_score_mode,
+                "macro_horizon": float(level_horizon),
+                "energy": float(high_plan["energy"]),
+            },
+            *lower.get("level_records", []),
+        ],
+    }
+
+
 def validate_hierarchical_subgoal_level(model: ActionConditionedWorldModel, hierarchy_level: int) -> None:
     if int(hierarchy_level) <= 0:
         raise ValueError("hierarchical subgoal CEM requires --subgoal-hierarchy-level > 0.")
@@ -1597,6 +2042,65 @@ def resolve_subgoal_high_score_mode(model: ActionConditionedWorldModel, high_sco
     if mode == "macro_action_advantage" and not model.use_macro_action_value_head:
         raise ValueError("macro_action_advantage subgoal scoring requires model.use_macro_action_value_head=True.")
     return mode
+
+
+def resolve_subgoal_high_optimizer(optimizer: str) -> str:
+    mode = str(optimizer)
+    if mode not in {"cem", "gd", "gd_reachability"}:
+        raise ValueError("recursive subgoal optimizer must be 'cem', 'gd', or 'gd_reachability'.")
+    return mode
+
+
+def optimize_high_level_subgoal(
+    model: ActionConditionedWorldModel,
+    current_latent: torch.Tensor,
+    goal_latent: torch.Tensor,
+    rng: np.random.Generator,
+    *,
+    hierarchy_level: int,
+    macro_horizon: int,
+    population_size: int,
+    elite_frac: float,
+    iterations: int,
+    smoothing: float,
+    prior: torch.Tensor | None,
+    initial_latent: torch.Tensor | None,
+    score_mode: str,
+    optimizer: str,
+    gd_steps: int,
+    gd_lr: float,
+    reachability_weight: float,
+) -> dict[str, Any]:
+    optimizer = resolve_subgoal_high_optimizer(optimizer)
+    if optimizer == "cem":
+        return high_level_subgoal_cem(
+            model,
+            current_latent,
+            goal_latent,
+            rng,
+            hierarchy_level=hierarchy_level,
+            macro_horizon=macro_horizon,
+            population_size=population_size,
+            elite_frac=elite_frac,
+            iterations=iterations,
+            smoothing=smoothing,
+            prior=prior,
+            initial_latent=initial_latent,
+            score_mode=score_mode,
+        )
+    return high_level_subgoal_gradient(
+        model,
+        current_latent,
+        goal_latent,
+        hierarchy_level=hierarchy_level,
+        macro_horizon=macro_horizon,
+        prior=prior,
+        initial_latent=initial_latent,
+        score_mode=score_mode,
+        steps=gd_steps,
+        lr=gd_lr,
+        reachability_weight=reachability_weight if optimizer == "gd_reachability" else 0.0,
+    )
 
 
 @torch.no_grad()
@@ -1710,6 +2214,129 @@ def high_level_subgoal_cem(
         "latent_action_sequence": best_sequence,
         "high_score_mode": score_mode,
     }
+
+
+def high_level_subgoal_gradient(
+    model: ActionConditionedWorldModel,
+    current_latent: torch.Tensor,
+    goal_latent: torch.Tensor,
+    *,
+    hierarchy_level: int,
+    macro_horizon: int,
+    prior: torch.Tensor | None,
+    initial_latent: torch.Tensor | None = None,
+    score_mode: str = "latent_goal",
+    steps: int = 32,
+    lr: float = 0.05,
+    reachability_weight: float = 0.0,
+) -> dict[str, Any]:
+    device = current_latent.device
+    dtype = current_latent.dtype
+    hidden_size = int(current_latent.shape[-1])
+    macro_horizon = max(1, int(macro_horizon))
+    steps = max(1, int(steps))
+    lr = max(float(lr), 1.0e-8)
+    reachability_weight = max(float(reachability_weight), 0.0)
+    if score_mode in {"goal_energy", "goal_value", "macro_action_advantage"} and initial_latent is None:
+        raise ValueError("initial_latent is required for learned high-level subgoal scoring.")
+    if prior is not None and prior.numel() > 0:
+        prior = prior.to(device=device, dtype=dtype)
+        base_mu = prior.mean(dim=0)
+        if prior.shape[0] > 1:
+            base_std = prior.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+        else:
+            base_std = torch.ones(hidden_size, dtype=dtype, device=device)
+    else:
+        base_mu = torch.zeros(hidden_size, dtype=dtype, device=device)
+        base_std = torch.ones(hidden_size, dtype=dtype, device=device)
+    actions = base_mu.unsqueeze(0).expand(macro_horizon, -1).clone().detach().requires_grad_(True)
+    first_moment = torch.zeros_like(actions)
+    second_moment = torch.zeros_like(actions)
+    best_energy = math.inf
+    best_subgoal = current_latent.detach().clone()
+    best_sequence = actions.detach().clone()
+
+    with torch.enable_grad():
+        for step_index in range(steps):
+            energy, first_subgoal = high_level_subgoal_energy(
+                model,
+                current_latent,
+                goal_latent,
+                actions,
+                hierarchy_level=hierarchy_level,
+                initial_latent=initial_latent,
+                score_mode=score_mode,
+            )
+            if reachability_weight > 0.0:
+                if prior is not None and prior.numel() > 0:
+                    penalty = ((actions - base_mu.unsqueeze(0)) / base_std.unsqueeze(0)).pow(2).mean()
+                else:
+                    penalty = actions.pow(2).mean()
+                energy = energy + reachability_weight * penalty
+            energy_value = float(energy.detach().cpu().item())
+            if energy_value < best_energy:
+                best_energy = energy_value
+                best_subgoal = first_subgoal.detach().clone()
+                best_sequence = actions.detach().clone()
+            (gradient,) = torch.autograd.grad(energy, actions, allow_unused=False)
+            with torch.no_grad():
+                beta1 = 0.9
+                beta2 = 0.999
+                first_moment.mul_(beta1).add_(gradient, alpha=1.0 - beta1)
+                second_moment.mul_(beta2).addcmul_(gradient, gradient, value=1.0 - beta2)
+                corrected_first = first_moment / (1.0 - beta1 ** (step_index + 1))
+                corrected_second = second_moment / (1.0 - beta2 ** (step_index + 1))
+                actions.sub_(lr * corrected_first / (corrected_second.sqrt() + 1.0e-8))
+
+    return {
+        "subgoal_latent": best_subgoal,
+        "energy": float(best_energy),
+        "latent_action_sequence": best_sequence,
+        "high_score_mode": score_mode,
+    }
+
+
+def high_level_subgoal_energy(
+    model: ActionConditionedWorldModel,
+    current_latent: torch.Tensor,
+    goal_latent: torch.Tensor,
+    actions: torch.Tensor,
+    *,
+    hierarchy_level: int,
+    initial_latent: torch.Tensor | None,
+    score_mode: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if actions.ndim != 2:
+        raise ValueError("gradient high-level actions must have shape [macro_horizon, hidden].")
+    latents = current_latent
+    first_subgoal = current_latent
+    macro_scores = []
+    for step in range(actions.shape[0]):
+        action = actions[step : step + 1]
+        if score_mode == "macro_action_advantage":
+            if initial_latent is None:
+                raise RuntimeError("initial_latent is required for macro_action_advantage scoring.")
+            macro_scores.append(model.predict_macro_action_value_from_latents(latents, initial_latent, action))
+        latents = model.predict_latent_from_abstract_action(latents, action, level=hierarchy_level)
+        if step == 0:
+            first_subgoal = latents
+    if score_mode == "latent_goal":
+        energy = F.mse_loss(latents, goal_latent, reduction="mean")
+    elif score_mode == "goal_energy":
+        if initial_latent is None:
+            raise RuntimeError("initial_latent is required for goal_energy scoring.")
+        energy = model.predict_goal_energy_from_latents(latents, initial_latent).mean()
+    elif score_mode == "goal_value":
+        if initial_latent is None:
+            raise RuntimeError("initial_latent is required for goal_value scoring.")
+        energy = -model.predict_goal_energy_from_latents(latents, initial_latent).mean()
+    elif score_mode == "macro_action_advantage":
+        if not macro_scores:
+            raise RuntimeError("macro_action_advantage scoring did not produce any step scores.")
+        energy = -torch.stack(macro_scores, dim=0).sum()
+    else:
+        raise ValueError(f"Unsupported high-level score mode: {score_mode}")
+    return energy, first_subgoal
 
 
 @torch.no_grad()
@@ -2325,6 +2952,46 @@ def flatten_hierarchical_subgoal_cem_records(items: list[dict[str, Any]]) -> lis
                 "mean_high_energy": float(item["mean_high_energy"]),
                 "mean_low_subgoal_energy": float(item["mean_low_subgoal_energy"]),
                 "prior_samples": float(item["prior_samples"]),
+                "final_state": item["final_state"],
+                "goal_state": item["goal_state"],
+                "mismatches": item["mismatches"],
+            }
+        )
+    return records
+
+
+def flatten_recursive_hierarchical_subgoal_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    records = []
+    for item in items:
+        records.append(
+            {
+                "planner": "recursive_hierarchical_subgoal",
+                "mode": f"{item.get('high_score_mode', 'latent_goal')}_{item.get('optimizer', 'cem')}_recursive_subgoal",
+                "high_score_mode": item.get("high_score_mode", "latent_goal"),
+                "optimizer": item.get("optimizer", "cem"),
+                "example_index": int(item["example_index"]),
+                "solved": float(item["solved"]),
+                "terminal": float(item["terminal"]),
+                "steps": float(item["steps"]),
+                "energy": float(item["energy"]),
+                "remaining_hamming": float(item["remaining_hamming"]),
+                "hierarchy_level": float(item["hierarchy_level"]),
+                "macro_horizon": float(item["macro_horizon"]),
+                "macro_block": float(item["macro_block"]),
+                "high_population_size": float(item["high_population_size"]),
+                "low_population_size": float(item["low_population_size"]),
+                "elite_frac": float(item["elite_frac"]),
+                "iterations": float(item["iterations"]),
+                "smoothing": float(item["smoothing"]),
+                "execute_steps": float(item["execute_steps"]),
+                "replans": float(item["replans"]),
+                "mean_top_energy": float(item["mean_top_energy"]),
+                "mean_recursive_energy": float(item["mean_recursive_energy"]),
+                "mean_leaf_subgoal_energy": float(item["mean_leaf_subgoal_energy"]),
+                "prior_samples": float(item["prior_samples"]),
+                "gd_steps": float(item["gd_steps"]),
+                "gd_lr": float(item["gd_lr"]),
+                "reachability_weight": float(item["reachability_weight"]),
                 "final_state": item["final_state"],
                 "goal_state": item["goal_state"],
                 "mismatches": item["mismatches"],
@@ -3004,6 +3671,29 @@ def parse_args() -> argparse.Namespace:
         choices=["latent_goal", "goal_energy", "goal_value", "macro_action_advantage"],
         default="latent_goal",
     )
+    parser.add_argument("--recursive-subgoal-examples", type=int, default=0)
+    parser.add_argument("--recursive-hierarchy-level", type=int, default=2)
+    parser.add_argument("--recursive-macro-horizon", type=int, default=5)
+    parser.add_argument("--recursive-high-population", type=int, default=128)
+    parser.add_argument("--recursive-low-population", type=int, default=128)
+    parser.add_argument("--recursive-iterations", type=int, default=4)
+    parser.add_argument("--recursive-elite-frac", type=float, default=0.2)
+    parser.add_argument("--recursive-smoothing", type=float, default=0.7)
+    parser.add_argument("--recursive-execute-steps", type=int, default=1)
+    parser.add_argument("--recursive-prior-samples", type=int, default=64)
+    parser.add_argument(
+        "--recursive-high-score",
+        choices=["latent_goal", "goal_energy", "goal_value", "macro_action_advantage"],
+        default="latent_goal",
+    )
+    parser.add_argument(
+        "--recursive-optimizer",
+        choices=["cem", "gd", "gd_reachability"],
+        default="cem",
+    )
+    parser.add_argument("--recursive-gd-steps", type=int, default=32)
+    parser.add_argument("--recursive-gd-lr", type=float, default=0.05)
+    parser.add_argument("--recursive-reachability-weight", type=float, default=0.01)
     parser.add_argument("--trace-examples", type=int, default=3)
     parser.add_argument("--max-unroll-steps", type=int, default=256)
     parser.add_argument("--horizons", type=int, nargs="+", default=[1, 2, 4, 10, 20])
@@ -3049,6 +3739,21 @@ def main() -> None:
         subgoal_execute_steps=args.subgoal_execute_steps,
         subgoal_prior_samples=args.subgoal_prior_samples,
         subgoal_high_score=args.subgoal_high_score,
+        recursive_subgoal_examples=args.recursive_subgoal_examples,
+        recursive_hierarchy_level=args.recursive_hierarchy_level,
+        recursive_macro_horizon=args.recursive_macro_horizon,
+        recursive_high_population=args.recursive_high_population,
+        recursive_low_population=args.recursive_low_population,
+        recursive_iterations=args.recursive_iterations,
+        recursive_elite_frac=args.recursive_elite_frac,
+        recursive_smoothing=args.recursive_smoothing,
+        recursive_execute_steps=args.recursive_execute_steps,
+        recursive_prior_samples=args.recursive_prior_samples,
+        recursive_high_score=args.recursive_high_score,
+        recursive_optimizer=args.recursive_optimizer,
+        recursive_gd_steps=args.recursive_gd_steps,
+        recursive_gd_lr=args.recursive_gd_lr,
+        recursive_reachability_weight=args.recursive_reachability_weight,
         max_unroll_steps=args.max_unroll_steps,
         horizons=args.horizons,
         depth_fractions=args.depth_fractions,

@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-09 13:10 CEST
+Last updated: 2026-06-09 18:35 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -91,6 +91,11 @@ leaf re-encoding, learned `goal_energy` versus oracle `latent_goal`, depths
 directories or MCTS JSON/JSONL records were written, so learned-vs-oracle MCTS
 solve/terminal/Hamming and root-action metrics are unavailable. The next MCTS
 run should stream per-example JSONL and/or use a smaller budget before scaling.
+
+Grid 4P is the replacement smaller MCTS run after adding streaming/caching. It
+is submitted as `3715249_[0-3]` with 32 boards, 128 simulations, expansion cap
+32, and depths 4/8 for learned `goal_energy` and oracle `latent_goal`. It is
+pending under maintenance reservation; no new results yet.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
 Replacement diagnostics-only job `3702008` completed cleanly. Discounted
 reachability solved `0/128` under learned-score reset/beam, with reset-every-4
@@ -134,6 +139,13 @@ Grid 4N `3711983` is pending. It adds the missing true macro-action advantage
 variant: the top-level CEM scores continuous level-2 macro-actions directly
 with a learned advantage head, while lower-level planning still uses latent
 distance to the generated subgoal.
+
+Grid 4Q/4R are queued recursive hierarchy diagnostics, not new training. They
+add the report-style recursive planner: top-level CEM/GD/GD-with-reachability
+optimizes latent macro-actions toward the global goal, the first predicted
+latent becomes a subgoal for the next lower level, and primitive CEM only acts
+at level 0. Grid 4Q depends on Grid 4M (`3715252_[0-11]` after `3711931`);
+Grid 4R depends on Grid 4N (`3715251_[0-2]` after `3711983`).
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-09 13:10 CEST
+Last updated: 2026-06-09 18:35 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -82,9 +82,13 @@ repo snapshot.
 | `3705899_[0-5]` | COMPLETED | Grid 4L scorer-spread L1 ablation first six variants. Every learned-score reset/beam variant solved `0/128`; every oracle latent-goal reset control solved `128/128`. |
 | `3705899_6` | TIMEOUT | Grid 4L MuZero-like value+MCTS. Training plus normal learned-score/oracle diagnostics completed; extra MCTS diagnostic timed out. Learned reset/beam solved `0/128`, oracle reset control solved `128/128`. |
 | `3705900` | COMPLETED | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value`; solved `0/128`, terminal rate `0.172`, mean remaining Hamming `49.83`. |
-| `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Still pending at 2026-06-09 13:10 CEST because requested `a100_80` nodes are reserved for maintenance; no logs yet. |
-| `3711983` | PENDING | Grid 4N true macro-action advantage L3 span-4. Still pending at 2026-06-09 13:10 CEST for the same `a100_80` maintenance reservation; no logs yet. |
+| `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Still pending at 2026-06-09 18:35 CEST because requested `a100_80` nodes are reserved for maintenance; no logs yet. |
+| `3711983` | PENDING | Grid 4N true macro-action advantage L3 span-4. Still pending at 2026-06-09 18:35 CEST for the same `a100_80` maintenance reservation; no logs yet. |
 | `3714062_[0-3]` | TIMEOUT | Grid 4O inference-only MCTS diagnostics timed out at 2026-06-09 04:23:43 CEST after 8h. No `diagnostics_mcts_*` directories or MCTS JSON/JSONL artifacts were written because records are emitted only after full completion. |
+| `3715249_[0-3]` | PENDING | Grid 4P smaller streaming MCTS diagnostic on original L1. Tasks are `goal_energy`/`latent_goal` at depth 4/8, 32 boards, 128 simulations, expansion cap 32. Submitted on `a40`, then broadened with `scontrol` to `a40,rtxpro6k` and generic `gres/gpu=1`; still pending due maintenance reservation. Outputs stream to `diagnostics_mcts_stream_{goal_energy,latent_goal}_d{4,8}`. |
+| `3715252_[0-11]` | PENDING | Grid 4Q recursive hierarchy diagnostics on Grid 4M checkpoints. Dependency `afterok:3711931`; pending on dependency. Crosses Grid 4M methods with optimizers `cem`, `gd`, `gd_reachability`. |
+| `3715251_[0-2]` | PENDING | Grid 4R recursive hierarchy diagnostics on Grid 4N macro-action checkpoint. Dependency `afterok:3711983`; pending on dependency. Crosses macro-action top score with optimizers `cem`, `gd`, `gd_reachability`. |
+| `3715250`, `3715253`, `3715254`, `3715255` | PENDING | User-requested one-shot Grid 4P/4Q/4R oversight jobs at +6h/+10h/+12h/+14h; all begin-time blocked. They must not submit successor oversight jobs. |
 | `3714106` | COMPLETED | First user-requested one-shot Grid 4O oversight completed at 2026-06-08 22:45:38 CEST, exit `0:0`. Non-recurring; do not submit successors. |
 | `3714107` | COMPLETED | Second user-requested one-shot Grid 4O oversight completed at 2026-06-09 00:43:12 CEST, exit `0:0`. Non-recurring; do not submit successors. |
 | `3714108` | COMPLETED | Third and final user-requested one-shot Grid 4O oversight completed at 2026-06-09 02:47:39 CEST. Non-recurring; do not submit successors. |
@@ -99,7 +103,7 @@ pushes failed with the same GitHub SSH timeout and fatal remote-read error.
 Check live state:
 
 ```bash
-squeue -j 3714106,3714107,3714108,3714062,3711931,3711983 -o "%.18i %.9T %.28j %.10M %.20S %R"
+squeue -j 3711931,3711983,3715249,3715252,3715251,3715250,3715253,3715254,3715255 -o "%.18i %.9T %.28j %.10M %.20S %R"
 sacct -j 3714106,3714107,3714108,3714062,3711931,3711983,3705899,3705900,3702254,3702008,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 
