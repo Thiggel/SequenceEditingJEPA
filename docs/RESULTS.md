@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-09 02:35 CEST
+Last updated: 2026-06-09 13:10 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -84,14 +84,13 @@ sparse: it labeled solved boards as `1`, but reachable nonterminal boards as
 head target is `0.99^N`, where `N` is remaining wrong-cell count to the
 solution; impossible clue-corrupt states get target `0`.
 
-Grid 4O `3714062_[0-3]` is running on `a0632`. It is an inference-only MCTS
-diagnostic on the existing original L1 checkpoint: symbolic transitions, leaf
-re-encoding, learned `goal_energy` versus oracle `latent_goal`, depths 8/16,
-512 simulations, and root-action debug records. The 2026-06-09 02:35 CEST
-third and final one-shot check found no `diagnostics_mcts_*` directories or
-MCTS JSON/JSONL records yet. The diagnostics writer emits those files only after
-MCTS evaluation returns, so learned-vs-oracle MCTS solve/terminal/Hamming and
-root-action metrics are still unavailable.
+Grid 4O `3714062_[0-3]` timed out after 8 hours. It was an inference-only
+MCTS diagnostic on the existing original L1 checkpoint: symbolic transitions,
+leaf re-encoding, learned `goal_energy` versus oracle `latent_goal`, depths
+8/16, 512 simulations, and root-action debug records. No `diagnostics_mcts_*`
+directories or MCTS JSON/JSONL records were written, so learned-vs-oracle MCTS
+solve/terminal/Hamming and root-action metrics are unavailable. The next MCTS
+run should stream per-example JSONL and/or use a smaller budget before scaling.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
 Replacement diagnostics-only job `3702008` completed cleanly. Discounted
 reachability solved `0/128` under learned-score reset/beam, with reset-every-4

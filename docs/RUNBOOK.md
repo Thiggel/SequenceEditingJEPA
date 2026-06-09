@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-09 02:35 CEST
+Last updated: 2026-06-09 13:10 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -82,17 +82,17 @@ repo snapshot.
 | `3705899_[0-5]` | COMPLETED | Grid 4L scorer-spread L1 ablation first six variants. Every learned-score reset/beam variant solved `0/128`; every oracle latent-goal reset control solved `128/128`. |
 | `3705899_6` | TIMEOUT | Grid 4L MuZero-like value+MCTS. Training plus normal learned-score/oracle diagnostics completed; extra MCTS diagnostic timed out. Learned reset/beam solved `0/128`, oracle reset control solved `128/128`. |
 | `3705900` | COMPLETED | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value`; solved `0/128`, terminal rate `0.172`, mean remaining Hamming `49.83`. |
-| `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Still pending at 2026-06-09 02:35 CEST because requested `a100_80` nodes are reserved for maintenance; no logs yet. |
-| `3711983` | PENDING | Grid 4N true macro-action advantage L3 span-4. Still pending at 2026-06-09 02:35 CEST for the same `a100_80` maintenance reservation; no logs yet. |
-| `3714062_[0-3]` | RUNNING | Grid 4O inference-only MCTS diagnostics on existing original L1 checkpoint. Running on `a0632` as of 2026-06-09 02:35 CEST, elapsed about `06:11`. The third one-shot check found only Slurm prologue logs, empty stderr, active CPU time, and no `diagnostics_mcts_*` artifacts yet; MCTS JSON/JSONL is written only after evaluation returns. |
+| `3711931_[0-3]` | PENDING | Grid 4M L3 span-4 hierarchical value ablation. Still pending at 2026-06-09 13:10 CEST because requested `a100_80` nodes are reserved for maintenance; no logs yet. |
+| `3711983` | PENDING | Grid 4N true macro-action advantage L3 span-4. Still pending at 2026-06-09 13:10 CEST for the same `a100_80` maintenance reservation; no logs yet. |
+| `3714062_[0-3]` | TIMEOUT | Grid 4O inference-only MCTS diagnostics timed out at 2026-06-09 04:23:43 CEST after 8h. No `diagnostics_mcts_*` directories or MCTS JSON/JSONL artifacts were written because records are emitted only after full completion. |
 | `3714106` | COMPLETED | First user-requested one-shot Grid 4O oversight completed at 2026-06-08 22:45:38 CEST, exit `0:0`. Non-recurring; do not submit successors. |
 | `3714107` | COMPLETED | Second user-requested one-shot Grid 4O oversight completed at 2026-06-09 00:43:12 CEST, exit `0:0`. Non-recurring; do not submit successors. |
-| `3714108` | RUNNING | Third and final user-requested one-shot Grid 4O oversight, running on `a0225` as of 2026-06-09 02:35 CEST. Non-recurring; do not submit successors. |
+| `3714108` | COMPLETED | Third and final user-requested one-shot Grid 4O oversight completed at 2026-06-09 02:47:39 CEST. Non-recurring; do not submit successors. |
 
 Push note: the 2026-06-09 00:36 CEST oversight docs were committed locally in
 both repos, but `git push` failed for both with `ssh: connect to host github.com
 port 22: Connection timed out` followed by `fatal: Could not read from remote
-repository.` The 2026-06-09 02:35 CEST updates were also committed locally
+repository.` The 2026-06-09 13:10 CEST updates were also committed locally
 (`a62fd94` in this repo, `12f5114` in `../sequence-editing-report`), and both
 pushes failed with the same GitHub SSH timeout and fatal remote-read error.
 
