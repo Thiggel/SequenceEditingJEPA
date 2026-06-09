@@ -92,7 +92,9 @@ repo snapshot.
 Push note: the 2026-06-09 00:36 CEST oversight docs were committed locally in
 both repos, but `git push` failed for both with `ssh: connect to host github.com
 port 22: Connection timed out` followed by `fatal: Could not read from remote
-repository.`
+repository.` The 2026-06-09 02:35 CEST updates were also committed locally
+(`a62fd94` in this repo, `12f5114` in `../sequence-editing-report`), and both
+pushes failed with the same GitHub SSH timeout and fatal remote-read error.
 
 Check live state:
 
