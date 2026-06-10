@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-09 18:35 CEST
+Last updated: 2026-06-10 11:10 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -95,7 +95,8 @@ run should stream per-example JSONL and/or use a smaller budget before scaling.
 Grid 4P is the replacement smaller MCTS run after adding streaming/caching. It
 is submitted as `3715249_[0-3]` with 32 boards, 128 simulations, expansion cap
 32, and depths 4/8 for learned `goal_energy` and oracle `latent_goal`. It is
-pending under maintenance reservation; no new results yet.
+pending under maintenance reservation; no streamed artifacts or results yet as
+of 2026-06-10 11:10 CEST.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
 Replacement diagnostics-only job `3702008` completed cleanly. Discounted
 reachability solved `0/128` under learned-score reset/beam, with reset-every-4
