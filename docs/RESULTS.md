@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-10 19:28 CEST
+Last updated: 2026-06-10 20:04 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -100,7 +100,9 @@ mean remaining Hamming `47.78`/`48.72`; oracle `latent_goal` d4/d8 solved
 `0/32`, terminal `0`, and mean remaining Hamming `9.88`/`10.03`. Root debug
 shows learned `goal_energy` top-1 goal-value action rates `65/438` and
 `70/452` versus oracle `latent_goal` `376/449` and `360/440`. Oracle MCTS is
-directionally useful, but still does not solve at this budget.
+directionally useful, but still does not solve at this budget. Mean Hamming
+improvement is `7.28`/`7.25` for learned `goal_energy` d4/d8 versus
+`46.09`/`45.53` for oracle `latent_goal`.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
 Replacement diagnostics-only job `3702008` completed cleanly. Discounted
 reachability solved `0/128` under learned-score reset/beam, with reset-every-4
@@ -136,23 +138,25 @@ from `55.40` to `49.83`, but solve stayed `0/128`.
 
 Grid 4M `3711931_[0-3]` is running since 2026-06-10 11:42:19 CEST. It tests
 whether a three-level `hierarchy_span=4` model gives the top-level scorer a
-cleaner signal. At the 18:01 CEST check, all four variants had reached step
+cleaner signal. At the 20:01 CEST check, all four variants had reached step
 5000 and written `metrics.json` plus `checkpoint.pt`; the jobs were still
-running post-training diagnostics. Final online H1/H2/H4 solve is `1.0` for all
-variants, but this is only a training sanity metric. Final eval loss / oracle
-top1: terminal energy `0.000134` / `0.03125`, action advantage `0.00120` /
-`0.03125`, state value `0.000224` / `0.125`, contrastive margin `0.000260` /
-`0.0625`. No reset/subgoal diagnostic outputs exist yet as of 19:28 CEST.
+running their first post-training reset diagnostics. Final online H1/H2/H4
+solve is `1.0` for all variants, but this is only a training sanity metric.
+Final eval loss / oracle top1: terminal energy `0.000134` / `0.03125`, action
+advantage `0.00120` / `0.03125`, state value `0.000224` / `0.125`,
+contrastive margin `0.000260` / `0.0625`. Diagnostic dirs exist but are empty;
+no reset/subgoal diagnostic outputs exist yet as of 20:01 CEST.
 
 Grid 4N `3711983` is running since 2026-06-10 11:42:19 CEST. It adds the
 missing true macro-action advantage variant: the top-level CEM scores
 continuous level-2 macro-actions directly with a learned advantage head, while
 lower-level planning still uses latent distance to the generated subgoal. At
-the 18:01 CEST check, it had reached step 5000 and written `metrics.json` plus
-`checkpoint.pt`, with final eval loss `0.000478`, hierarchy loss `0.0308`,
-macro-action aux loss `0.00651`, oracle action top1 `0.09375`, and online
-H1/H2/H4 solve `1.0 / 1.0 / 1.0`. No reset/subgoal diagnostic outputs exist
-yet as of 19:28 CEST.
+the 20:01 CEST check, it had reached step 5000 and written `metrics.json` plus
+`checkpoint.pt`, and was still running its first post-training oracle
+reset/calibration diagnostic. Final eval loss is `0.000478`, hierarchy loss
+`0.0308`, macro-action aux loss `0.00651`, oracle action top1 `0.09375`, and
+online H1/H2/H4 solve `1.0 / 1.0 / 1.0`. The diagnostic dir exists but is
+empty; no reset/subgoal diagnostic outputs exist yet as of 20:01 CEST.
 
 Grid 4Q/4R are queued recursive hierarchy diagnostics, not new training. They
 add the report-style recursive planner: top-level CEM/GD/GD-with-reachability
@@ -167,10 +171,10 @@ Five additional user-requested non-recurring oversight checks were submitted at
 exact Europe/Berlin begin times. The first attempt `3715429`-`3715433` was
 cancelled before start by stale watch `3715253`, which was then cancelled at
 11:56:08 CEST. Replacement job `3715446` completed cleanly at 2026-06-10
-18:18:46 CEST; `3715447`-`3715450` remain pending on begin time for 20:00,
-00:00, 04:00, and 08:00. They must not submit successor oversight jobs. The
-future oversight prompt now explicitly checks proxy inheritance and records the
-known GitHub SSH port-22 push timeout separately from Codex/API connectivity.
+18:18:46 CEST. The 20:00 check `3715447` started at 20:00:04 CEST on `a2843`
+and confirmed `http_proxy`, `https_proxy`, `HTTP_PROXY`, and `HTTPS_PROXY`
+inheritance; `3715448`-`3715450` remain pending on begin time for 00:00, 04:00,
+and 08:00. They must not submit successor oversight jobs.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
