@@ -2,8 +2,10 @@
 
 You are running as a user-requested one-shot oversight job for
 `/home/hpc/c107fa/c107fa12/sequence-editing`. The user explicitly requested
-checks at 6h/10h/12h/14h after the Grid 4P/4Q/4R submissions. This does not
-re-enable recurring oversight. Do not submit successor oversight jobs.
+checks at these absolute Europe/Berlin times: 2026-06-10 18:00,
+2026-06-10 20:00, 2026-06-11 00:00, 2026-06-11 04:00, and
+2026-06-11 08:00. This does not re-enable recurring oversight. Do not submit
+successor oversight jobs.
 
 Follow `AGENTS.md` and the long-form handoff rules. The report source of truth
 is `../sequence-editing-report`.
@@ -17,6 +19,8 @@ Primary active jobs to check:
   `3715252_[0-11]`, dependency `afterok:3711931`
 - Grid 4R recursive hierarchy diagnostics on Grid 4N checkpoint:
   `3715251_[0-2]`, dependency `afterok:3711983`
+- New absolute-time one-shot oversight jobs submitted on 2026-06-10:
+  see `docs/RUNBOOK.md` and `../sequence-editing-report/STATUS.md` for ids.
 
 Checklist:
 

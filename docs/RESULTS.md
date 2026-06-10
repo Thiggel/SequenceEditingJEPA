@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-10 11:10 CEST
+Last updated: 2026-06-10 12:01 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -93,10 +93,14 @@ solve/terminal/Hamming and root-action metrics are unavailable. The next MCTS
 run should stream per-example JSONL and/or use a smaller budget before scaling.
 
 Grid 4P is the replacement smaller MCTS run after adding streaming/caching. It
-is submitted as `3715249_[0-3]` with 32 boards, 128 simulations, expansion cap
-32, and depths 4/8 for learned `goal_energy` and oracle `latent_goal`. It is
-pending under maintenance reservation; no streamed artifacts or results yet as
-of 2026-06-10 11:10 CEST.
+completed as `3715249_[0-3]`, exit `0:0`, with 32 boards, 128 simulations,
+expansion cap 32, and depths 4/8 for learned `goal_energy` and oracle
+`latent_goal`. Learned `goal_energy` d4/d8 solved `0/32`, terminal `0`, and
+mean remaining Hamming `47.78`/`48.72`; oracle `latent_goal` d4/d8 solved
+`0/32`, terminal `0`, and mean remaining Hamming `9.88`/`10.03`. Root debug
+shows learned `goal_energy` top-1 goal-value action rates `65/438` and
+`70/452` versus oracle `latent_goal` `376/449` and `360/440`. Oracle MCTS is
+directionally useful, but still does not solve at this budget.
 Grid 4I training completed, but the job hit `NODE_FAIL` before diagnostics.
 Replacement diagnostics-only job `3702008` completed cleanly. Discounted
 reachability solved `0/128` under learned-score reset/beam, with reset-every-4
@@ -130,23 +134,33 @@ Fixed-sign Grid 4I diagnostic `3705900` completed cleanly. Correct `goal_value`
 sign improved terminal rate from `0.0` to `0.172` and mean remaining Hamming
 from `55.40` to `49.83`, but solve stayed `0/128`.
 
-Grid 4M `3711931_[0-3]` is pending. It tests whether a three-level
+Grid 4M `3711931_[0-3]` is running since 2026-06-10 11:42:19 CEST. It tests whether a three-level
 `hierarchy_span=4` model gives the top-level scorer a cleaner signal. The
 diagnostic distinguishes flat learned-score reset, flat oracle reset, oracle
 top-level subgoal CEM, and learned top-level subgoal CEM for the state-scorer
-variants.
+variants. No metrics/checkpoints were available at the 12:01 CEST check.
 
-Grid 4N `3711983` is pending. It adds the missing true macro-action advantage
+Grid 4N `3711983` is running since 2026-06-10 11:42:19 CEST. It adds the missing true macro-action advantage
 variant: the top-level CEM scores continuous level-2 macro-actions directly
 with a learned advantage head, while lower-level planning still uses latent
-distance to the generated subgoal.
+distance to the generated subgoal. No metrics/checkpoint were available at the
+12:01 CEST check.
 
 Grid 4Q/4R are queued recursive hierarchy diagnostics, not new training. They
 add the report-style recursive planner: top-level CEM/GD/GD-with-reachability
 optimizes latent macro-actions toward the global goal, the first predicted
 latent becomes a subgoal for the next lower level, and primitive CEM only acts
 at level 0. Grid 4Q depends on Grid 4M (`3715252_[0-11]` after `3711931`);
-Grid 4R depends on Grid 4N (`3715251_[0-2]` after `3711983`).
+Grid 4R depends on Grid 4N (`3715251_[0-2]` after `3711983`). Both remain
+dependency-blocked with no recursive artifacts yet.
+
+Five additional user-requested non-recurring oversight checks were submitted at
+exact Europe/Berlin begin times. The first attempt `3715429`-`3715433` was
+cancelled before start by stale watch `3715253`, which was then cancelled at
+11:56:08 CEST. Replacement jobs are pending on begin time: `3715446` for
+2026-06-10 18:00, `3715447` for 20:00, `3715448` for 2026-06-11 00:00,
+`3715449` for 04:00, and `3715450` for 08:00. They must not submit successor
+oversight jobs.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
