@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-10 18:03 CEST
+Last updated: 2026-06-10 19:28 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -142,7 +142,7 @@ running post-training diagnostics. Final online H1/H2/H4 solve is `1.0` for all
 variants, but this is only a training sanity metric. Final eval loss / oracle
 top1: terminal energy `0.000134` / `0.03125`, action advantage `0.00120` /
 `0.03125`, state value `0.000224` / `0.125`, contrastive margin `0.000260` /
-`0.0625`. No reset/subgoal diagnostic outputs exist yet.
+`0.0625`. No reset/subgoal diagnostic outputs exist yet as of 19:28 CEST.
 
 Grid 4N `3711983` is running since 2026-06-10 11:42:19 CEST. It adds the
 missing true macro-action advantage variant: the top-level CEM scores
@@ -152,7 +152,7 @@ the 18:01 CEST check, it had reached step 5000 and written `metrics.json` plus
 `checkpoint.pt`, with final eval loss `0.000478`, hierarchy loss `0.0308`,
 macro-action aux loss `0.00651`, oracle action top1 `0.09375`, and online
 H1/H2/H4 solve `1.0 / 1.0 / 1.0`. No reset/subgoal diagnostic outputs exist
-yet.
+yet as of 19:28 CEST.
 
 Grid 4Q/4R are queued recursive hierarchy diagnostics, not new training. They
 add the report-style recursive planner: top-level CEM/GD/GD-with-reachability
@@ -166,9 +166,11 @@ wrappers are still running post-training diagnostics.
 Five additional user-requested non-recurring oversight checks were submitted at
 exact Europe/Berlin begin times. The first attempt `3715429`-`3715433` was
 cancelled before start by stale watch `3715253`, which was then cancelled at
-11:56:08 CEST. Replacement job `3715446` started at 2026-06-10 18:00:03 CEST;
-`3715447`-`3715450` remain pending on begin time for 20:00, 00:00, 04:00, and
-08:00. They must not submit successor oversight jobs.
+11:56:08 CEST. Replacement job `3715446` completed cleanly at 2026-06-10
+18:18:46 CEST; `3715447`-`3715450` remain pending on begin time for 20:00,
+00:00, 04:00, and 08:00. They must not submit successor oversight jobs. The
+future oversight prompt now explicitly checks proxy inheritance and records the
+known GitHub SSH port-22 push timeout separately from Codex/API connectivity.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest

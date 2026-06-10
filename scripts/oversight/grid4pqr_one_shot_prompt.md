@@ -26,6 +26,14 @@ Checklist:
 
 1. Check `squeue` and `sacct` for Grid 4M/4N/4P/4Q/4R and the oversight job
    itself.
+   Also confirm the job inherited proxy variables before any network-dependent
+   work: the Slurm wrapper sources `scripts/env.sh`, which exports
+   `http_proxy`, `https_proxy`, `HTTP_PROXY`, and `HTTPS_PROXY`. If Codex/API
+   connectivity itself is unavailable, record that as a network failure. If
+   analysis succeeds but `git push` fails with `ssh: connect to host github.com
+   port 22: Connection timed out`, treat that as the known GitHub SSH egress
+   problem: record the exact failure, leave commits local, and do not submit a
+   replacement oversight job solely for that push failure.
 2. Inspect relevant logs under `logs/`, especially
    `puzzle_grid4p_mcts_*`, `puzzle_grid4q_recur_*`, and
    `puzzle_grid4r_recur_*`.
