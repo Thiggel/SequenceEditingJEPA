@@ -10,9 +10,11 @@ from puzzle_jepa.data.trajectories import (
 from puzzle_jepa.data.worlds import MazeWorld, PuzzleExample, PuzzleWorld, SudokuWorld, WorldAction
 from puzzle_jepa.data.hf_puzzles import HFPuzzleColumns, example_from_strings, iter_hf_examples
 from puzzle_jepa.data.oracle import (
+    sample_curriculum_rollout_transition,
     sample_curriculum_transition,
     sample_oracle_rollout_transition,
     sample_oracle_partial_transition,
+    sample_random_mutable_rollout_transition,
     sample_random_mutable_transition,
 )
 
@@ -32,7 +34,9 @@ __all__ = [
     "example_from_strings",
     "iter_hf_examples",
     "sample_curriculum_transition",
+    "sample_curriculum_rollout_transition",
     "sample_oracle_partial_transition",
+    "sample_random_mutable_rollout_transition",
     "sample_random_mutable_transition",
     "sample_oracle_rollout_transition",
     "sample_oracle_transition",

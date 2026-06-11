@@ -19,9 +19,9 @@ from puzzle_jepa.data import (
     collate_rollouts,
     collate_transitions,
     iter_hf_examples,
+    sample_curriculum_rollout_transition,
     sample_curriculum_transition,
     sample_random_mutable_transition,
-    sample_oracle_rollout_transition,
     sample_oracle_partial_transition,
 )
 from puzzle_jepa.data.trajectories import Transition
@@ -62,6 +62,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     rollout_steps = int(train_cfg.get("rollout_steps", 1))
     rollout_weight = float(train_cfg.get("rollout_weight", 1.0 if rollout_steps > 1 else 0.0))
     rollout_batch_size = int(train_cfg.get("rollout_batch_size", batch_size))
+    rollout_oracle_probability = float(train_cfg.get("rollout_oracle_probability", 1.0))
     goal_energy_weight = float(train_cfg.get("goal_energy_weight", 0.0))
     goal_energy_contrastive_weight = float(train_cfg.get("goal_energy_contrastive_weight", 0.0))
     goal_energy_monotonicity_weight = float(train_cfg.get("goal_energy_monotonicity_weight", 0.0))
@@ -81,6 +82,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
     hierarchy_rollout_steps = int(
         train_cfg.get("hierarchy_rollout_steps", _max_hierarchy_horizon(model))
     )
+    hierarchy_oracle_probability = float(train_cfg.get("hierarchy_oracle_probability", 1.0))
     latest_metrics: dict[str, Any] = {}
 
     with (output_dir / "config.json").open("w") as handle:
@@ -108,7 +110,15 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
             energy_aux_loss = None
             ranking_loss = None
             if rollout_steps > 1 and rollout_weight > 0.0:
-                rollout_batch = _sample_rollout_batch(world, train_examples, rng, rollout_batch_size, rollout_steps, device)
+                rollout_batch = _sample_rollout_batch(
+                    world,
+                    train_examples,
+                    rng,
+                    rollout_batch_size,
+                    rollout_steps,
+                    device,
+                    oracle_probability=rollout_oracle_probability,
+                )
                 rollout_output = model.rollout_loss(
                     rollout_batch.states,
                     rollout_batch.actions,
@@ -125,6 +135,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     hierarchy_batch_size,
                     hierarchy_steps,
                     device,
+                    oracle_probability=hierarchy_oracle_probability,
                 )
                 hierarchy_output = model.hierarchy_loss(
                     hierarchy_batch.states,
@@ -280,6 +291,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "rollout_steps": rollout_steps,
                     "rollout_weight": rollout_weight,
                     "rollout_batch_size": rollout_batch_size if rollout_steps > 1 else 0,
+                    "rollout_oracle_probability": rollout_oracle_probability if rollout_steps > 1 else 0.0,
                     "goal_energy_weight": goal_energy_weight,
                     "goal_energy_contrastive_loss": str(train_cfg.get("goal_energy_contrastive_loss", "none")),
                     "goal_energy_contrastive_weight": goal_energy_contrastive_weight,
@@ -300,6 +312,7 @@ def run_grid0(config: dict[str, Any]) -> dict[str, Any]:
                     "hierarchy_span": int(model.hierarchy_span),
                     "hierarchy_rollout_steps": hierarchy_rollout_steps if hierarchy_weight > 0.0 else 0,
                     "hierarchy_batch_size": hierarchy_batch_size if hierarchy_weight > 0.0 else 0,
+                    "hierarchy_oracle_probability": hierarchy_oracle_probability if hierarchy_weight > 0.0 else 0.0,
                     "loss_weighting": str(train_cfg.get("loss_weighting", "uniform")),
                     "param_count": _param_count(model),
                     "trainable_param_count": _param_count(model, trainable_only=True),
@@ -392,13 +405,15 @@ def _sample_rollout_batch(
     batch_size: int,
     steps: int,
     device: torch.device,
+    oracle_probability: float = 1.0,
 ):
     rollouts = [
-        sample_oracle_rollout_transition(
+        sample_curriculum_rollout_transition(
             world,
             examples[int(rng.integers(0, len(examples)))],
             rng,
             steps=steps,
+            oracle_probability=oracle_probability,
         )
         for _ in range(batch_size)
     ]
