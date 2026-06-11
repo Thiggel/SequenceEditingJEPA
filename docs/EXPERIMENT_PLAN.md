@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-11 10:41 CEST
+Last updated: 2026-06-11 10:51 CEST
 
 The active backlog now lives in `../sequence-editing-report/BACKLOG.md`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -40,7 +40,7 @@ Grid 3B Sudoku follow-up:
 | Grid 4S HWM-style macro-action bottleneck/codebook | Prepared but not submitted. Implements configurable `model.macro_action_dim` and optional VQ/codebook macro actions for hierarchy levels, then prepares an L3 span-4 grid over macro dims `4/8/16/32/256`, VQ variants `(4,64)` and `(8,128)`, plus `state_value` and `macro_action_advantage` scorer variants. | Wrapper: `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`. The previous hierarchy encoded action chunks, but macro actions lived at hidden width; this grid tests whether the HWM-style low-dimensional action bottleneck/codebook improves top-level reachability before adding another scorer/ranker loop. |
 | Grid 4P/4Q/4R one-shot oversight | User-requested non-recurring checks at 6h, 10h, 12h, and 14h after submission. They should inspect jobs/logs/partial JSONL, fix clear bugs, analyze results, iterate only if needed, update docs, and commit/push. | All four original watches began together at 2026-06-10 11:42:38 CEST. Stale duplicate active watch jobs `3715250`, `3715254`, and `3715255` were cancelled at 11:44:50 with logs preserved; stale running watch `3715253` was cancelled at 11:56:08 after it cancelled the first new scheduled attempt `3715429`-`3715433` before start. |
 | Grid 4P/4Q/4R cancelled scheduled attempt | First attempt at the exact Europe/Berlin checks requested for 2026-06-10 18:00/20:00 and 2026-06-11 00:00/04:00/08:00. | Submitted as `3715429`, `3715430`, `3715431`, `3715433`, and `3715432`, but stale watch `3715253` cancelled them before start at 11:53:40 CEST. Superseded by `3715446`-`3715450`. |
-| Grid 4P/4Q/4R replacement scheduled oversight | Replacement for the exact Europe/Berlin checks after stale watch `3715253` cancelled the first attempt. | `3715446`, `3715447`, `3715448`, and `3715449` completed cleanly. `3715450` started at 2026-06-11 08:00:26 CEST on `a1621` and confirmed proxy inheritance in the live environment; it must not submit a successor oversight job. |
+| Grid 4P/4Q/4R replacement scheduled oversight | Replacement for the exact Europe/Berlin checks after stale watch `3715253` cancelled the first attempt. | `3715446`-`3715450` all completed cleanly. The final 08:00 check `3715450` ran 2026-06-11 08:00:26-08:24:05 CEST on `a1621` and confirmed proxy inheritance; no successor oversight job was submitted. |
 | Grid 4O one-shot oversight | User-requested non-recurring Codex checks for Grid 4O/4M/4N health, logs, results, bug fixes, analysis, and handoff updates. | `3714106`, `3714107`, and `3714108` completed cleanly. They did not submit successors. |
 | Planner-state reset/re-encoding branch | Keep symbolic candidate boards as planner state of record and re-encode latents every 4 actions for scoring. | Keep as oracle-goal control/baseline for Grid 4A; do before Maze, broad controls, or model-size sweeps if Grid 4A fails the non-oracle energy gate. |
 

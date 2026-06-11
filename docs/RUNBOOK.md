@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-11 10:41 CEST
+Last updated: 2026-06-11 10:51 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -130,7 +130,7 @@ locally as `eaf3e14` in this repo and `49ad09b` in
 | Grid 4S wrapper | PREPARED, not submitted | HWM-style L3 span-4 macro-action bottleneck/codebook grid in `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`. It tests macro dims `4/8/16/32/256`, two VQ/codebook settings, and learned scorer variants after adding `model.macro_action_dim` and optional macro-action VQ. |
 | `3715253`; `3715250`, `3715254`, `3715255` | CANCELLED | User-requested one-shot Grid 4P/4Q/4R oversight jobs all began together at 2026-06-10 11:42:38 CEST. Stale duplicate active watch jobs `3715250`, `3715254`, and `3715255` were cancelled at 11:44:50 CEST with logs preserved; stale running watch `3715253` was cancelled at 11:56:08 after it cancelled the first new scheduled attempt. |
 | `3715429`, `3715430`, `3715431`, `3715433`, `3715432` | CANCELLED | First begin-time-blocked attempt for the user-requested 2026-06-10 18:00/20:00 and 2026-06-11 00:00/04:00/08:00 CEST checks. Cancelled before start at 11:53:40 CEST by stale watch `3715253`; superseded by `3715446`-`3715450`. |
-| `3715446`; `3715447`; `3715448`; `3715449`; `3715450` | COMPLETED / RUNNING | Exact-time one-shot oversight `3715446` completed at 2026-06-10 18:18:46 CEST, `3715447` completed at 20:12:29 CEST, `3715448` completed at 2026-06-11 00:14:48 CEST, and `3715449` completed at 04:17:02 CEST. `3715450` started at 08:00:26 CEST on A40 node `a1621` and confirmed proxy inheritance in the live environment. They must not submit successor oversight jobs. |
+| `3715446`; `3715447`; `3715448`; `3715449`; `3715450` | COMPLETED | Exact-time one-shot oversight `3715446` completed at 2026-06-10 18:18:46 CEST, `3715447` at 20:12:29 CEST, `3715448` at 2026-06-11 00:14:48 CEST, `3715449` at 04:17:02 CEST, and `3715450` at 08:24:05 CEST after starting on A40 node `a1621` at 08:00:26. The final check confirmed proxy inheritance and did not submit a successor oversight job. |
 | `3714106` | COMPLETED | First user-requested one-shot Grid 4O oversight completed at 2026-06-08 22:45:38 CEST, exit `0:0`. Non-recurring; do not submit successors. |
 | `3714107` | COMPLETED | Second user-requested one-shot Grid 4O oversight completed at 2026-06-09 00:43:12 CEST, exit `0:0`. Non-recurring; do not submit successors. |
 | `3714108` | COMPLETED | Third and final user-requested one-shot Grid 4O oversight completed at 2026-06-09 02:47:39 CEST. Non-recurring; do not submit successors. |
@@ -184,7 +184,7 @@ failure.
 Check live state:
 
 ```bash
-squeue -j 3711931,3715252,3715251,3715450 -o "%.18i %.9T %.28j %.10M %.20S %R"
+squeue -j 3711931,3715252 -o "%.18i %.9T %.28j %.10M %.20S %R"
 sacct -j 3714106,3714107,3714108,3714062,3711931,3711983,3705899,3705900,3702254,3702008,3702066,3699523,3698893,3698394,3698281,3696616 --format=JobID,JobName%30,State,ExitCode,Elapsed,Start,End,NodeList
 ```
 

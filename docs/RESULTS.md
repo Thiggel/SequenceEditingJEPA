@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 10:41 CEST
+Last updated: 2026-06-11 10:51 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -265,11 +265,11 @@ directionally useful in the recursive planner either.
 Five additional user-requested non-recurring oversight checks were submitted at
 exact Europe/Berlin begin times. The first attempt `3715429`-`3715433` was
 cancelled before start by stale watch `3715253`, which was then cancelled at
-11:56:08 CEST. Replacement jobs `3715446`, `3715447`, `3715448`, and `3715449`
-completed cleanly. The 08:00 check `3715450` started at 2026-06-11 08:00:26
-CEST on `a1621` and confirmed `http_proxy`, `https_proxy`, `HTTP_PROXY`, and
-`HTTPS_PROXY` inheritance in the live environment. It must not submit a
-successor oversight job.
+11:56:08 CEST. Replacement jobs `3715446`-`3715450` all completed cleanly. The
+final 08:00 check `3715450` ran 2026-06-11 08:00:26-08:24:05 CEST on `a1621`,
+confirmed `http_proxy`, `https_proxy`, `HTTP_PROXY`, and `HTTPS_PROXY`
+inheritance in the live environment, and did not submit a successor oversight
+job.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
