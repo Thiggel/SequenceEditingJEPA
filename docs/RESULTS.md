@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 09:46 CEST
+Last updated: 2026-06-11 09:56 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -216,9 +216,11 @@ variants, so the dynamics/control remain intact. Partial latent-goal subgoal
 CEM outputs now exist and are all poor: terminal energy solved `0/32`, terminal
 `0/32`, mean remaining Hamming `49.44`; state value solved `0/32`, terminal
 `0/32`, mean remaining Hamming `48.75`; contrastive margin solved `0/32`,
-terminal `0/32`, mean remaining Hamming `49.59`. Action-advantage latent-goal
-subgoal output is still absent, and the terminal/state/contrastive learned
-top-score subgoal outputs are still pending.
+terminal `0/32`, mean remaining Hamming `49.59`; action advantage solved
+`0/32`, terminal `0/32`, mean remaining Hamming `49.25`. Task `3711931_1`
+completed cleanly; tasks `_0`, `_2`, and `_3` are still running. Learned
+top-score subgoal directories for terminal energy, state value, and contrastive
+margin exist but contain no final `diagnostics.json` yet.
 
 Grid 4N `3711983` completed cleanly at 2026-06-11 06:45:29 CEST. Its oracle
 latent-goal reset/calibration diagnostic passed: no-reset terminal-energy
