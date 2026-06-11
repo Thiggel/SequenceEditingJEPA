@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-11 10:51 CEST
+Last updated: 2026-06-11 11:08 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -58,10 +58,15 @@ macro-action bottleneck. The previous hierarchy encoded chunks of lower-level
 actions, but the resulting macro action was hidden-width and CEM optimized in
 that full space. The new code supports `model.macro_action_dim` plus optional
 VQ/codebook quantization; high-level CEM/GD now samples the macro-action
-dimension and decodes/quantizes before predictor rollout. The prepared wrapper
-is `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`, with L3 span-4 variants
-over macro dims `4/8/16/32/256`, VQ `(4,64)` and `(8,128)`, and scorer variants
-`terminal_energy`, `state_value`, and `macro_action_advantage`.
+dimension and decodes/quantizes before predictor rollout. The prepared training
+wrapper is `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`, with L3
+span-4 variants over macro dims `4/8/16/32`, VQ `(4,64)` and `(8,128)`, and
+scorer variants `terminal_energy`, `state_value`, and
+`macro_action_advantage`; the `256` dim run was dropped. The prepared eval
+wrapper is `scripts/slurm/run_grid4t_macro_bottleneck_planner_eval.slurm`,
+which runs flat MCTS depth `32`, recursive L1 hierarchy CEM, and recursive full
+L2/3-level hierarchy CEM, with learned and oracle top-score controls where
+applicable. Flat reset/beam is intentionally omitted.
 
 Push note: the 2026-06-11 09:15 qualitative-probe updates were committed
 locally as `eaf3e14` in this repo and `49ad09b` in
@@ -127,7 +132,8 @@ locally as `eaf3e14` in this repo and `49ad09b` in
 | `3715249_[0-3]` | COMPLETED | Grid 4P smaller streaming MCTS diagnostic on original L1. All four tasks completed at 2026-06-10 11:53-11:54 CEST, exit `0:0`. Learned `goal_energy` d4/d8 solved `0/32`, terminal `0`, mean remaining Hamming `47.78`/`48.72`; oracle `latent_goal` d4/d8 solved `0/32`, terminal `0`, mean remaining Hamming `9.88`/`10.03`. Root debug top-1 goal-value writes: learned `65/438`, `70/452`; oracle `376/449`, `360/440`. |
 | `3715252_[0-11]` | PENDING | Grid 4Q recursive hierarchy diagnostics on Grid 4M checkpoints. Dependency `afterok:3711931`; still dependency-blocked because Grid 4M is active in post-training diagnostics. Crosses Grid 4M methods with optimizers `cem`, `gd`, `gd_reachability`. No recursive artifacts yet as of 08:04 CEST; no partition broadening is useful while dependency-blocked. |
 | `3715251_[0-2]` | COMPLETED | Grid 4R recursive hierarchy diagnostics on Grid 4N macro-action checkpoint completed after Grid 4N. All three tasks exited `0:0` with empty stderr. Recursive macro-action top score solved `0/16` and terminal `0/16` for `cem`, `gd`, and `gd_reachability`; mean remaining Hamming was `51.81`, `52.94`, and `51.31` respectively. Learned macro-action top score is not directionally useful here and is worse than the non-recursive latent-goal subgoal CEM control. |
-| Grid 4S wrapper | PREPARED, not submitted | HWM-style L3 span-4 macro-action bottleneck/codebook grid in `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`. It tests macro dims `4/8/16/32/256`, two VQ/codebook settings, and learned scorer variants after adding `model.macro_action_dim` and optional macro-action VQ. |
+| Grid 4S wrapper | PREPARED, not submitted | Training-only HWM-style L3 span-4 macro-action bottleneck/codebook grid in `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`. It tests macro dims `4/8/16/32`, two VQ/codebook settings, and learned scorer variants after adding `model.macro_action_dim` and optional macro-action VQ. |
+| Grid 4T wrapper | PREPARED, not submitted | Eval-only planner matrix for Grid 4S in `scripts/slurm/run_grid4t_macro_bottleneck_planner_eval.slurm`: flat MCTS depth `32`/256 sims, recursive L1 hierarchy CEM, and recursive full L2/3-level hierarchy CEM. Recursive runs include learned top score and oracle `latent_goal` controls. |
 | `3715253`; `3715250`, `3715254`, `3715255` | CANCELLED | User-requested one-shot Grid 4P/4Q/4R oversight jobs all began together at 2026-06-10 11:42:38 CEST. Stale duplicate active watch jobs `3715250`, `3715254`, and `3715255` were cancelled at 11:44:50 CEST with logs preserved; stale running watch `3715253` was cancelled at 11:56:08 after it cancelled the first new scheduled attempt. |
 | `3715429`, `3715430`, `3715431`, `3715433`, `3715432` | CANCELLED | First begin-time-blocked attempt for the user-requested 2026-06-10 18:00/20:00 and 2026-06-11 00:00/04:00/08:00 CEST checks. Cancelled before start at 11:53:40 CEST by stale watch `3715253`; superseded by `3715446`-`3715450`. |
 | `3715446`; `3715447`; `3715448`; `3715449`; `3715450` | COMPLETED | Exact-time one-shot oversight `3715446` completed at 2026-06-10 18:18:46 CEST, `3715447` at 20:12:29 CEST, `3715448` at 2026-06-11 00:14:48 CEST, `3715449` at 04:17:02 CEST, and `3715450` at 08:24:05 CEST after starting on A40 node `a1621` at 08:00:26. The final check confirmed proxy inheritance and did not submit a successor oversight job. |

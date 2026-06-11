@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 10:51 CEST
+Last updated: 2026-06-11 11:08 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -16,13 +16,22 @@ actions. The new implementation adds `model.macro_action_dim`, decodes that
 macro action back to hidden width before the predictor, and optionally applies
 straight-through VQ/codebook quantization at both training and planning time.
 
-Prepared grid, not submitted: `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`.
-It tests L3 span-4 variants with macro dims `4/8/16/32/256`, VQ variants
+Prepared training grid, not submitted:
+`scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`. It tests L3 span-4
+variants with macro dims `4/8/16/32`, VQ variants
 `(macro_dim=4, codebook=64)` and `(macro_dim=8, codebook=128)`, and scorer
-families `terminal_energy`, `state_value`, and `macro_action_advantage`.
+families `terminal_energy`, `state_value`, and `macro_action_advantage`. The
+`256` dim run was dropped.
+
+Prepared planner matrix, not submitted:
+`scripts/slurm/run_grid4t_macro_bottleneck_planner_eval.slurm`. It evaluates
+Grid 4S checkpoints with flat symbolic MCTS to depth `32` using 256
+simulations, recursive L1 hierarchy CEM, and recursive full L2/3-level
+hierarchy CEM. Recursive runs include both learned top scores and oracle
+`latent_goal` controls; flat reset/beam is intentionally omitted.
 
 Verification passed: `python -m py_compile` for the changed model/planner
-scripts, `bash -n scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`,
+scripts, `bash -n` for the Grid 4S/Grid 4T Slurm wrappers,
 `pytest tests/test_puzzle_models.py -q`, and `pytest tests/test_puzzle_hydra.py -q`.
 
 ## 2026-06-11 Local A100 Qualitative Probe
