@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-11 04:04 CEST
+Last updated: 2026-06-11 04:14 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -117,6 +117,12 @@ both pushes failed with the same exact GitHub SSH error:
 replacement oversight job was submitted for the push failure.
 The 2026-06-11 00:04 CEST handoff updates were committed locally in both repos
 (`3e61310` in this repo and `8f6729e` in `../sequence-editing-report`), and
+both pushes failed with the same exact GitHub SSH error:
+`ssh: connect to host github.com port 22: Connection timed out` followed by
+`fatal: Could not read from remote repository.` The commits are left local; no
+replacement oversight job was submitted for the push failure.
+The 2026-06-11 04:04 CEST handoff updates were committed locally in both repos
+(`fe32ce4` in this repo and `4b71b27` in `../sequence-editing-report`), and
 both pushes failed with the same exact GitHub SSH error:
 `ssh: connect to host github.com port 22: Connection timed out` followed by
 `fatal: Could not read from remote repository.` The commits are left local; no
