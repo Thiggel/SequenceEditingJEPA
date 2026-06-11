@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 13:51 CEST
+Last updated: 2026-06-11 14:08 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -23,14 +23,21 @@ Submitted training grid: `3717900_[0-2]` via
 `hierarchy_levels={1,2,3}` with output roots
 `$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_global_mlp_l1`,
 `..._l2_span4`, and `..._l3_span4`. All three tasks started at
-2026-06-11 13:48:50 CEST on `a2141` under `rtxpro6k`; startup stderrs are
-empty.
+2026-06-11 13:48:50 CEST on `a2141` under `rtxpro6k`; task `_0` completed
+cleanly in `00:13:56`, `_1` and `_2` are still running, and stderrs are empty.
 
 Submitted dependent planner matrix: `3717901_[0-15]` via
 `scripts/slurm/run_grid4v_global_mlp_planner_eval.slurm`, with dependency
 `afterok:3717900`. It evaluates true receding-horizon MPC-CEM with learned
 `goal_energy` and oracle `latent_goal`, reset/beam controls with both scores,
 and recursive hierarchy CEM for L2/L3. There are no results yet.
+
+Submitted dependent long-horizon MPC-CEM matrix: `3718124_[0-11]` via
+`scripts/slurm/run_grid4w_global_mlp_mpc_horizon_eval.slurm`, also with
+dependency `afterok:3717900`. It crosses horizons `32/64` with learned
+`goal_energy` and oracle `latent_goal` for L1/L2/L3, keeping the same
+population `128`, iterations `4`, elite fraction `0.2`, execute step `1`, and
+`64` eval boards as the Grid 4V h16 MPC-CEM read. There are no results yet.
 
 Verification passed: `python -m py_compile` for the changed model/planner
 modules, `bash -n` for the Grid 4U/Grid 4V Slurm wrappers, focused pytest for
