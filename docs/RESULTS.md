@@ -1,11 +1,53 @@
 # Results
 
-Last updated: 2026-06-11 08:17 CEST
+Last updated: 2026-06-11 09:15 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
 
 ## Current Key Result
+
+## 2026-06-11 Local A100 Qualitative Probe
+
+Script: `scripts/analysis/sudoku_hier_value_probe.py`.
+
+Artifacts:
+
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_terminal_local_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_top_level_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_root_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_full_small_20260611.json`
+
+Main read: the learned value/energy heads can distinguish very wrong terminal
+boards, but they are not safe at fine granularity and do not rank adjacent
+actions reliably. On 32 eval boards, Grid 4M `state_value` picked the true
+solution over corrupted terminal boards `88.5%` overall, but only `70.3%` for
+one-cell corruptions. Grid 4M `terminal_energy` was stronger overall
+(`96.7%`) but still only `87.5%` on one-cell corruptions. Local successor
+ranking with `state_value` was poor: best goal-correct action top-1 was
+`4/48 = 8.3%`, mean best-goal rank `6.58`.
+
+Top-level hierarchy probes show the high-level optimizer can reduce predicted
+latent goal MSE, but the generated first subgoal is not grounded for the
+low-level CEM planner. Across two boards and CEM/GD/GD+reachability, the
+low-level 16-action chunk averaged only `2.0` correct writes and `14.0` wrong
+writes for Grid 4M `state_value`; Grid 4N macro-action advantage averaged
+`2.42` correct and `13.58` wrong. Gradient optimization of learned scores can
+also exploit off-manifold latents: e.g. `goal_value` GD pushed the raw value
+head above `10` while worsening predicted latent MSE in some probes.
+
+Terminal-depth MCTS does not solve the local-value issue at practical budgets.
+With exact symbolic transitions, max depth set to the remaining blanks
+(`54`), and `256/1024` simulations, the tree reached only depth `2-4`, found
+`0` terminal nodes and `0` solved nodes, and learned `goal_value` root choices
+were wrong in all sampled top actions. A tiny full MCTS/MPC check with 64
+simulations per step solved `0/1`; learned `goal_value` ended with `50`
+remaining Hamming and oracle `latent_goal` with `30`. The problem is not just
+"score terminal states better"; the current tree almost never sees terminal
+states and the nonterminal value is locally too flat/misordered.
+
+Verification: `python -m py_compile scripts/analysis/sudoku_hier_value_probe.py`
+and `pytest tests/test_puzzle_models.py -q` passed.
 
 Grid 3D reset-large diagnostics confirm that periodic planner-state
 re-encoding recovers the re-encoded oracle-goal result on a larger paired

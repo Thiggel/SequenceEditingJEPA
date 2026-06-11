@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-11 04:14 CEST
+Last updated: 2026-06-11 09:15 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -29,6 +29,20 @@ Runtime outputs default to:
 This table is restricted to jobs submitted from this repo's active puzzle-JEPA
 Slurm wrappers. Other user-account HFSA/paired arrays are not part of this
 repo snapshot.
+
+Local non-Slurm analysis from 2026-06-11 used the visible A100 with
+`scripts/analysis/sudoku_hier_value_probe.py`. Artifacts are:
+
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_terminal_local_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_top_level_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_root_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_full_small_20260611.json`
+
+Diagnosis: the state/value heads distinguish very wrong terminal boards but
+remain unreliable for one-cell corruptions and local successor ranking;
+high-level latent subgoals are not grounded enough for low-level CEM; and
+terminal-depth MCTS reaches only depth `2-4` at 256/1024 simulations, with no
+terminal leaves.
 
 | Job | State | Notes |
 | --- | --- | --- |
