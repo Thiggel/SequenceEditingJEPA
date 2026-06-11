@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 08:05 CEST
+Last updated: 2026-06-11 08:17 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -142,12 +142,13 @@ remaining Hamming is terminal energy `47.70`, action advantage `53.62`, state
 value `49.73`, and contrastive margin `43.88`; contrastive margin fills nearly
 all boards but still leaves wrong boards. Oracle latent-goal reset/calibration
 now solves `128/128` with reset every 4 and re-encoded planning for all four
-variants, so the dynamics/control remain intact. Partial subgoal outputs now
-exist: state-value latent-goal subgoal CEM solved `0/32`, terminal `0/32`, mean
-remaining Hamming `48.75`; contrastive-margin latent-goal subgoal CEM solved
-`0/32`, terminal `0/32`, mean remaining Hamming `49.59`. Terminal-energy and
-action-advantage subgoal outputs are still absent, and the state-value plus
-contrastive-margin learned top-score subgoal outputs are still pending.
+variants, so the dynamics/control remain intact. Partial latent-goal subgoal
+CEM outputs now exist and are all poor: terminal energy solved `0/32`, terminal
+`0/32`, mean remaining Hamming `49.44`; state value solved `0/32`, terminal
+`0/32`, mean remaining Hamming `48.75`; contrastive margin solved `0/32`,
+terminal `0/32`, mean remaining Hamming `49.59`. Action-advantage latent-goal
+subgoal output is still absent, and the terminal/state/contrastive learned
+top-score subgoal outputs are still pending.
 
 Grid 4N `3711983` completed cleanly at 2026-06-11 06:45:29 CEST. Its oracle
 latent-goal reset/calibration diagnostic passed: no-reset terminal-energy
