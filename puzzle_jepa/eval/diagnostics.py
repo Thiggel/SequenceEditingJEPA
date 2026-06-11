@@ -2122,7 +2122,7 @@ def high_level_subgoal_cem(
 ) -> dict[str, Any]:
     del rng
     device = current_latent.device
-    hidden_size = int(current_latent.shape[-1])
+    action_dim = int(model.macro_action_dim)
     population_size = max(1, int(population_size))
     macro_horizon = max(1, int(macro_horizon))
     iterations = max(1, int(iterations))
@@ -2134,15 +2134,15 @@ def high_level_subgoal_cem(
         if prior.shape[0] > 1:
             base_std = prior.std(dim=0, unbiased=False).clamp_min(1.0e-3)
         else:
-            base_std = torch.ones(hidden_size, dtype=current_latent.dtype, device=device)
+            base_std = torch.ones(action_dim, dtype=current_latent.dtype, device=device)
     else:
-        base_mu = torch.zeros(hidden_size, dtype=current_latent.dtype, device=device)
-        base_std = torch.ones(hidden_size, dtype=current_latent.dtype, device=device)
+        base_mu = torch.zeros(action_dim, dtype=current_latent.dtype, device=device)
+        base_std = torch.ones(action_dim, dtype=current_latent.dtype, device=device)
     mu = base_mu.unsqueeze(0).expand(macro_horizon, -1).clone()
     std = base_std.unsqueeze(0).expand(macro_horizon, -1).clone()
     best_energy = math.inf
     best_subgoal = current_latent.detach().clone()
-    best_sequence = torch.zeros(macro_horizon, hidden_size, dtype=current_latent.dtype, device=device)
+    best_sequence = torch.zeros(macro_horizon, action_dim, dtype=current_latent.dtype, device=device)
     goal_batch = goal_latent.expand(population_size, -1, -1)
     current_batch = current_latent.expand(population_size, -1, -1)
     if score_mode in {"goal_energy", "goal_value", "macro_action_advantage"}:
@@ -2156,7 +2156,7 @@ def high_level_subgoal_cem(
         samples = mu.unsqueeze(0) + std.unsqueeze(0) * torch.randn(
             population_size,
             macro_horizon,
-            hidden_size,
+            action_dim,
             dtype=current_latent.dtype,
             device=device,
         )
@@ -2168,7 +2168,12 @@ def high_level_subgoal_cem(
                 if initial_batch is None:
                     raise RuntimeError("initial_batch was not prepared for macro_action_advantage scoring.")
                 macro_scores.append(
-                    model.predict_macro_action_value_from_latents(latents, initial_batch, samples[:, step])
+                    model.predict_macro_action_value_from_latents(
+                        latents,
+                        initial_batch,
+                        samples[:, step],
+                        level=hierarchy_level,
+                    )
                 )
             latents = model.predict_latent_from_abstract_action(
                 latents,
@@ -2232,7 +2237,7 @@ def high_level_subgoal_gradient(
 ) -> dict[str, Any]:
     device = current_latent.device
     dtype = current_latent.dtype
-    hidden_size = int(current_latent.shape[-1])
+    action_dim = int(model.macro_action_dim)
     macro_horizon = max(1, int(macro_horizon))
     steps = max(1, int(steps))
     lr = max(float(lr), 1.0e-8)
@@ -2245,10 +2250,10 @@ def high_level_subgoal_gradient(
         if prior.shape[0] > 1:
             base_std = prior.std(dim=0, unbiased=False).clamp_min(1.0e-3)
         else:
-            base_std = torch.ones(hidden_size, dtype=dtype, device=device)
+            base_std = torch.ones(action_dim, dtype=dtype, device=device)
     else:
-        base_mu = torch.zeros(hidden_size, dtype=dtype, device=device)
-        base_std = torch.ones(hidden_size, dtype=dtype, device=device)
+        base_mu = torch.zeros(action_dim, dtype=dtype, device=device)
+        base_std = torch.ones(action_dim, dtype=dtype, device=device)
     actions = base_mu.unsqueeze(0).expand(macro_horizon, -1).clone().detach().requires_grad_(True)
     first_moment = torch.zeros_like(actions)
     second_moment = torch.zeros_like(actions)
@@ -2307,7 +2312,7 @@ def high_level_subgoal_energy(
     score_mode: str,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if actions.ndim != 2:
-        raise ValueError("gradient high-level actions must have shape [macro_horizon, hidden].")
+        raise ValueError("gradient high-level actions must have shape [macro_horizon, macro_action_dim].")
     latents = current_latent
     first_subgoal = current_latent
     macro_scores = []
@@ -2316,7 +2321,14 @@ def high_level_subgoal_energy(
         if score_mode == "macro_action_advantage":
             if initial_latent is None:
                 raise RuntimeError("initial_latent is required for macro_action_advantage scoring.")
-            macro_scores.append(model.predict_macro_action_value_from_latents(latents, initial_latent, action))
+            macro_scores.append(
+                model.predict_macro_action_value_from_latents(
+                    latents,
+                    initial_latent,
+                    action,
+                    level=hierarchy_level,
+                )
+            )
         latents = model.predict_latent_from_abstract_action(latents, action, level=hierarchy_level)
         if step == 0:
             first_subgoal = latents

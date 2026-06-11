@@ -15,6 +15,7 @@ from puzzle_jepa.eval.diagnostics import (
     MCTSNode,
     backup_mcts_value,
     build_mcts_tree,
+    clue_mask_for_planning,
     evaluate_cem_planning,
     evaluate_hierarchical_subgoal_cem_planning,
     evaluate_latent_drift,
@@ -23,6 +24,8 @@ from puzzle_jepa.eval.diagnostics import (
     evaluate_paired_reset_planning,
     evaluate_reencoded_planning,
     evaluate_recursive_hierarchical_subgoal_planning,
+    estimate_macro_action_prior,
+    high_level_subgoal_cem,
     mcts_root_debug_record,
     mcts_ucb_score,
     oracle_action_sequence,
@@ -293,6 +296,97 @@ def test_goal_energy_cls_and_hierarchy_losses_backpropagate():
     assert model.goal_energy_head[-1].weight.grad is not None
     assert model.higher_action_encoders[-1].stack.layers[0].attn.in_proj_weight.grad is not None
     assert model.higher_predictors[-1].layers[0].attn.in_proj_weight.grad is not None
+
+
+def test_macro_action_bottleneck_and_vq_are_used_by_hierarchy_and_planner():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    rollouts = [
+        sample_oracle_rollout_transition(world, example, np.random.default_rng(seed), steps=4)
+        for seed in range(2)
+    ]
+    rollout_batch = collate_rollouts(rollouts)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=1,
+        predictor_layers=1,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        action_injection="local_value",
+        use_cls_token=True,
+        use_goal_energy_head=True,
+        use_macro_action_value_head=True,
+        hierarchy_levels=3,
+        hierarchy_span=2,
+        macro_action_dim=4,
+        use_macro_action_vq=True,
+        macro_action_codebook_size=8,
+    )
+    abstract_action = model.encode_hierarchy_action(rollout_batch.actions[:, :4], level=2)
+    assert abstract_action.shape == (2, 4)
+    assert model.decode_hierarchy_action(abstract_action, level=2).shape == (2, 32)
+
+    hierarchy = model.hierarchy_loss(rollout_batch.states, rollout_batch.actions, rollout_batch.target_states)
+    assert torch.isfinite(hierarchy.loss)
+    assert "loss/hierarchy_level_2_action_vq" in hierarchy.components
+    macro_value = model.macro_action_value_loss(
+        rollout_batch.states,
+        rollout_batch.states,
+        rollout_batch.actions[:, :4],
+        rollout_batch.goals,
+        level=2,
+    )
+    assert torch.isfinite(macro_value.loss)
+
+    task_ids = rollout_batch.actions[:, 0, 0]
+    latent = model.encoder(rollout_batch.states, task_ids=task_ids)
+    macro_pred = model.predict_latent_from_abstract_action(latent, abstract_action, level=2)
+    assert macro_pred.shape == latent.shape
+    (hierarchy.loss + macro_value.loss).backward()
+    assert model.macro_action_codebooks[-1].embedding.weight.grad is not None
+    assert model.higher_action_decoders[-1][1].weight.grad is not None
+
+    rng = np.random.default_rng(0)
+    clue_mask = clue_mask_for_planning(world, example.state)
+    prior = estimate_macro_action_prior(
+        model,
+        world,
+        example.state,
+        example.goal,
+        clue_mask,
+        rng,
+        hierarchy_level=2,
+        samples=2,
+    )
+    assert prior is not None
+    assert prior.shape[1] == 4
+    task_id = torch.full((1,), world.task_id, dtype=torch.long)
+    current = torch.as_tensor(example.state[None, ...], dtype=torch.long)
+    goal = torch.as_tensor(example.goal[None, ...], dtype=torch.long)
+    current_latent = model.encoder(current, task_ids=task_id)
+    goal_latent = model.target_encoder(goal, task_ids=task_id)
+    plan = high_level_subgoal_cem(
+        model,
+        current_latent,
+        goal_latent,
+        rng,
+        hierarchy_level=2,
+        macro_horizon=2,
+        population_size=4,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.5,
+        prior=prior,
+        initial_latent=current_latent,
+        score_mode="latent_goal",
+    )
+    assert plan["latent_action_sequence"].shape == (2, 4)
+    assert plan["subgoal_latent"].shape == current_latent.shape
 
 
 def test_diagnostics_return_latent_and_reencoded_planning_records():

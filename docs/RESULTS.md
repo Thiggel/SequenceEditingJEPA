@@ -1,11 +1,29 @@
 # Results
 
-Last updated: 2026-06-11 09:56 CEST
+Last updated: 2026-06-11 10:41 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
 
 ## Current Key Result
+
+## 2026-06-11 Macro-Action Bottleneck Implementation
+
+The hierarchy now has a real HWM-style macro-action bottleneck. Before this
+change, higher-level action encoders compressed lower-level chunks, but their
+output dimension was the model hidden size; CEM optimized full-width latent
+actions. The new implementation adds `model.macro_action_dim`, decodes that
+macro action back to hidden width before the predictor, and optionally applies
+straight-through VQ/codebook quantization at both training and planning time.
+
+Prepared grid, not submitted: `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`.
+It tests L3 span-4 variants with macro dims `4/8/16/32/256`, VQ variants
+`(macro_dim=4, codebook=64)` and `(macro_dim=8, codebook=128)`, and scorer
+families `terminal_energy`, `state_value`, and `macro_action_advantage`.
+
+Verification passed: `python -m py_compile` for the changed model/planner
+scripts, `bash -n scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`,
+`pytest tests/test_puzzle_models.py -q`, and `pytest tests/test_puzzle_hydra.py -q`.
 
 ## 2026-06-11 Local A100 Qualitative Probe
 

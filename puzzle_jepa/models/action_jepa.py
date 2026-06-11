@@ -23,7 +23,9 @@ class ActionSequenceEncoder(nn.Module):
 
     def __init__(
         self,
+        input_size: int,
         hidden_size: int,
+        output_size: int,
         intermediate_size: int,
         num_heads: int,
         num_layers: int,
@@ -31,15 +33,19 @@ class ActionSequenceEncoder(nn.Module):
         dropout: float,
     ):
         super().__init__()
+        self.input_proj = nn.Identity() if int(input_size) == int(hidden_size) else nn.Linear(input_size, hidden_size)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
         self.position_embedding = nn.Embedding(max_span, hidden_size)
         self.stack = TransformerStack(num_layers, hidden_size, intermediate_size, num_heads, dropout)
         self.norm = nn.LayerNorm(hidden_size)
+        self.output_proj = nn.Identity() if int(output_size) == int(hidden_size) else nn.Linear(hidden_size, output_size)
+        self.output_norm = nn.Identity() if int(output_size) == int(hidden_size) else nn.LayerNorm(output_size)
         nn.init.normal_(self.cls_token, std=0.02)
 
     def forward(self, lower_actions: torch.Tensor) -> torch.Tensor:
         if lower_actions.ndim != 3:
-            raise ValueError("lower_actions must have shape [batch, span, hidden].")
+            raise ValueError("lower_actions must have shape [batch, span, features].")
+        lower_actions = self.input_proj(lower_actions)
         batch, span, _hidden = lower_actions.shape
         if span > self.position_embedding.num_embeddings:
             raise ValueError(
@@ -49,7 +55,37 @@ class ActionSequenceEncoder(nn.Module):
         tokens = lower_actions + self.position_embedding(positions).unsqueeze(0)
         cls = self.cls_token.expand(batch, -1, -1)
         encoded = self.stack(torch.cat([cls, tokens], dim=1))
-        return self.norm(encoded[:, 0])
+        return self.output_norm(self.output_proj(self.norm(encoded[:, 0])))
+
+
+class VectorQuantizer(nn.Module):
+    """Straight-through vector quantizer for macro-action bottlenecks."""
+
+    def __init__(self, codebook_size: int, embedding_dim: int, beta: float):
+        super().__init__()
+        self.embedding = nn.Embedding(int(codebook_size), int(embedding_dim))
+        self.beta = float(beta)
+        nn.init.normal_(self.embedding.weight, std=0.02)
+
+    def forward(self, inputs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        if inputs.shape[-1] != self.embedding.embedding_dim:
+            raise ValueError("VQ input dimension must match codebook embedding dimension.")
+        flat = inputs.reshape(-1, inputs.shape[-1])
+        distances = (
+            flat.pow(2).sum(dim=1, keepdim=True)
+            - 2.0 * flat @ self.embedding.weight.t()
+            + self.embedding.weight.pow(2).sum(dim=1).unsqueeze(0)
+        )
+        indices = torch.argmin(distances, dim=1)
+        quantized = self.embedding(indices).reshape_as(inputs)
+        codebook_loss = F.mse_loss(quantized, inputs.detach())
+        commitment_loss = F.mse_loss(inputs, quantized.detach())
+        loss = codebook_loss + self.beta * commitment_loss
+        quantized = inputs + (quantized - inputs).detach()
+        encodings = F.one_hot(indices, num_classes=self.embedding.num_embeddings).to(dtype=inputs.dtype)
+        avg_probs = encodings.mean(dim=0)
+        perplexity = torch.exp(-(avg_probs * torch.log(avg_probs.clamp_min(1.0e-12))).sum())
+        return quantized, loss, perplexity
 
 
 class ActionConditionedWorldModel(nn.Module):
@@ -81,6 +117,10 @@ class ActionConditionedWorldModel(nn.Module):
         hierarchy_levels: int = 1,
         hierarchy_stride: int = 2,
         hierarchy_span: int | None = None,
+        macro_action_dim: int | None = None,
+        use_macro_action_vq: bool = False,
+        macro_action_codebook_size: int = 0,
+        macro_action_vq_beta: float = 0.25,
     ):
         super().__init__()
         self.max_width = int(max_width)
@@ -99,6 +139,14 @@ class ActionConditionedWorldModel(nn.Module):
         self.hierarchy_levels = max(1, int(hierarchy_levels))
         self.hierarchy_span = max(1, int(hierarchy_span if hierarchy_span is not None else hierarchy_stride))
         self.hierarchy_stride = self.hierarchy_span
+        self.macro_action_dim = int(macro_action_dim) if macro_action_dim is not None else int(hidden_size)
+        if self.macro_action_dim <= 0:
+            self.macro_action_dim = int(hidden_size)
+        self.use_macro_action_vq = bool(use_macro_action_vq or int(macro_action_codebook_size) > 0)
+        self.macro_action_codebook_size = int(macro_action_codebook_size)
+        self.macro_action_vq_beta = float(macro_action_vq_beta)
+        if self.use_macro_action_vq and self.macro_action_codebook_size <= 0:
+            raise ValueError("macro_action_codebook_size must be positive when macro-action VQ is enabled.")
         self.encoder = GridEncoder(
             vocab_size=vocab_size,
             hidden_size=hidden_size,
@@ -143,15 +191,36 @@ class ActionConditionedWorldModel(nn.Module):
         self.higher_action_encoders = nn.ModuleList(
             [
                 ActionSequenceEncoder(
+                    hidden_size if level_index == 0 else self.macro_action_dim,
                     hidden_size,
+                    self.macro_action_dim,
                     intermediate_size,
                     num_heads,
                     num_layers=1,
                     max_span=self.hierarchy_span,
                     dropout=dropout,
                 )
+                for level_index in range(self.hierarchy_levels - 1)
+            ]
+        )
+        self.higher_action_decoders = nn.ModuleList(
+            [
+                nn.Identity()
+                if self.macro_action_dim == hidden_size
+                else nn.Sequential(
+                    nn.LayerNorm(self.macro_action_dim),
+                    nn.Linear(self.macro_action_dim, hidden_size),
+                )
                 for _ in range(self.hierarchy_levels - 1)
             ]
+        )
+        self.macro_action_codebooks = nn.ModuleList(
+            [
+                VectorQuantizer(self.macro_action_codebook_size, self.macro_action_dim, self.macro_action_vq_beta)
+                for _ in range(self.hierarchy_levels - 1)
+            ]
+            if self.use_macro_action_vq
+            else []
         )
         if self.use_goal_energy_head:
             self.goal_energy_head = nn.Sequential(
@@ -176,8 +245,8 @@ class ActionConditionedWorldModel(nn.Module):
             )
         if self.use_macro_action_value_head:
             self.macro_action_value_head = nn.Sequential(
-                nn.LayerNorm(3 * hidden_size),
-                nn.Linear(3 * hidden_size, hidden_size),
+                nn.LayerNorm(2 * hidden_size + self.macro_action_dim),
+                nn.Linear(2 * hidden_size + self.macro_action_dim, hidden_size),
                 nn.SiLU(),
                 nn.Linear(hidden_size, 1),
             )
@@ -495,17 +564,23 @@ class ActionConditionedWorldModel(nn.Module):
         state_latents: torch.Tensor,
         initial_latents: torch.Tensor,
         macro_actions: torch.Tensor,
+        *,
+        level: int | None = None,
     ) -> torch.Tensor:
         if not self.use_macro_action_value_head:
             raise ValueError("macro action value head is disabled for this model.")
         if state_latents.ndim != 3 or initial_latents.ndim != 3:
             raise ValueError("state_latents and initial_latents must have shape [batch, tokens, hidden].")
         if macro_actions.ndim != 2:
-            raise ValueError("macro_actions must have shape [batch, hidden].")
+            raise ValueError("macro_actions must have shape [batch, macro_action_dim].")
         if initial_latents.shape[0] == 1 and state_latents.shape[0] != 1:
             initial_latents = initial_latents.expand(state_latents.shape[0], -1, -1)
         if state_latents.shape[0] != initial_latents.shape[0] or state_latents.shape[0] != macro_actions.shape[0]:
             raise ValueError("state, initial, and macro-action batch sizes must match.")
+        if macro_actions.shape[-1] != self.macro_action_dim:
+            raise ValueError("macro action size must match model.macro_action_dim.")
+        if level is not None:
+            macro_actions = self.quantize_hierarchy_action(macro_actions, level=int(level))
         features = torch.cat(
             [
                 self._state_summary(state_latents),
@@ -537,7 +612,7 @@ class ActionConditionedWorldModel(nn.Module):
         state_latents = self.encoder(states, task_ids=task_ids)
         initial_latents = self.encoder(initial_states, task_ids=task_ids)
         macro_actions = self.encode_hierarchy_action(action_sequences, level=int(level))
-        pred = self.predict_macro_action_value_from_latents(state_latents, initial_latents, macro_actions)
+        pred = self.predict_macro_action_value_from_latents(state_latents, initial_latents, macro_actions, level=int(level))
         with torch.no_grad():
             goal_latents = self.target_encoder(goals, task_ids=task_ids)
             next_latents = self.predict_latent_sequence_from_latent(
@@ -630,18 +705,36 @@ class ActionConditionedWorldModel(nn.Module):
             horizon = self.hierarchy_span**level
             if horizon > steps:
                 continue
-            pred = self.predict_latent_sequence_from_latent(
-                latents,
-                actions[:, :horizon],
-                height=height,
-                width=width,
-                level=level,
-            )
             with torch.no_grad():
                 target = self.target_encoder(target_states[:, horizon - 1], task_ids=task_ids)
-            step_loss = F.mse_loss(pred, target, reduction="none").mean(dim=-1).mean()
+            if level > 0:
+                pred, action_aux = self.predict_latent_sequence_from_latent(
+                    latents,
+                    actions[:, :horizon],
+                    height=height,
+                    width=width,
+                    level=level,
+                    return_action_aux=True,
+                )
+            else:
+                pred = self.predict_latent_sequence_from_latent(
+                    latents,
+                    actions[:, :horizon],
+                    height=height,
+                    width=width,
+                    level=level,
+                )
+                action_aux = {}
+            step_mse = F.mse_loss(pred, target, reduction="none").mean(dim=-1).mean()
+            step_loss = step_mse
+            if action_aux:
+                step_loss = step_loss + action_aux["vq_loss"]
+                components[f"loss/hierarchy_level_{level}_action_vq"] = action_aux["vq_loss"].detach()
+                components[f"metric/hierarchy_level_{level}_action_vq_perplexity"] = action_aux[
+                    "vq_perplexity"
+                ].detach()
             losses.append(step_loss)
-            components[f"loss/hierarchy_level_{level}_h{horizon}_mse"] = step_loss.detach()
+            components[f"loss/hierarchy_level_{level}_h{horizon}_mse"] = step_mse.detach()
             final_pred = pred
             final_target = target
         if not losses or final_pred is None or final_target is None:
@@ -671,22 +764,29 @@ class ActionConditionedWorldModel(nn.Module):
         height: int,
         width: int,
         level: int,
-    ) -> torch.Tensor:
+        return_action_aux: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         if actions.ndim != 3 or actions.shape[-1] != 4:
             raise ValueError("action sequences must have shape [batch, steps, 4].")
         if int(level) < 0 or int(level) >= self.hierarchy_levels:
             raise ValueError(f"level must be in [0, {self.hierarchy_levels}).")
+        aux: dict[str, torch.Tensor] = {}
         if int(level) == 0:
             conditioned = self._condition_latents(latents, actions, height=height, width=width)
         else:
             expected = self.hierarchy_span ** int(level)
             if actions.shape[1] != expected:
                 raise ValueError(f"level {level} expects exactly {expected} primitive actions.")
-            abstract_action = self.encode_hierarchy_action(actions, level=int(level))
-            conditioned = latents + abstract_action.unsqueeze(1)
+            if return_action_aux:
+                abstract_action, aux = self.encode_hierarchy_action(actions, level=int(level), return_aux=True)
+            else:
+                abstract_action = self.encode_hierarchy_action(actions, level=int(level))
+            conditioned = latents + self.decode_hierarchy_action(abstract_action, level=int(level)).unsqueeze(1)
         predicted = self._predictor_for_level(level)(conditioned)
         if self.predict_residual:
-            return latents + predicted
+            predicted = latents + predicted
+        if return_action_aux:
+            return predicted, aux
         return predicted
 
     def predict_latent_from_abstract_action(
@@ -695,19 +795,21 @@ class ActionConditionedWorldModel(nn.Module):
         abstract_actions: torch.Tensor,
         *,
         level: int,
+        quantize: bool | None = None,
     ) -> torch.Tensor:
         if latents.ndim != 3:
             raise ValueError("latents must have shape [batch, tokens, hidden].")
         if abstract_actions.ndim != 2:
-            raise ValueError("abstract_actions must have shape [batch, hidden].")
+            raise ValueError("abstract_actions must have shape [batch, macro_action_dim].")
         if abstract_actions.shape[0] != latents.shape[0]:
             raise ValueError("abstract action batch size must match latents batch size.")
-        if abstract_actions.shape[-1] != latents.shape[-1]:
-            raise ValueError("abstract action hidden size must match latent hidden size.")
+        if abstract_actions.shape[-1] != self.macro_action_dim:
+            raise ValueError("abstract action size must match model.macro_action_dim.")
         level = int(level)
         if level <= 0 or level >= self.hierarchy_levels:
             raise ValueError(f"level must be in [1, {self.hierarchy_levels}).")
-        conditioned = latents + abstract_actions.unsqueeze(1)
+        abstract_actions = self.quantize_hierarchy_action(abstract_actions, level=level, quantize=quantize)
+        conditioned = latents + self.decode_hierarchy_action(abstract_actions, level=level).unsqueeze(1)
         predicted = self._predictor_for_level(level)(conditioned)
         if self.predict_residual:
             return latents + predicted
@@ -771,7 +873,14 @@ class ActionConditionedWorldModel(nn.Module):
                 )
         return conditioned
 
-    def encode_hierarchy_action(self, actions: torch.Tensor, *, level: int) -> torch.Tensor:
+    def encode_hierarchy_action(
+        self,
+        actions: torch.Tensor,
+        *,
+        level: int,
+        quantize: bool | None = None,
+        return_aux: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Encode K**level primitive actions into one level-action vector."""
         if actions.ndim != 3 or actions.shape[-1] != 4:
             raise ValueError("actions must have shape [batch, steps, 4].")
@@ -781,6 +890,8 @@ class ActionConditionedWorldModel(nn.Module):
         expected = self.hierarchy_span**level
         if actions.shape[1] != expected:
             raise ValueError(f"level {level} expects {expected} primitive actions, got {actions.shape[1]}.")
+        aux_losses: list[torch.Tensor] = []
+        aux_perplexities: list[torch.Tensor] = []
         if level == 1:
             lower = self._action_embedding(actions.reshape(-1, actions.shape[-1])).reshape(
                 actions.shape[0],
@@ -790,12 +901,75 @@ class ActionConditionedWorldModel(nn.Module):
         else:
             lower_horizon = self.hierarchy_span ** (level - 1)
             grouped = actions.reshape(actions.shape[0] * self.hierarchy_span, lower_horizon, actions.shape[-1])
-            lower = self.encode_hierarchy_action(grouped, level=level - 1).reshape(
+            lower_encoded = self.encode_hierarchy_action(
+                grouped,
+                level=level - 1,
+                quantize=quantize,
+                return_aux=return_aux,
+            )
+            if return_aux:
+                lower, lower_aux = lower_encoded
+                if lower_aux:
+                    aux_losses.append(lower_aux["vq_loss"])
+                    aux_perplexities.append(lower_aux["vq_perplexity"])
+            else:
+                lower = lower_encoded
+            lower = lower.reshape(
                 actions.shape[0],
                 self.hierarchy_span,
                 -1,
             )
-        return self.higher_action_encoders[level - 1](lower)
+        encoded = self.higher_action_encoders[level - 1](lower)
+        encoded, vq_aux = self.quantize_hierarchy_action_with_aux(encoded, level=level, quantize=quantize)
+        if vq_aux:
+            aux_losses.append(vq_aux["vq_loss"])
+            aux_perplexities.append(vq_aux["vq_perplexity"])
+        if not return_aux:
+            return encoded
+        if aux_losses:
+            aux = {
+                "vq_loss": torch.stack(aux_losses).mean(),
+                "vq_perplexity": torch.stack(aux_perplexities).mean(),
+            }
+        else:
+            zero = encoded.new_zeros(())
+            aux = {"vq_loss": zero, "vq_perplexity": zero}
+        return encoded, aux
+
+    def decode_hierarchy_action(self, abstract_actions: torch.Tensor, *, level: int) -> torch.Tensor:
+        level = int(level)
+        if level <= 0 or level >= self.hierarchy_levels:
+            raise ValueError(f"level must be in [1, {self.hierarchy_levels}).")
+        if abstract_actions.shape[-1] != self.macro_action_dim:
+            raise ValueError("abstract action size must match model.macro_action_dim.")
+        return self.higher_action_decoders[level - 1](abstract_actions)
+
+    def quantize_hierarchy_action(
+        self,
+        abstract_actions: torch.Tensor,
+        *,
+        level: int,
+        quantize: bool | None = None,
+    ) -> torch.Tensor:
+        quantized, _aux = self.quantize_hierarchy_action_with_aux(abstract_actions, level=level, quantize=quantize)
+        return quantized
+
+    def quantize_hierarchy_action_with_aux(
+        self,
+        abstract_actions: torch.Tensor,
+        *,
+        level: int,
+        quantize: bool | None = None,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        use_quantize = self.use_macro_action_vq if quantize is None else bool(quantize)
+        if not use_quantize:
+            return abstract_actions, {}
+        level = int(level)
+        if level <= 0 or level >= self.hierarchy_levels:
+            raise ValueError(f"level must be in [1, {self.hierarchy_levels}).")
+        quantizer = self.macro_action_codebooks[level - 1]
+        quantized, loss, perplexity = quantizer(abstract_actions)
+        return quantized, {"vq_loss": loss, "vq_perplexity": perplexity}
 
     @torch.no_grad()
     def score_actions_to_goal(

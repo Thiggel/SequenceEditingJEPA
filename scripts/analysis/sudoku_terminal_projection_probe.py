@@ -442,6 +442,7 @@ def codebook_subgoal_probe(
                 current_latent.expand(action_latents.shape[0], -1, -1),
                 initial_latent.expand(action_latents.shape[0], -1, -1),
                 action_latents,
+                level=hierarchy_level,
             )
         else:
             raise ValueError(score_mode)
