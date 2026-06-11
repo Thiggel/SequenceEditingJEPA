@@ -133,6 +133,13 @@ both pushes failed with the same exact GitHub SSH error:
 `ssh: connect to host github.com port 22: Connection timed out` followed by
 `fatal: Could not read from remote repository.` The commits are left local; no
 replacement oversight job was submitted for the push failure.
+The 2026-06-11 08:17 CEST terminal-subgoal handoff update was committed locally
+in both repos (`cdebff9` in this repo and `83486c3` in
+`../sequence-editing-report`), and both pushes failed with the same exact
+GitHub SSH error: `ssh: connect to host github.com port 22: Connection timed
+out` followed by `fatal: Could not read from remote repository.` The commits
+are left local; no replacement oversight job was submitted for the push
+failure.
 
 Check live state:
 
