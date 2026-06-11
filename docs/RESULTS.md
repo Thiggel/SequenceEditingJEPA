@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 11:19 CEST
+Last updated: 2026-06-11 11:32 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -22,9 +22,11 @@ It tests L3 span-4
 variants with macro dims `4/8/16/32`, VQ variants
 `(macro_dim=4, codebook=64)` and `(macro_dim=8, codebook=128)`, and scorer
 families `terminal_energy`, `state_value`, and `macro_action_advantage`. The
-`256` dim run was dropped. Tasks `_0`-`_3` started on `a0536` at
-2026-06-11 11:17:31 CEST; `_4`-`_9` are pending behind the `%4` array limit.
-Initial stderr files are empty.
+`256` dim run was dropped. The live array throttle was increased from `%4` to
+`%10` by 11:30 CEST. All ten training tasks are running: `_0`-`_3` started on
+`a0536` at 2026-06-11 11:17:31 CEST; `_4`-`_7` started on `a0934` at
+11:27:19 CEST; `_8` started on `a0533` at 11:30:33 CEST; `_9` started on
+`a0833` at 11:30:33 CEST. All Grid 4S stderr files are empty.
 
 Submitted dependent planner matrix:
 `3717329_[0-57]` via
