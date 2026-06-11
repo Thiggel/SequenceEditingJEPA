@@ -127,6 +127,12 @@ both pushes failed with the same exact GitHub SSH error:
 `ssh: connect to host github.com port 22: Connection timed out` followed by
 `fatal: Could not read from remote repository.` The commits are left local; no
 replacement oversight job was submitted for the push failure.
+The 2026-06-11 08:05 CEST handoff updates were committed locally in both repos
+(`4e963e2` in this repo and `6bb9299` in `../sequence-editing-report`), and
+both pushes failed with the same exact GitHub SSH error:
+`ssh: connect to host github.com port 22: Connection timed out` followed by
+`fatal: Could not read from remote repository.` The commits are left local; no
+replacement oversight job was submitted for the push failure.
 
 Check live state:
 
