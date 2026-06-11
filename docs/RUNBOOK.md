@@ -44,6 +44,12 @@ high-level latent subgoals are not grounded enough for low-level CEM; and
 terminal-depth MCTS reaches only depth `2-4` at 256/1024 simulations, with no
 terminal leaves.
 
+Push note: the 2026-06-11 09:15 qualitative-probe updates were committed
+locally as `eaf3e14` in this repo and `49ad09b` in
+`../sequence-editing-report`. `git push origin main` failed for both with
+`ssh: connect to host github.com port 22: Connection timed out` followed by
+`fatal: Could not read from remote repository.` The commits are left local.
+
 | Job | State | Notes |
 | --- | --- | --- |
 | `3664581_[0-1]` | COMPLETED | Grid 0 smoke; infrastructure only, solve remained `0.0`. |
