@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 04:04 CEST
+Last updated: 2026-06-11 08:05 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -142,36 +142,43 @@ remaining Hamming is terminal energy `47.70`, action advantage `53.62`, state
 value `49.73`, and contrastive margin `43.88`; contrastive margin fills nearly
 all boards but still leaves wrong boards. Oracle latent-goal reset/calibration
 now solves `128/128` with reset every 4 and re-encoded planning for all four
-variants, so the dynamics/control remain intact. The jobs remain active in
-subgoal diagnostics, and no Grid 4M subgoal outputs exist yet.
+variants, so the dynamics/control remain intact. Partial subgoal outputs now
+exist: state-value latent-goal subgoal CEM solved `0/32`, terminal `0/32`, mean
+remaining Hamming `48.75`; contrastive-margin latent-goal subgoal CEM solved
+`0/32`, terminal `0/32`, mean remaining Hamming `49.59`. Terminal-energy and
+action-advantage subgoal outputs are still absent, and the state-value plus
+contrastive-margin learned top-score subgoal outputs are still pending.
 
-Grid 4N `3711983` is running since 2026-06-10 11:42:19 CEST. Its oracle
-latent-goal reset/calibration diagnostic completed: no-reset terminal-energy
+Grid 4N `3711983` completed cleanly at 2026-06-11 06:45:29 CEST. Its oracle
+latent-goal reset/calibration diagnostic passed: no-reset terminal-energy
 selection solved `127/128` with terminal rate `1.0` and mean remaining Hamming
 `0.008`, while reset every 4 and re-encoded planning solved `128/128`. The
-first latent-goal subgoal CEM output is poor: solve `0/32`, terminal `0/32`,
-mean remaining Hamming `48.47`. This does not yet validate or reject the
-learned macro-action top score because that specific subgoal output is still
-pending.
+subgoal reads are poor. Latent-goal subgoal CEM solved `0/32`, terminal
+`0/32`, mean remaining Hamming `48.47`; learned macro-action top-score subgoal
+CEM solved `0/32`, terminal `0/32`, mean remaining Hamming `49.72`. The
+learned macro-action top score is not directionally useful in this diagnostic.
 
 Grid 4Q/4R are queued recursive hierarchy diagnostics, not new training. They
 add the report-style recursive planner: top-level CEM/GD/GD-with-reachability
 optimizes latent macro-actions toward the global goal, the first predicted
 latent becomes a subgoal for the next lower level, and primitive CEM only acts
-at level 0. Grid 4Q depends on Grid 4M (`3715252_[0-11]` after `3711931`);
-Grid 4R depends on Grid 4N (`3715251_[0-2]` after `3711983`). Both remain
-dependency-blocked with no recursive artifacts yet because their parent
-wrappers are still running post-training diagnostics.
+at level 0. Grid 4Q depends on Grid 4M (`3715252_[0-11]` after `3711931`) and
+remains dependency-blocked with no recursive artifacts because the Grid 4M
+wrapper is still running post-training diagnostics. Grid 4R (`3715251_[0-2]`)
+completed after Grid 4N. Recursive macro-action top score solved `0/16` and
+terminal `0/16` for `cem`, `gd`, and `gd_reachability`; mean remaining Hamming
+was `51.81`, `52.94`, and `51.31`. This is worse than the non-recursive
+latent-goal subgoal CEM control, so the learned macro-action top score is not
+directionally useful in the recursive planner either.
 
 Five additional user-requested non-recurring oversight checks were submitted at
 exact Europe/Berlin begin times. The first attempt `3715429`-`3715433` was
 cancelled before start by stale watch `3715253`, which was then cancelled at
-11:56:08 CEST. Replacement job `3715446` completed cleanly at 2026-06-10
-18:18:46 CEST, `3715447` completed at 20:12:29 CEST, and `3715448` completed
-at 00:14:48 CEST. The 04:00 check `3715449` started at 04:00:06 CEST on
-`a0321` and confirmed `http_proxy`, `https_proxy`, `HTTP_PROXY`, and
-`HTTPS_PROXY` inheritance; `3715450` remains pending on begin time for 08:00.
-They must not submit successor oversight jobs.
+11:56:08 CEST. Replacement jobs `3715446`, `3715447`, `3715448`, and `3715449`
+completed cleanly. The 08:00 check `3715450` started at 2026-06-11 08:00:26
+CEST on `a1621` and confirmed `http_proxy`, `https_proxy`, `HTTP_PROXY`, and
+`HTTPS_PROXY` inheritance in the live environment. It must not submit a
+successor oversight job.
 
 Literature note: MuZero/Dreamer/TD-MPC-style value heads are not the clean
 non-RL target we need because they use reward, TD, or search labels. The closest
