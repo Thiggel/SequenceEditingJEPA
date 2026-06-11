@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-11 09:15 CEST
+Last updated: 2026-06-11 09:46 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -31,18 +31,27 @@ Slurm wrappers. Other user-account HFSA/paired arrays are not part of this
 repo snapshot.
 
 Local non-Slurm analysis from 2026-06-11 used the visible A100 with
-`scripts/analysis/sudoku_hier_value_probe.py`. Artifacts are:
+`scripts/analysis/sudoku_hier_value_probe.py` and the follow-up
+`scripts/analysis/sudoku_terminal_projection_probe.py`. Artifacts are:
 
 - `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_terminal_local_20260611.json`
 - `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_top_level_20260611.json`
 - `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_root_20260611.json`
 - `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_full_small_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_terminal_projection_probe_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_terminal_projection_smoke_20260611.json`
 
 Diagnosis: the state/value heads distinguish very wrong terminal boards but
 remain unreliable for one-cell corruptions and local successor ranking;
 high-level latent subgoals are not grounded enough for low-level CEM; and
 terminal-depth MCTS reaches only depth `2-4` at 256/1024 simulations, with no
-terminal leaves.
+terminal leaves. The terminal-projection follow-up gives an upper-bound
+diagnostic: even when every first action is completed to a terminal board by
+filling the rest with the true solution, Grid 4M `state_value` and
+`terminal_energy` still never rank the true solution terminal first globally
+across 48 records. Restricting high-level macro actions to an on-manifold
+codebook of real 16-step chunks also does not fix selection: the oracle chunk
+is never top-1 under the current learned scorers.
 
 Push note: the 2026-06-11 09:15 qualitative-probe updates were committed
 locally as `eaf3e14` in this repo and `49ad09b` in

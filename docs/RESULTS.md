@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-11 09:15 CEST
+Last updated: 2026-06-11 09:46 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -10,6 +10,7 @@ ongoing LaTeX report `../sequence-editing-report/report.tex`.
 ## 2026-06-11 Local A100 Qualitative Probe
 
 Script: `scripts/analysis/sudoku_hier_value_probe.py`.
+Follow-up script: `scripts/analysis/sudoku_terminal_projection_probe.py`.
 
 Artifacts:
 
@@ -17,6 +18,8 @@ Artifacts:
 - `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_top_level_20260611.json`
 - `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_root_20260611.json`
 - `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_hier_value_mcts_full_small_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_terminal_projection_probe_20260611.json`
+- `/home/vault/c107fa/c107fa12/sequence-editing/analysis/sudoku_terminal_projection_smoke_20260611.json`
 
 Main read: the learned value/energy heads can distinguish very wrong terminal
 boards, but they are not safe at fine granularity and do not rank adjacent
@@ -46,8 +49,33 @@ remaining Hamming and oracle `latent_goal` with `30`. The problem is not just
 "score terminal states better"; the current tree almost never sees terminal
 states and the nonterminal value is locally too flat/misordered.
 
-Verification: `python -m py_compile scripts/analysis/sudoku_hier_value_probe.py`
-and `pytest tests/test_puzzle_models.py -q` passed.
+The terminal-projection follow-up directly tested the stronger version of the
+MCTS question: for every candidate first write, fill all remaining mutable
+cells with the true solution, then score that terminal board. This is an oracle
+terminal rollout upper bound, not a deployable planner. It still failed. Grid
+4M `state_value` never ranked a true-solution terminal leaf first across 48
+records; mean best solution-terminal rank was `156.38`, and within a fixed
+cell the true digit was top-1 only `28.98%` of the time. Grid 4M
+`terminal_energy` was better but still never ranked the true solution first
+globally; mean best solution-terminal rank was `64.06`, and same-cell top-1 was
+`59.45%`. Thus even if MCTS reached terminal leaves by a perfect completion, the
+current learned terminal scorers would still often choose a one-cell-corrupt
+terminal board.
+
+The same follow-up checked whether the top hierarchy can at least find the
+correct terminal latent. It cannot in the current checkpoints: nearest-terminal
+analysis among the true solution plus all one-cell corruptions had true
+terminal top-1 rate `0.0`; mean true-terminal rank was `178.75` for Grid 4M
+`state_value` and `211.42` for Grid 4N macro-action advantage. Restricting
+macro actions to a codebook of real encoded 16-step chunks, including the
+oracle chunk, also failed: the oracle chunk was never top-1, with mean rank
+`68.0` for `state_value` and `16.0` for macro-action advantage. The selected
+codebook chunks and low-level CEM executions still contained mostly wrong
+writes.
+
+Verification: `python -m py_compile scripts/analysis/sudoku_hier_value_probe.py
+scripts/analysis/sudoku_terminal_projection_probe.py` and
+`pytest tests/test_puzzle_models.py -q` passed.
 
 Grid 3D reset-large diagnostics confirm that periodic planner-state
 re-encoding recovers the re-encoded oracle-goal result on a larger paired
