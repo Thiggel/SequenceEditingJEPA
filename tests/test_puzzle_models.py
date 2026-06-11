@@ -20,6 +20,7 @@ from puzzle_jepa.eval.diagnostics import (
     evaluate_hierarchical_subgoal_cem_planning,
     evaluate_latent_drift,
     evaluate_latent_planning,
+    evaluate_mpc_cem_planning,
     evaluate_mcts_planning,
     evaluate_paired_reset_planning,
     evaluate_reencoded_planning,
@@ -171,6 +172,87 @@ def test_rollout_loss_backpropagates_through_predictor():
     assert output.pred_latents.shape == output.target_latents.shape == (2, 81, 32)
     output.loss.backward()
     assert model.predictor.layers[0].attn.in_proj_weight.grad is not None
+
+
+def test_global_mlp_jepa_uses_one_latent_token_and_small_action_embedding():
+    world, batch = _sudoku_batch()
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=2,
+        predictor_layers=2,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        encoder_type="global_mlp",
+        action_embedding_dim=8,
+        use_task_embedding=False,
+        use_selected_cell_marker=False,
+        use_goal_energy_head=True,
+    )
+    assert model.row_embedding.embedding_dim == 8
+    output = model(
+        batch.states,
+        batch.actions,
+        batch.next_states,
+        goals=batch.goals,
+        initial_states=batch.states,
+        goal_energy_weight=0.5,
+    )
+    assert torch.isfinite(output.loss)
+    assert output.pred_latents.shape == output.target_latents.shape == (2, 1, 32)
+    scores = model.score_states_to_goal(batch.states, batch.goals, batch.actions[:, 0])
+    assert scores.shape == (2,)
+    output.loss.backward()
+    assert model.encoder.mlp[0].weight.grad is not None
+    assert model.predictor.net[0].weight.grad is not None
+    assert model.goal_energy_head[-1].weight.grad is not None
+
+
+def test_global_mlp_hierarchy_uses_mlp_action_sequence_encoders():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    rollouts = [
+        sample_oracle_rollout_transition(world, example, np.random.default_rng(seed), steps=4)
+        for seed in range(2)
+    ]
+    rollout_batch = collate_rollouts(rollouts)
+    model = ActionConditionedWorldModel(
+        vocab_size=world.vocab_size,
+        hidden_size=32,
+        intermediate_size=64,
+        encoder_layers=2,
+        predictor_layers=2,
+        num_heads=4,
+        max_height=9,
+        max_width=9,
+        task_vocab_size=2,
+        action_value_vocab_size=10,
+        encoder_type="global_mlp",
+        action_embedding_dim=8,
+        use_task_embedding=False,
+        use_selected_cell_marker=False,
+        use_goal_energy_head=True,
+        hierarchy_levels=3,
+        hierarchy_span=2,
+        macro_action_dim=6,
+    )
+    output = model.hierarchy_loss(rollout_batch.states, rollout_batch.actions, rollout_batch.target_states)
+    assert torch.isfinite(output.loss)
+    assert output.pred_latents.shape == output.target_latents.shape == (2, 1, 32)
+    abstract_action = model.encode_hierarchy_action(rollout_batch.actions[:, :4], level=2)
+    assert abstract_action.shape == (2, 6)
+    decoded = model.decode_hierarchy_action(abstract_action, level=2)
+    assert decoded.shape == (2, 8)
+    latents = model.encoder(rollout_batch.states, task_ids=rollout_batch.actions[:, 0, 0])
+    macro_pred = model.predict_latent_from_abstract_action(latents, abstract_action, level=2)
+    assert macro_pred.shape == latents.shape
+    output.loss.backward()
+    assert model.higher_action_encoders[-1].net[0].weight.grad is not None
+    assert model.higher_predictors[-1].net[0].weight.grad is not None
 
 
 def test_optional_task_and_selected_cell_conditioning_preserve_shapes():
@@ -504,6 +586,25 @@ def test_cem_planning_records_with_goal_energy_head():
     )
     assert hierarchical_summary["hierarchical_latent_goal"]["count"] == 1.0
     assert hierarchical_records[0]["hierarchy_level"] == 1.0
+
+    mpc_summary, mpc_records = evaluate_mpc_cem_planning(
+        model,
+        world,
+        [example],
+        np.random.default_rng(7),
+        num_examples=1,
+        max_steps=2,
+        horizon=2,
+        execute_steps=1,
+        population_size=4,
+        elite_frac=0.5,
+        iterations=1,
+        smoothing=0.7,
+        score_mode="goal_energy",
+    )
+    assert mpc_summary["goal_energy"]["count"] == 1.0
+    assert mpc_records[0]["planner"] == "mpc_cem"
+    assert mpc_records[0]["replans"] >= 1.0
 
     subgoal_summary, subgoal_records = evaluate_hierarchical_subgoal_cem_planning(
         model,

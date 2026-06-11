@@ -18,6 +18,116 @@ class ActionConditionedJEPAOutput:
     components: dict[str, torch.Tensor]
 
 
+def _make_mlp(input_size: int, hidden_size: int, output_size: int, layers: int, dropout: float) -> nn.Sequential:
+    layers = max(1, int(layers))
+    modules: list[nn.Module] = []
+    current = int(input_size)
+    for _ in range(layers - 1):
+        modules.extend(
+            [
+                nn.Linear(current, int(hidden_size)),
+                nn.SiLU(),
+                nn.Dropout(float(dropout)),
+            ]
+        )
+        current = int(hidden_size)
+    modules.append(nn.Linear(current, int(output_size)))
+    return nn.Sequential(*modules)
+
+
+class GlobalBoardEncoder(nn.Module):
+    """Encode a fixed-size board into one global latent token using only an MLP."""
+
+    def __init__(
+        self,
+        vocab_size: int,
+        hidden_size: int,
+        intermediate_size: int,
+        num_layers: int,
+        max_height: int,
+        max_width: int,
+        task_vocab_size: int = 4,
+        dropout: float = 0.0,
+        use_task_embedding: bool = False,
+    ):
+        super().__init__()
+        self.vocab_size = int(vocab_size)
+        self.max_height = int(max_height)
+        self.max_width = int(max_width)
+        self.use_cls_token = False
+        self.use_task_embedding = bool(use_task_embedding)
+        input_size = self.max_height * self.max_width * self.vocab_size
+        self.mlp = _make_mlp(input_size, intermediate_size, hidden_size, num_layers, dropout)
+        self.norm = nn.LayerNorm(hidden_size)
+        if self.use_task_embedding:
+            self.task_embedding = nn.Embedding(task_vocab_size, hidden_size)
+
+    def forward(self, tokens: torch.Tensor, task_ids: torch.Tensor | None = None) -> torch.Tensor:
+        if tokens.ndim != 3:
+            raise ValueError(f"GlobalBoardEncoder expects [batch, height, width], got {tuple(tokens.shape)}.")
+        batch, height, width = tokens.shape
+        if height != self.max_height or width != self.max_width:
+            raise ValueError(
+                f"GlobalBoardEncoder uses a fixed board shape {(self.max_height, self.max_width)}, got {(height, width)}."
+            )
+        if tokens.min() < 0 or tokens.max() >= self.vocab_size:
+            raise ValueError("Grid contains token outside the encoder vocabulary.")
+        x = F.one_hot(tokens, num_classes=self.vocab_size).to(dtype=self.mlp[0].weight.dtype)
+        latent = self.norm(self.mlp(x.reshape(batch, -1)))
+        if self.use_task_embedding:
+            if task_ids is None:
+                task_ids = torch.zeros(batch, dtype=torch.long, device=tokens.device)
+            latent = latent + self.task_embedding(task_ids)
+        return latent.unsqueeze(1)
+
+
+class GlobalActionPredictor(nn.Module):
+    """Predict one global latent token conditioned on a compact action vector."""
+
+    def __init__(self, hidden_size: int, action_size: int, intermediate_size: int, num_layers: int, dropout: float):
+        super().__init__()
+        self.net = _make_mlp(hidden_size + action_size, intermediate_size, hidden_size, num_layers, dropout)
+        self.norm = nn.LayerNorm(hidden_size)
+
+    def forward(self, latents: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        if latents.ndim != 3 or latents.shape[1] != 1:
+            raise ValueError("GlobalActionPredictor expects latents with shape [batch, 1, hidden].")
+        if actions.ndim != 2 or actions.shape[0] != latents.shape[0]:
+            raise ValueError("GlobalActionPredictor actions must have shape [batch, action_size].")
+        x = torch.cat([latents[:, 0], actions], dim=-1)
+        return self.norm(self.net(x)).unsqueeze(1)
+
+
+class MLPActionSequenceEncoder(nn.Module):
+    """Encode a fixed span of lower-level action vectors without attention."""
+
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        output_size: int,
+        intermediate_size: int,
+        num_layers: int,
+        max_span: int,
+        dropout: float,
+    ):
+        super().__init__()
+        self.input_size = int(input_size)
+        self.max_span = int(max_span)
+        self.net = _make_mlp(self.max_span * self.input_size, intermediate_size, output_size, num_layers, dropout)
+        self.norm = nn.LayerNorm(output_size)
+
+    def forward(self, lower_actions: torch.Tensor) -> torch.Tensor:
+        if lower_actions.ndim != 3:
+            raise ValueError("lower_actions must have shape [batch, span, features].")
+        batch, span, features = lower_actions.shape
+        if features != self.input_size:
+            raise ValueError("lower action feature size must match the MLP action-sequence encoder input size.")
+        if span != self.max_span:
+            raise ValueError(f"MLPActionSequenceEncoder expects span {self.max_span}, got {span}.")
+        return self.norm(self.net(lower_actions.reshape(batch, span * features)))
+
+
 class ActionSequenceEncoder(nn.Module):
     """Encode a fixed span of lower-level actions into one abstract action vector."""
 
@@ -105,6 +215,8 @@ class ActionConditionedWorldModel(nn.Module):
         action_value_vocab_size: int = 16,
         dropout: float = 0.0,
         target_momentum: float = 0.99,
+        encoder_type: str = "grid_transformer",
+        action_embedding_dim: int | None = None,
         use_task_embedding: bool = True,
         use_selected_cell_marker: bool = True,
         action_injection: str = "global",
@@ -123,15 +235,25 @@ class ActionConditionedWorldModel(nn.Module):
         macro_action_vq_beta: float = 0.25,
     ):
         super().__init__()
+        if encoder_type not in {"grid_transformer", "global_mlp"}:
+            raise ValueError("encoder_type must be 'grid_transformer' or 'global_mlp'.")
+        self.encoder_type = encoder_type
+        self.hidden_size = int(hidden_size)
         self.max_width = int(max_width)
         self.target_momentum = float(target_momentum)
         self.use_task_embedding = bool(use_task_embedding)
         self.use_selected_cell_marker = bool(use_selected_cell_marker)
         if action_injection not in {"global", "local_value"}:
             raise ValueError("action_injection must be 'global' or 'local_value'.")
+        if self.encoder_type == "global_mlp" and action_injection != "global":
+            raise ValueError("global_mlp only supports global action conditioning.")
+        if self.encoder_type == "global_mlp" and self.use_selected_cell_marker:
+            raise ValueError("global_mlp has one latent token and cannot use selected-cell markers.")
         self.action_injection = action_injection
         self.predict_residual = bool(predict_residual)
         self.use_cls_token = bool(use_cls_token)
+        if self.encoder_type == "global_mlp" and self.use_cls_token:
+            raise ValueError("global_mlp emits one latent token directly and does not use a CLS token.")
         self.use_goal_energy_head = bool(use_goal_energy_head)
         self.use_action_policy_head = bool(use_action_policy_head)
         self.use_action_value_head = bool(use_action_value_head)
@@ -147,73 +269,148 @@ class ActionConditionedWorldModel(nn.Module):
         self.macro_action_vq_beta = float(macro_action_vq_beta)
         if self.use_macro_action_vq and self.macro_action_codebook_size <= 0:
             raise ValueError("macro_action_codebook_size must be positive when macro-action VQ is enabled.")
-        self.encoder = GridEncoder(
-            vocab_size=vocab_size,
-            hidden_size=hidden_size,
-            intermediate_size=intermediate_size,
-            num_layers=encoder_layers,
-            num_heads=num_heads,
-            max_height=max_height,
-            max_width=max_width,
-            task_vocab_size=task_vocab_size,
-            dropout=dropout,
-            use_cls_token=self.use_cls_token,
-        )
-        self.target_encoder = GridEncoder(
-            vocab_size=vocab_size,
-            hidden_size=hidden_size,
-            intermediate_size=intermediate_size,
-            num_layers=encoder_layers,
-            num_heads=num_heads,
-            max_height=max_height,
-            max_width=max_width,
-            task_vocab_size=task_vocab_size,
-            dropout=0.0,
-            use_cls_token=self.use_cls_token,
-        )
+        if self.encoder_type == "global_mlp":
+            self.encoder = GlobalBoardEncoder(
+                vocab_size=vocab_size,
+                hidden_size=hidden_size,
+                intermediate_size=intermediate_size,
+                num_layers=encoder_layers,
+                max_height=max_height,
+                max_width=max_width,
+                task_vocab_size=task_vocab_size,
+                dropout=dropout,
+                use_task_embedding=self.use_task_embedding,
+            )
+            self.target_encoder = GlobalBoardEncoder(
+                vocab_size=vocab_size,
+                hidden_size=hidden_size,
+                intermediate_size=intermediate_size,
+                num_layers=encoder_layers,
+                max_height=max_height,
+                max_width=max_width,
+                task_vocab_size=task_vocab_size,
+                dropout=0.0,
+                use_task_embedding=self.use_task_embedding,
+            )
+        else:
+            self.encoder = GridEncoder(
+                vocab_size=vocab_size,
+                hidden_size=hidden_size,
+                intermediate_size=intermediate_size,
+                num_layers=encoder_layers,
+                num_heads=num_heads,
+                max_height=max_height,
+                max_width=max_width,
+                task_vocab_size=task_vocab_size,
+                dropout=dropout,
+                use_cls_token=self.use_cls_token,
+            )
+            self.target_encoder = GridEncoder(
+                vocab_size=vocab_size,
+                hidden_size=hidden_size,
+                intermediate_size=intermediate_size,
+                num_layers=encoder_layers,
+                num_heads=num_heads,
+                max_height=max_height,
+                max_width=max_width,
+                task_vocab_size=task_vocab_size,
+                dropout=0.0,
+                use_cls_token=self.use_cls_token,
+            )
         self.target_encoder.load_state_dict(self.encoder.state_dict())
         for param in self.target_encoder.parameters():
             param.requires_grad_(False)
 
-        self.task_embedding = nn.Embedding(task_vocab_size, hidden_size)
-        self.row_embedding = nn.Embedding(max_height, hidden_size)
-        self.col_embedding = nn.Embedding(max_width, hidden_size)
-        self.value_embedding = nn.Embedding(action_value_vocab_size, hidden_size)
+        self.action_embedding_dim = int(action_embedding_dim) if action_embedding_dim is not None else int(hidden_size)
+        if self.action_embedding_dim <= 0:
+            raise ValueError("action_embedding_dim must be positive.")
+        if self.encoder_type != "global_mlp" and self.action_embedding_dim != int(hidden_size):
+            raise ValueError("action_embedding_dim can differ from hidden_size only for encoder_type='global_mlp'.")
+        self.task_embedding = nn.Embedding(task_vocab_size, self.action_embedding_dim)
+        self.row_embedding = nn.Embedding(max_height, self.action_embedding_dim)
+        self.col_embedding = nn.Embedding(max_width, self.action_embedding_dim)
+        self.value_embedding = nn.Embedding(action_value_vocab_size, self.action_embedding_dim)
         self.selected_cell = nn.Parameter(torch.zeros(hidden_size))
-        self.action_norm = nn.LayerNorm(hidden_size)
-        self.predictor = TransformerStack(predictor_layers, hidden_size, intermediate_size, num_heads, dropout)
-        self.higher_predictors = nn.ModuleList(
-            [
-                TransformerStack(predictor_layers, hidden_size, intermediate_size, num_heads, dropout)
-                for _ in range(self.hierarchy_levels - 1)
-            ]
-        )
-        self.higher_action_encoders = nn.ModuleList(
-            [
-                ActionSequenceEncoder(
-                    hidden_size if level_index == 0 else self.macro_action_dim,
-                    hidden_size,
-                    self.macro_action_dim,
-                    intermediate_size,
-                    num_heads,
-                    num_layers=1,
-                    max_span=self.hierarchy_span,
-                    dropout=dropout,
-                )
-                for level_index in range(self.hierarchy_levels - 1)
-            ]
-        )
-        self.higher_action_decoders = nn.ModuleList(
-            [
-                nn.Identity()
-                if self.macro_action_dim == hidden_size
-                else nn.Sequential(
-                    nn.LayerNorm(self.macro_action_dim),
-                    nn.Linear(self.macro_action_dim, hidden_size),
-                )
-                for _ in range(self.hierarchy_levels - 1)
-            ]
-        )
+        self.action_norm = nn.LayerNorm(self.action_embedding_dim)
+        if self.encoder_type == "global_mlp":
+            self.predictor = GlobalActionPredictor(
+                hidden_size,
+                self.action_embedding_dim,
+                intermediate_size,
+                predictor_layers,
+                dropout,
+            )
+            self.higher_predictors = nn.ModuleList(
+                [
+                    GlobalActionPredictor(
+                        hidden_size,
+                        self.action_embedding_dim,
+                        intermediate_size,
+                        predictor_layers,
+                        dropout,
+                    )
+                    for _ in range(self.hierarchy_levels - 1)
+                ]
+            )
+            self.higher_action_encoders = nn.ModuleList(
+                [
+                    MLPActionSequenceEncoder(
+                        self.action_embedding_dim if level_index == 0 else self.macro_action_dim,
+                        hidden_size,
+                        self.macro_action_dim,
+                        intermediate_size,
+                        num_layers=2,
+                        max_span=self.hierarchy_span,
+                        dropout=dropout,
+                    )
+                    for level_index in range(self.hierarchy_levels - 1)
+                ]
+            )
+            self.higher_action_decoders = nn.ModuleList(
+                [
+                    nn.Identity()
+                    if self.macro_action_dim == self.action_embedding_dim
+                    else nn.Sequential(
+                        nn.LayerNorm(self.macro_action_dim),
+                        nn.Linear(self.macro_action_dim, self.action_embedding_dim),
+                    )
+                    for _ in range(self.hierarchy_levels - 1)
+                ]
+            )
+        else:
+            self.predictor = TransformerStack(predictor_layers, hidden_size, intermediate_size, num_heads, dropout)
+            self.higher_predictors = nn.ModuleList(
+                [
+                    TransformerStack(predictor_layers, hidden_size, intermediate_size, num_heads, dropout)
+                    for _ in range(self.hierarchy_levels - 1)
+                ]
+            )
+            self.higher_action_encoders = nn.ModuleList(
+                [
+                    ActionSequenceEncoder(
+                        self.action_embedding_dim if level_index == 0 else self.macro_action_dim,
+                        hidden_size,
+                        self.macro_action_dim,
+                        intermediate_size,
+                        num_heads,
+                        num_layers=1,
+                        max_span=self.hierarchy_span,
+                        dropout=dropout,
+                    )
+                    for level_index in range(self.hierarchy_levels - 1)
+                ]
+            )
+            self.higher_action_decoders = nn.ModuleList(
+                [
+                    nn.Identity()
+                    if self.macro_action_dim == hidden_size
+                    else nn.Sequential(
+                        nn.LayerNorm(self.macro_action_dim),
+                        nn.Linear(self.macro_action_dim, hidden_size),
+                    )
+                    for _ in range(self.hierarchy_levels - 1)
+                ]
+            )
         self.macro_action_codebooks = nn.ModuleList(
             [
                 VectorQuantizer(self.macro_action_codebook_size, self.macro_action_dim, self.macro_action_vq_beta)
@@ -771,6 +968,35 @@ class ActionConditionedWorldModel(nn.Module):
         if int(level) < 0 or int(level) >= self.hierarchy_levels:
             raise ValueError(f"level must be in [0, {self.hierarchy_levels}).")
         aux: dict[str, torch.Tensor] = {}
+        if self.encoder_type == "global_mlp":
+            if latents.ndim != 3 or latents.shape[1] != 1:
+                raise ValueError("global_mlp latents must have shape [batch, 1, hidden].")
+            if int(level) == 0:
+                predicted = latents
+                for step in range(actions.shape[1]):
+                    predicted = self.predict_latent_from_latent(
+                        predicted,
+                        actions[:, step],
+                        height=height,
+                        width=width,
+                    )
+                if return_action_aux:
+                    return predicted, aux
+                return predicted
+            expected = self.hierarchy_span ** int(level)
+            if actions.shape[1] != expected:
+                raise ValueError(f"level {level} expects exactly {expected} primitive actions.")
+            if return_action_aux:
+                abstract_action, aux = self.encode_hierarchy_action(actions, level=int(level), return_aux=True)
+            else:
+                abstract_action = self.encode_hierarchy_action(actions, level=int(level))
+            action_context = self.decode_hierarchy_action(abstract_action, level=int(level))
+            predicted = self.higher_predictors[int(level) - 1](latents, action_context)
+            if self.predict_residual:
+                predicted = latents + predicted
+            if return_action_aux:
+                return predicted, aux
+            return predicted
         if int(level) == 0:
             conditioned = self._condition_latents(latents, actions, height=height, width=width)
         else:
@@ -809,6 +1035,12 @@ class ActionConditionedWorldModel(nn.Module):
         if level <= 0 or level >= self.hierarchy_levels:
             raise ValueError(f"level must be in [1, {self.hierarchy_levels}).")
         abstract_actions = self.quantize_hierarchy_action(abstract_actions, level=level, quantize=quantize)
+        if self.encoder_type == "global_mlp":
+            action_context = self.decode_hierarchy_action(abstract_actions, level=level)
+            predicted = self.higher_predictors[level - 1](latents, action_context)
+            if self.predict_residual:
+                return latents + predicted
+            return predicted
         conditioned = latents + self.decode_hierarchy_action(abstract_actions, level=level).unsqueeze(1)
         predicted = self._predictor_for_level(level)(conditioned)
         if self.predict_residual:
@@ -830,6 +1062,14 @@ class ActionConditionedWorldModel(nn.Module):
         batch = latents.shape[0]
         if actions.shape[0] != batch:
             raise ValueError("actions batch size must match latents batch size.")
+        if self.encoder_type == "global_mlp":
+            if latents.shape[1] != 1:
+                raise ValueError("global_mlp latents must contain exactly one token.")
+            action_context = self._action_embedding(actions)
+            predicted = self.predictor(latents, action_context)
+            if self.predict_residual:
+                return latents + predicted
+            return predicted
         expected_tokens = int(height) * int(width) + self._token_offset()
         if latents.shape[1] != expected_tokens:
             raise ValueError("height*width plus optional CLS token must match latent token length.")

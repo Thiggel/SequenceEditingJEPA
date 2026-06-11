@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-11 11:32 CEST
+Last updated: 2026-06-11 13:51 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -73,6 +73,23 @@ recursive L1 hierarchy CEM, and recursive full L2/3-level hierarchy CEM, with
 learned and oracle top-score controls where applicable. Flat reset/beam is
 intentionally omitted. All Grid 4S stderr files are empty; no results yet.
 
+Submitted at 2026-06-11 13:48 CEST: Grid 4U/4V adds the requested global
+single-latent board encoder branch. Grid 4U training array `3717900_[0-2]`
+runs `scripts/slurm/run_grid4u_global_mlp_latent.slurm` and is currently
+running on `a2141` under `rtxpro6k`. It trains L1/L2/L3 variants with
+`encoder_type=global_mlp`: the whole 9x9 Sudoku board is one MLP-encoded latent
+token, with no attention encoder, no CLS token, and no selected-cell marker.
+Actions are embedded from `(row, col, value)` into a compact
+`action_embedding_dim=32`, then an MLP predictor maps `(state, action)` to the
+next singular latent. L2/L3 use MLP action-sequence encoders over lower-level
+action chunks rather than attention. Dependent Grid 4V eval array
+`3717901_[0-15]` runs `scripts/slurm/run_grid4v_global_mlp_planner_eval.slurm`
+with `afterok:3717900`; it is dependency-blocked. Grid 4V evaluates true
+receding-horizon MPC-CEM (`horizon=16`, execute one action then replan) with
+learned `goal_energy` and oracle `latent_goal`, reset/beam controls for both
+scores, and recursive hierarchy CEM for L2/L3. The 4U stderr files are empty at
+startup; no results yet.
+
 Push note: the 2026-06-11 09:15 qualitative-probe updates were committed
 locally as `eaf3e14` in this repo and `49ad09b` in
 `../sequence-editing-report`. `git push origin main` failed for both with
@@ -139,6 +156,8 @@ locally as `eaf3e14` in this repo and `49ad09b` in
 | `3715251_[0-2]` | COMPLETED | Grid 4R recursive hierarchy diagnostics on Grid 4N macro-action checkpoint completed after Grid 4N. All three tasks exited `0:0` with empty stderr. Recursive macro-action top score solved `0/16` and terminal `0/16` for `cem`, `gd`, and `gd_reachability`; mean remaining Hamming was `51.81`, `52.94`, and `51.31` respectively. Learned macro-action top score is not directionally useful here and is worse than the non-recursive latent-goal subgoal CEM control. |
 | `3717328_[0-9]` | RUNNING | Grid 4S HWM-style L3 span-4 macro-action bottleneck/codebook training in `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`. Live throttle increased from `%4` to `%10` by 11:30 CEST. Tasks `_0`-`_3` started 2026-06-11 11:17:31 CEST on `a0536`; `_4`-`_7` started 11:27:19 CEST on `a0934`; `_8` started 11:30:33 CEST on `a0533`; `_9` started 11:30:33 CEST on `a0833`. All Grid 4S stderr files are empty. |
 | `3717329_[0-57]` | PENDING | Grid 4T eval-only planner matrix for Grid 4S in `scripts/slurm/run_grid4t_macro_bottleneck_planner_eval.slurm`, dependency `afterok:3717328`. It runs flat MCTS depth `32`/256 sims, recursive L1 hierarchy CEM, and recursive full L2/3-level hierarchy CEM with learned top score and oracle `latent_goal` controls. |
+| `3717900_[0-2]` | RUNNING | Grid 4U global single-latent MLP JEPA training in `scripts/slurm/run_grid4u_global_mlp_latent.slurm`. Tasks `_0`-`_2` started 2026-06-11 13:48:50 CEST on `a2141` under `rtxpro6k`. Configs are `grid4u_sudoku_global_mlp_l1`, `l2`, and `l3`; output roots are `$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_global_mlp_l1`, `..._l2_span4`, and `..._l3_span4`. Stderr files are empty at startup. |
+| `3717901_[0-15]` | PENDING | Grid 4V eval-only planner matrix for Grid 4U in `scripts/slurm/run_grid4v_global_mlp_planner_eval.slurm`, dependency `afterok:3717900`. It runs MPC-CEM and reset/beam learned/oracle controls for L1/L2/L3 plus recursive hierarchy CEM for L2/L3. |
 | `3715253`; `3715250`, `3715254`, `3715255` | CANCELLED | User-requested one-shot Grid 4P/4Q/4R oversight jobs all began together at 2026-06-10 11:42:38 CEST. Stale duplicate active watch jobs `3715250`, `3715254`, and `3715255` were cancelled at 11:44:50 CEST with logs preserved; stale running watch `3715253` was cancelled at 11:56:08 after it cancelled the first new scheduled attempt. |
 | `3715429`, `3715430`, `3715431`, `3715433`, `3715432` | CANCELLED | First begin-time-blocked attempt for the user-requested 2026-06-10 18:00/20:00 and 2026-06-11 00:00/04:00/08:00 CEST checks. Cancelled before start at 11:53:40 CEST by stale watch `3715253`; superseded by `3715446`-`3715450`. |
 | `3715446`; `3715447`; `3715448`; `3715449`; `3715450` | COMPLETED | Exact-time one-shot oversight `3715446` completed at 2026-06-10 18:18:46 CEST, `3715447` at 20:12:29 CEST, `3715448` at 2026-06-11 00:14:48 CEST, `3715449` at 04:17:02 CEST, and `3715450` at 08:24:05 CEST after starting on A40 node `a1621` at 08:00:26. The final check confirmed proxy inheritance and did not submit a successor oversight job. |

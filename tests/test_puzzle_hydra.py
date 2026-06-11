@@ -52,3 +52,18 @@ def test_hydra_grid4a_goal_energy_hierarchy_configs_compose():
     assert [int(cfg.model.hierarchy_span) for cfg in configs] == [9, 9, 3]
     assert all(bool(cfg.model.use_cls_token) for cfg in configs)
     assert all(bool(cfg.model.use_goal_energy_head) for cfg in configs)
+
+
+def test_hydra_grid4u_global_mlp_configs_compose():
+    repo_root = Path(__file__).resolve().parents[1]
+    names = [
+        "grid4u_sudoku_global_mlp_l1",
+        "grid4u_sudoku_global_mlp_l2",
+        "grid4u_sudoku_global_mlp_l3",
+    ]
+    with initialize_config_dir(version_base=None, config_dir=str(repo_root / "configs" / "puzzle")):
+        configs = [compose(config_name=name) for name in names]
+    assert [str(cfg.model.encoder_type) for cfg in configs] == ["global_mlp", "global_mlp", "global_mlp"]
+    assert [int(cfg.model.hierarchy_levels) for cfg in configs] == [1, 2, 3]
+    assert [int(cfg.model.action_embedding_dim) for cfg in configs] == [32, 32, 32]
+    assert all(not bool(cfg.model.use_cls_token) for cfg in configs)

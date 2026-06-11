@@ -1,11 +1,41 @@
 # Results
 
-Last updated: 2026-06-11 11:32 CEST
+Last updated: 2026-06-11 13:51 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
 
 ## Current Key Result
+
+## 2026-06-11 Global Single-Latent MLP Submission
+
+Grid 4U/4V tests whether the token/attention representation is part of the
+learned-scorer failure mode. The new model path uses one latent token for the
+entire Sudoku board: a fixed-size one-hot board is flattened and encoded by a
+2-3 layer MLP, with no self-attention, no board-position tokens, no CLS token,
+and no selected-cell marker. Primitive actions are encoded from `(row, col,
+value)` into a compact `action_embedding_dim=32`, and an MLP predictor maps the
+single current latent plus action embedding to the next single latent. L2/L3
+global variants use MLP action-sequence encoders for macro chunks.
+
+Submitted training grid: `3717900_[0-2]` via
+`scripts/slurm/run_grid4u_global_mlp_latent.slurm`. It trains
+`hierarchy_levels={1,2,3}` with output roots
+`$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_global_mlp_l1`,
+`..._l2_span4`, and `..._l3_span4`. All three tasks started at
+2026-06-11 13:48:50 CEST on `a2141` under `rtxpro6k`; startup stderrs are
+empty.
+
+Submitted dependent planner matrix: `3717901_[0-15]` via
+`scripts/slurm/run_grid4v_global_mlp_planner_eval.slurm`, with dependency
+`afterok:3717900`. It evaluates true receding-horizon MPC-CEM with learned
+`goal_energy` and oracle `latent_goal`, reset/beam controls with both scores,
+and recursive hierarchy CEM for L2/L3. There are no results yet.
+
+Verification passed: `python -m py_compile` for the changed model/planner
+modules, `bash -n` for the Grid 4U/Grid 4V Slurm wrappers, focused pytest for
+`tests/test_puzzle_models.py` and `tests/test_puzzle_hydra.py`, one-step L1
+and L2 training smokes, and a tiny diagnostics smoke including MPC-CEM.
 
 ## 2026-06-11 Macro-Action Bottleneck Submission
 
