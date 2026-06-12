@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 09:57 CEST
+Last updated: 2026-06-12 10:34 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -53,12 +53,15 @@ across 48 records. Restricting high-level macro actions to an on-manifold
 codebook of real 16-step chunks also does not fix selection: the oracle chunk
 is never top-1 under the current learned scorers.
 
-Current puzzle-JEPA Slurm state at 2026-06-12 09:57 CEST: no repo-owned puzzle
-job is running. Grid 4Q `3715252_[0-11]` is still pending with
-`DependencyNeverSatisfied` because Grid 4M task `3711931_0` timed out after
-writing useful reset/oracle diagnostics. It is not consuming resources and
-partition broadening cannot help; resubmit Grid 4Q without the failed array
-dependency if the recursive Grid 4M read is still needed.
+Current puzzle-JEPA Slurm state at 2026-06-12 10:34 CEST: Grid 4Z `3722524`
+is running on `rtxpro6k` node `a2143`. It reruns the best Grid 4S oracle-MCTS
+macro-action setting, terminal-energy `macro_action_dim=4,VQ=64`, but trains
+rollout and hierarchy losses with coherent 50/50 correct/wrong trajectories.
+Grid 4Q `3715252_[0-11]` is still pending with `DependencyNeverSatisfied`
+because Grid 4M task `3711931_0` timed out after writing useful reset/oracle
+diagnostics. It is not consuming resources and partition broadening cannot
+help; resubmit Grid 4Q without the failed array dependency if the recursive
+Grid 4M read is still needed.
 
 Grid 4S/4T macro-action bottleneck/codebook finished cleanly. Training array
 `3717328_[0-9]` completed all ten L3 span-4 variants with macro dims
@@ -91,6 +94,16 @@ rescue the global MLP branch. Learned MPC-CEM solves `0/64`; oracle
 `latent_goal` MPC-CEM also solves `0/64`, best mean remaining Hamming `43.73`
 for L3 mixed h16. Recursive mixed hierarchy CEM solves `0/24` and remains near
 `52` mean remaining Hamming.
+
+Grid 4Z is the tokenized-hierarchy mixed-rollout control missing from Grid
+4X/4Y. Unlike Grid 4X, it does not use the global MLP bottleneck. It keeps the
+tokenized L3 span-4 macro-action bottleneck/codebook architecture from Grid 4S
+and only changes the rollout/hierarchy trajectory distribution to
+`rollout_oracle_probability=0.5` and `hierarchy_oracle_probability=0.5`.
+Output root:
+`$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_hier_macro_bottleneck_l3_terminal_energy_d4_vq64_mixed_rollouts`.
+The wrapper trains the checkpoint and then runs MCTS learned/oracle reads plus
+recursive L2 CEM learned/oracle reads.
 
 Push note: the 2026-06-11 09:15 qualitative-probe updates were committed
 locally as `eaf3e14` in this repo and `49ad09b` in
@@ -163,6 +176,8 @@ locally as `eaf3e14` in this repo and `49ad09b` in
 | `3718124_[0-11]` | COMPLETED | Grid 4W eval-only long-horizon MPC-CEM for Grid 4U. All tasks completed cleanly, stderrs empty. h32/h64 both solve `0/64` under learned and oracle scores. |
 | `3718216_[0-3]` | COMPLETED | Grid 4X mixed correct/wrong rollout training in `scripts/slurm/run_grid4x_global_mlp_mixed_rollout.slurm`. All four tasks completed cleanly in `00:13:12`-`00:20:57`; stderr files are empty. |
 | `3718217_[0-19]` | COMPLETED | Grid 4Y dependent mixed-rollout planner matrix. All tasks completed cleanly, stderrs empty. h16/h32 MPC-CEM and recursive hierarchy CEM solve `0` across the board. |
+| `3722517` | FAILED | Superseded first Grid 4Z attempt. It failed in 20s before creating the run root because the wrapper used non-append Hydra overrides for new optional training keys. |
+| `3722524` | RUNNING | Corrected Grid 4Z tokenized L3 macro-bottleneck mixed-rollout rerun in `scripts/slurm/run_grid4z_macro_bottleneck_mixed_l3.slurm`. Started 2026-06-12 10:33 CEST on `rtxpro6k` node `a2143`; 12h limit. Output root is `$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_hier_macro_bottleneck_l3_terminal_energy_d4_vq64_mixed_rollouts`. |
 | `3715253`; `3715250`, `3715254`, `3715255` | CANCELLED | User-requested one-shot Grid 4P/4Q/4R oversight jobs all began together at 2026-06-10 11:42:38 CEST. Stale duplicate active watch jobs `3715250`, `3715254`, and `3715255` were cancelled at 11:44:50 CEST with logs preserved; stale running watch `3715253` was cancelled at 11:56:08 after it cancelled the first new scheduled attempt. |
 | `3715429`, `3715430`, `3715431`, `3715433`, `3715432` | CANCELLED | First begin-time-blocked attempt for the user-requested 2026-06-10 18:00/20:00 and 2026-06-11 00:00/04:00/08:00 CEST checks. Cancelled before start at 11:53:40 CEST by stale watch `3715253`; superseded by `3715446`-`3715450`. |
 | `3715446`; `3715447`; `3715448`; `3715449`; `3715450` | COMPLETED | Exact-time one-shot oversight `3715446` completed at 2026-06-10 18:18:46 CEST, `3715447` at 20:12:29 CEST, `3715448` at 2026-06-11 00:14:48 CEST, `3715449` at 04:17:02 CEST, and `3715450` at 08:24:05 CEST after starting on A40 node `a1621` at 08:00:26. The final check confirmed proxy inheritance and did not submit a successor oversight job. |

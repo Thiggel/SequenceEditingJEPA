@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 09:57 CEST
+Last updated: 2026-06-12 10:34 CEST
 
 Detailed results now live in `../sequence-editing-report/RESULTS.md` and the
 ongoing LaTeX report `../sequence-editing-report/report.tex`.
@@ -84,6 +84,16 @@ Current interpretation: the global single-latent bottleneck does not look
 promising for Sudoku planning. It did not fix the learned scorer, and it also
 damaged the oracle-goal latent geometry. Mixed wrong rollouts did not help this
 branch.
+
+Follow-up submitted at 2026-06-12 10:34 CEST: corrected Grid 4Z job `3722524`
+reruns the tokenized L3 span-4 macro-action bottleneck/codebook branch, not the
+global MLP branch, with coherent mixed correct/wrong rollout and hierarchy
+batches. First attempt `3722517` failed before training on Hydra append-override
+syntax and produced no run root. The live run uses terminal-energy
+`macro_action_dim=4,VQ=64`, the best Grid 4T oracle-MCTS proximity setting, and
+writes to
+`$PUZZLE_JEPA_WORK_ROOT/runs/sudoku_jepa_5m_hier_macro_bottleneck_l3_terminal_energy_d4_vq64_mixed_rollouts`.
+No result yet.
 
 Verification passed: `python -m py_compile` for the changed model/planner/data
 modules, `bash -n` for the Grid 4U/Grid 4V/Grid 4W/Grid 4X/Grid 4Y Slurm
