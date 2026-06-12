@@ -1,9 +1,13 @@
 # Results
 
-Last updated: 2026-06-12 16:20 CEST
+Last updated: 2026-06-12 16:50 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
+
+Clean Grid5-only planning and running-experiment docs live in
+`docs/GRID5_PLAN.md`, `docs/GRID5_BACKLOG.md`, and `docs/GRID5_LOG.md`; the
+source-of-truth versions live in `../sequence-editing-report/`.
 
 ## Current Result
 
@@ -12,6 +16,9 @@ Grid 5B/5C are active. Grid 5B original tasks `0-5` hit Slurm `NODE_FAIL` on
 completed, and tasks `6-7` were still running at the latest check. Grid 5C planner matrix eval
 has been submitted as dependent jobs `3724691`, `3724698`, `3724700`,
 `3724701`, and `3724702`.
+
+Grid5 oversight checks are scheduled every 6h for the next 2.5 days as
+`3724789`-`3724798`. Dummy alias-path verification passed as `3724787`.
 
 Grid 5 `3722613_[0-23]` completed cleanly. All 24 tasks exited `0:0`, all
 stderr files are empty, and all expected diagnostics were written.

@@ -2,7 +2,11 @@
 
 Last updated: 2026-06-12 15:54 CEST
 
-The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
+The active source-of-truth backlog lives in
+`../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
+live in `../sequence-editing-report/GRID5_PLAN.md`,
+`../sequence-editing-report/GRID5_BACKLOG.md`, and
+`../sequence-editing-report/GRID5_LOG.md`.
 
 ## Active: Grid 5 SIGReg Single-State JEPA
 

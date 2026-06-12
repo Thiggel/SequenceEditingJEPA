@@ -6,6 +6,9 @@ Long-form handoff source of truth: `../sequence-editing-report`.
 
 - Ongoing LaTeX report: `../sequence-editing-report/report.tex`
 - Experiment backlog: `../sequence-editing-report/BACKLOG.md`
+- Clean Grid5 backlog: `../sequence-editing-report/GRID5_BACKLOG.md`
+- Clean Grid5 plan: `../sequence-editing-report/GRID5_PLAN.md`
+- Clean Grid5 log: `../sequence-editing-report/GRID5_LOG.md`
 - Live status: `../sequence-editing-report/STATUS.md`
 - Results and insights: `../sequence-editing-report/RESULTS.md`
 - Chronological log: `../sequence-editing-report/LOG.md`
@@ -136,6 +139,25 @@ Grid 5C planner matrix was added as
     matching original Grid 5B task; `3724702_8` has started
 - Pending Grid 5C jobs have 12h limits. The already-running `3724698_[9-11]`
   retained its original 8h limit because Slurm denied extension after start.
+
+Grid 5 oversight is re-enabled for the current Grid5 wave only.
+
+- Prompt: `scripts/oversight/grid5_oversight_prompt.md`
+- Wrapper: `scripts/slurm/run_grid5_oversight.slurm`
+- Invocation: sources `~/.bash_profile`, then uses the local `cs` alias as
+  `cs ... exec` with `model_reasoning_effort="medium"`
+- Dummy verified job: `3724787`, exit `0:0`, no edits
+- Scheduled jobs every 6h for 2.5 days:
+  `3724789` at 2026-06-12 22:50 CEST,
+  `3724790` at 2026-06-13 04:50,
+  `3724791` at 2026-06-13 10:50,
+  `3724792` at 2026-06-13 16:50,
+  `3724793` at 2026-06-13 22:50,
+  `3724794` at 2026-06-14 04:50,
+  `3724795` at 2026-06-14 10:50,
+  `3724796` at 2026-06-14 16:50,
+  `3724797` at 2026-06-14 22:50,
+  `3724798` at 2026-06-15 04:50.
 
 ## Grid 5 Matrix
 
