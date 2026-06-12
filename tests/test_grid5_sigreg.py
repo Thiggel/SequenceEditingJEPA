@@ -1,4 +1,6 @@
+import importlib.util
 import numpy as np
+import sys
 import torch
 from hydra import compose, initialize_config_dir
 
@@ -8,6 +10,16 @@ from puzzle_jepa.data import SudokuWorld, collate_rollouts, sample_oracle_rollou
 from puzzle_jepa.eval.grid5_diagnostics import candidate_actions
 from puzzle_jepa.eval.grid5_mpc_cem_diagnostics import cem_optimize_action_sequence, score_latent_rollouts
 from puzzle_jepa.models import SigRegActionJEPA, sigreg_loss
+
+
+_PROBE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "analysis" / "grid5_symbolic_planning_probe.py"
+_PROBE_SPEC = importlib.util.spec_from_file_location("grid5_symbolic_planning_probe", _PROBE_PATH)
+assert _PROBE_SPEC is not None and _PROBE_SPEC.loader is not None
+_PROBE = importlib.util.module_from_spec(_PROBE_SPEC)
+sys.modules[_PROBE_SPEC.name] = _PROBE
+_PROBE_SPEC.loader.exec_module(_PROBE)
+apply_sequences_vectorized = _PROBE.apply_sequences_vectorized
+score_states = _PROBE.score_states
 
 
 SUDOKU_PUZZLE = (
@@ -248,3 +260,38 @@ def test_grid5_mpc_cem_uses_ar_history_beyond_predictor_window():
     )
     assert scores.shape == (2,)
     assert torch.isfinite(scores).all()
+
+
+def test_grid5_symbolic_probe_applies_action_sequences_exactly():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    actions = [
+        world.legal_actions(example.state, clue_mask=world.clue_mask_from_puzzle(example.state))[0],
+        world.legal_actions(example.state, clue_mask=world.clue_mask_from_puzzle(example.state))[1],
+    ]
+    sampled = np.asarray([[0, 1], [1, 0]], dtype=np.int64)
+    boards = apply_sequences_vectorized(example.state, actions, sampled)
+    assert boards.shape == (2, 9, 9)
+    for batch, order in enumerate(sampled):
+        expected = example.state.copy()
+        for action_index in order:
+            action = actions[int(action_index)]
+            expected[action.row, action.col] = action.value
+        np.testing.assert_array_equal(boards[batch], expected)
+
+
+def test_grid5_symbolic_probe_true_hamming_score_orders_exact_goal_best():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    model = SigRegActionJEPA(vocab_size=world.vocab_size, latent_size=16)
+    states = np.stack([example.goal, example.state])
+    scores = score_states(
+        model,
+        states,
+        example.goal,
+        example.state,
+        "true_hamming",
+        torch.device("cpu"),
+    )
+    assert scores[0] == 0.0
+    assert scores[1] > scores[0]
