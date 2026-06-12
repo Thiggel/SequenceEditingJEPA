@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-11 14:30 CEST
+Last updated: 2026-06-12 09:57 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 Deferred planner-ablation notes live in `docs/PLANNER_ABLATION_NOTES.md`.
@@ -53,58 +53,44 @@ across 48 records. Restricting high-level macro actions to an on-manifold
 codebook of real 16-step chunks also does not fix selection: the oracle chunk
 is never top-1 under the current learned scorers.
 
-Submitted at 2026-06-11 11:17 CEST: Grid 4S adds an HWM-style
-low-dimensional macro-action bottleneck. The previous hierarchy encoded chunks
-of lower-level actions, but the resulting macro action was hidden-width and CEM
-optimized in that full space. The new code supports `model.macro_action_dim`
-plus optional VQ/codebook quantization; high-level CEM/GD now samples the
-macro-action dimension and decodes/quantizes before predictor rollout.
-Training array `3717328_[0-9]` runs
-`scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`, with L3 span-4 variants
-over macro dims `4/8/16/32`, VQ `(4,64)` and `(8,128)`, and scorer variants
-`terminal_energy`, `state_value`, and `macro_action_advantage`; the `256` dim
-run was dropped. The live array throttle was increased from `%4` to `%10` by
-11:30 CEST. All ten training tasks are running: `_0`-`_3` on `a0536`, `_4`-`_7`
-on `a0934`, `_8` on `a0533`, and `_9` on `a0833`. Dependent eval
-array `3717329_[0-57]` uses
-`scripts/slurm/run_grid4t_macro_bottleneck_planner_eval.slurm` with
-`afterok:3717328`; it is dependency-blocked. Grid 4T runs flat MCTS depth `32`,
-recursive L1 hierarchy CEM, and recursive full L2/3-level hierarchy CEM, with
-learned and oracle top-score controls where applicable. Flat reset/beam is
-intentionally omitted. All Grid 4S stderr files are empty; no results yet.
+Current puzzle-JEPA Slurm state at 2026-06-12 09:57 CEST: no repo-owned puzzle
+job is running. Grid 4Q `3715252_[0-11]` is still pending with
+`DependencyNeverSatisfied` because Grid 4M task `3711931_0` timed out after
+writing useful reset/oracle diagnostics. It is not consuming resources and
+partition broadening cannot help; resubmit Grid 4Q without the failed array
+dependency if the recursive Grid 4M read is still needed.
 
-Submitted at 2026-06-11 13:48 CEST: Grid 4U/4V adds the requested global
-single-latent board encoder branch. Grid 4U training array `3717900_[0-2]`
-runs `scripts/slurm/run_grid4u_global_mlp_latent.slurm` and is currently
-running on `a2141` under `rtxpro6k`. It trains L1/L2/L3 variants with
-`encoder_type=global_mlp`: the whole 9x9 Sudoku board is one MLP-encoded latent
-token, with no attention encoder, no CLS token, and no selected-cell marker.
-Actions are embedded from `(row, col, value)` into a compact
-`action_embedding_dim=32`, then an MLP predictor maps `(state, action)` to the
-next singular latent. L2/L3 use MLP action-sequence encoders over lower-level
-action chunks rather than attention. Dependent Grid 4V eval array
-`3717901_[0-15]` runs `scripts/slurm/run_grid4v_global_mlp_planner_eval.slurm`
-with `afterok:3717900`; it is dependency-blocked. Grid 4V evaluates true
-receding-horizon MPC-CEM (`horizon=16`, execute one action then replan) with
-learned `goal_energy` and oracle `latent_goal`, reset/beam controls for both
-scores, and recursive hierarchy CEM for L2/L3. The 4U stderr files are empty at
-startup; all three tasks completed cleanly (`00:13:56`, `00:24:43`,
-`00:25:06`). No planner results have been analyzed yet. Grid 4V
-`3717901_[0-15%6]` and Grid 4W `3718124_[0-11%6]` started after Grid 4U
-completed and are currently running their first throttled tasks.
+Grid 4S/4T macro-action bottleneck/codebook finished cleanly. Training array
+`3717328_[0-9]` completed all ten L3 span-4 variants with macro dims
+`4/8/16/32`, VQ `(4,64)` and `(8,128)`, plus `state_value` and
+`macro_action_advantage` scorer variants. Eval array `3717329_[0-57]`
+completed all planner tasks. All checked Grid 4S/4T stderr files are empty.
+Result: no Grid 4T planner solved any board. The best macro-bottleneck read is
+flat MCTS with oracle `latent_goal`, which gets close but still solves `0/16`
+(best mean remaining Hamming `8.56` for terminal-energy `d4_vq64`). Learned
+state scores, recursive L1 CEM, and recursive full L2/3 CEM all remain around
+`49-52` mean remaining Hamming and solve `0`.
 
-Submitted at 2026-06-11 14:30 CEST: Grid 4X/4Y adds mixed correct/wrong
-rollout training. The code now supports curriculum rollout sampling with
-`training.rollout_oracle_probability` and
-`training.hierarchy_oracle_probability`. A value of `0.5` means half the
-rollout trajectories are oracle/correct and half are coherent random mutable
-trajectories with clue cells preserved. Grid 4X `3718216_[0-3]` trains L1
-mixed rollout K=2, L1 mixed rollout K=4, L2 mixed hierarchy span-4, and L3
-mixed hierarchy span-4; all four tasks started immediately with empty startup
-stderrs. Dependent Grid 4Y `3718217_[0-19]` evaluates h16/h32 MPC-CEM learned
-and oracle controls for all four checkpoints, plus recursive CEM for L2/L3.
-This supersedes oracle-only hierarchy training for the next hierarchy read,
-while completed/running 4U/4V/4W remain useful baselines.
+Grid 4U/4V/4W global single-latent MLP also finished cleanly. Grid 4U
+`3717900_[0-2]` trained L1/L2/L3 one-token MLP board encoders in `00:13:56`,
+`00:24:43`, and `00:25:06`; Grid 4V `3717901_[0-15]` and Grid 4W
+`3718124_[0-11]` completed all planner eval tasks. All checked stderr files are
+empty. Result: the global bottleneck is a negative control. Learned MPC-CEM
+h16/h32/h64 solves `0/64` and sits around `50-52` mean remaining Hamming.
+Oracle `latent_goal` MPC-CEM also solves `0/64`, around `44-46` mean remaining
+Hamming. Reset/beam oracle `latent_goal` solves `0/128`; the best re-encoded
+global read is L3 mean remaining Hamming `19.05`, still far from the old
+tokenized oracle reset branch that solved `128/128`.
+
+Grid 4X/4Y mixed correct/wrong rollout training and eval finished cleanly.
+Grid 4X `3718216_[0-3]` trained L1 mixed rollout K=2, L1 mixed rollout K=4, L2
+mixed hierarchy span-4, and L3 mixed hierarchy span-4. Grid 4Y
+`3718217_[0-19]` completed h16/h32 MPC-CEM and recursive hierarchy CEM evals.
+All checked stderr files are empty. Result: mixed wrong trajectories did not
+rescue the global MLP branch. Learned MPC-CEM solves `0/64`; oracle
+`latent_goal` MPC-CEM also solves `0/64`, best mean remaining Hamming `43.73`
+for L3 mixed h16. Recursive mixed hierarchy CEM solves `0/24` and remains near
+`52` mean remaining Hamming.
 
 Push note: the 2026-06-11 09:15 qualitative-probe updates were committed
 locally as `eaf3e14` in this repo and `49ad09b` in
@@ -164,19 +150,19 @@ locally as `eaf3e14` in this repo and `49ad09b` in
 | `3705899_[0-5]` | COMPLETED | Grid 4L scorer-spread L1 ablation first six variants. Every learned-score reset/beam variant solved `0/128`; every oracle latent-goal reset control solved `128/128`. |
 | `3705899_6` | TIMEOUT | Grid 4L MuZero-like value+MCTS. Training plus normal learned-score/oracle diagnostics completed; extra MCTS diagnostic timed out. Learned reset/beam solved `0/128`, oracle reset control solved `128/128`. |
 | `3705900` | COMPLETED | Fixed-sign Grid 4I diagnostic rerun using `--planning-score goal_value`; solved `0/128`, terminal rate `0.172`, mean remaining Hamming `49.83`. |
-| `3711931_[0-3]` | RUNNING | Grid 4M L3 span-4 hierarchical value ablation. Started at 2026-06-10 11:42:19 CEST on `a0632`/`a0633`; task `_1` completed cleanly, while `_0`, `_2`, and `_3` were still running at 09:55 CEST. Learned-score reset diagnostics solve `0/128` for every variant; reset-every-4 mean remaining Hamming is terminal energy `47.70`, action advantage `53.62`, state value `49.73`, contrastive margin `43.88`. Oracle latent-goal reset/calibration solves `128/128` for all four. Latent-goal subgoal CEM outputs now exist for all four variants and all solve `0/32`: terminal energy mean remaining Hamming `49.44`, action advantage `49.25`, state value `48.75`, contrastive margin `49.59`. Learned top-score subgoal directories for terminal/state/contrastive exist but have no final JSON yet. |
+| `3711931_[0-3]` | MIXED | Grid 4M L3 span-4 hierarchical value ablation. Task `_0` timed out after `1-00:00:26`, but tasks `_1`-`_3` completed cleanly. Useful reset/oracle diagnostics exist: learned-score reset solves `0/128` for every variant, while oracle latent-goal reset/calibration solves `128/128` for all four. The timeout caused Grid 4Q's `afterok` dependency to become unsatisfiable. |
 | `3711983` | COMPLETED | Grid 4N true macro-action advantage L3 span-4 completed at 2026-06-11 06:45:29 CEST, exit `0:0`. Oracle latent-goal reset/calibration: no-reset terminal-energy selection solved `127/128` with mean remaining Hamming `0.008`, and reset every 4 plus re-encoded planning solved `128/128`. Latent-goal subgoal CEM solved `0/32`, terminal `0/32`, mean remaining Hamming `48.47`; learned macro-action top-score subgoal CEM also solved `0/32`, terminal `0/32`, mean remaining Hamming `49.72`, so the learned top score is not directionally useful in this read. |
 | `3714062_[0-3]` | TIMEOUT | Grid 4O inference-only MCTS diagnostics timed out at 2026-06-09 04:23:43 CEST after 8h. No `diagnostics_mcts_*` directories or MCTS JSON/JSONL artifacts were written because records are emitted only after full completion. |
 | `3715249_[0-3]` | COMPLETED | Grid 4P smaller streaming MCTS diagnostic on original L1. All four tasks completed at 2026-06-10 11:53-11:54 CEST, exit `0:0`. Learned `goal_energy` d4/d8 solved `0/32`, terminal `0`, mean remaining Hamming `47.78`/`48.72`; oracle `latent_goal` d4/d8 solved `0/32`, terminal `0`, mean remaining Hamming `9.88`/`10.03`. Root debug top-1 goal-value writes: learned `65/438`, `70/452`; oracle `376/449`, `360/440`. |
-| `3715252_[0-11]` | PENDING | Grid 4Q recursive hierarchy diagnostics on Grid 4M checkpoints. Dependency `afterok:3711931`; still dependency-blocked because Grid 4M is active in post-training diagnostics. Crosses Grid 4M methods with optimizers `cem`, `gd`, `gd_reachability`. No recursive artifacts yet as of 08:04 CEST; no partition broadening is useful while dependency-blocked. |
+| `3715252_[0-11]` | PENDING/NEVER | Grid 4Q recursive hierarchy diagnostics on Grid 4M checkpoints. Dependency `afterok:3711931` is `DependencyNeverSatisfied` because Grid 4M task `_0` timed out. No recursive Grid 4Q artifacts exist. Resubmit without the failed array dependency if this read is still desired. |
 | `3715251_[0-2]` | COMPLETED | Grid 4R recursive hierarchy diagnostics on Grid 4N macro-action checkpoint completed after Grid 4N. All three tasks exited `0:0` with empty stderr. Recursive macro-action top score solved `0/16` and terminal `0/16` for `cem`, `gd`, and `gd_reachability`; mean remaining Hamming was `51.81`, `52.94`, and `51.31` respectively. Learned macro-action top score is not directionally useful here and is worse than the non-recursive latent-goal subgoal CEM control. |
-| `3717328_[0-9]` | RUNNING | Grid 4S HWM-style L3 span-4 macro-action bottleneck/codebook training in `scripts/slurm/run_grid4s_macro_bottleneck_l3.slurm`. Live throttle increased from `%4` to `%10` by 11:30 CEST. Tasks `_0`-`_3` started 2026-06-11 11:17:31 CEST on `a0536`; `_4`-`_7` started 11:27:19 CEST on `a0934`; `_8` started 11:30:33 CEST on `a0533`; `_9` started 11:30:33 CEST on `a0833`. All Grid 4S stderr files are empty. |
-| `3717329_[0-57]` | PENDING | Grid 4T eval-only planner matrix for Grid 4S in `scripts/slurm/run_grid4t_macro_bottleneck_planner_eval.slurm`, dependency `afterok:3717328`. It runs flat MCTS depth `32`/256 sims, recursive L1 hierarchy CEM, and recursive full L2/3-level hierarchy CEM with learned top score and oracle `latent_goal` controls. |
+| `3717328_[0-9]` | COMPLETED | Grid 4S HWM-style L3 span-4 macro-action bottleneck/codebook training. All ten tasks completed cleanly in `05:13:05`-`05:42:25`; stderr files are empty. |
+| `3717329_[0-57]` | COMPLETED | Grid 4T eval-only planner matrix for Grid 4S. All tasks completed cleanly, stderrs empty. Every planner read solved `0`; best oracle MCTS mean remaining Hamming was `8.56`, while recursive CEM reads stayed near `50-52`. |
 | `3717900_[0-2]` | COMPLETED | Grid 4U global single-latent MLP JEPA training in `scripts/slurm/run_grid4u_global_mlp_latent.slurm`. L1/L2/L3 completed cleanly in `00:13:56`, `00:24:43`, and `00:25:06`; stderr files are empty. |
-| `3717901_[0-15]` | RUNNING | Grid 4V eval-only planner matrix for Grid 4U in `scripts/slurm/run_grid4v_global_mlp_planner_eval.slurm`. It runs MPC-CEM and reset/beam learned/oracle controls for L1/L2/L3 plus recursive hierarchy CEM for L2/L3. Tasks `_0`-`_5` are running; `_6`-`_15` wait behind `%6`. |
-| `3718124_[0-11]` | RUNNING | Grid 4W eval-only long-horizon MPC-CEM for Grid 4U in `scripts/slurm/run_grid4w_global_mlp_mpc_horizon_eval.slurm`. It crosses horizons `32/64` with scores `goal_energy/latent_goal` for L1/L2/L3. Tasks `_0`-`_5` are running; `_6`-`_11` wait behind `%6`. |
-| `3718216_[0-3]` | RUNNING | Grid 4X mixed correct/wrong rollout training in `scripts/slurm/run_grid4x_global_mlp_mixed_rollout.slurm`. Tasks `_0`-`_3` started at 14:30 CEST on `a2141`, `a2142`, and `a2143`; startup stderr files are empty. |
-| `3718217_[0-19]` | PENDING | Grid 4Y dependent mixed-rollout planner matrix in `scripts/slurm/run_grid4y_global_mlp_mixed_rollout_eval.slurm`, dependency `afterok:3718216`. It evaluates h16/h32 MPC-CEM learned/oracle controls plus recursive L2/L3 hierarchy CEM. |
+| `3717901_[0-15]` | COMPLETED | Grid 4V eval-only planner matrix for Grid 4U. All tasks completed cleanly, stderrs empty. h16 MPC-CEM and reset/beam solve `0`; oracle `latent_goal` is also poor. |
+| `3718124_[0-11]` | COMPLETED | Grid 4W eval-only long-horizon MPC-CEM for Grid 4U. All tasks completed cleanly, stderrs empty. h32/h64 both solve `0/64` under learned and oracle scores. |
+| `3718216_[0-3]` | COMPLETED | Grid 4X mixed correct/wrong rollout training in `scripts/slurm/run_grid4x_global_mlp_mixed_rollout.slurm`. All four tasks completed cleanly in `00:13:12`-`00:20:57`; stderr files are empty. |
+| `3718217_[0-19]` | COMPLETED | Grid 4Y dependent mixed-rollout planner matrix. All tasks completed cleanly, stderrs empty. h16/h32 MPC-CEM and recursive hierarchy CEM solve `0` across the board. |
 | `3715253`; `3715250`, `3715254`, `3715255` | CANCELLED | User-requested one-shot Grid 4P/4Q/4R oversight jobs all began together at 2026-06-10 11:42:38 CEST. Stale duplicate active watch jobs `3715250`, `3715254`, and `3715255` were cancelled at 11:44:50 CEST with logs preserved; stale running watch `3715253` was cancelled at 11:56:08 after it cancelled the first new scheduled attempt. |
 | `3715429`, `3715430`, `3715431`, `3715433`, `3715432` | CANCELLED | First begin-time-blocked attempt for the user-requested 2026-06-10 18:00/20:00 and 2026-06-11 00:00/04:00/08:00 CEST checks. Cancelled before start at 11:53:40 CEST by stale watch `3715253`; superseded by `3715446`-`3715450`. |
 | `3715446`; `3715447`; `3715448`; `3715449`; `3715450` | COMPLETED | Exact-time one-shot oversight `3715446` completed at 2026-06-10 18:18:46 CEST, `3715447` at 20:12:29 CEST, `3715448` at 2026-06-11 00:14:48 CEST, `3715449` at 04:17:02 CEST, and `3715450` at 08:24:05 CEST after starting on A40 node `a1621` at 08:00:26. The final check confirmed proxy inheritance and did not submit a successor oversight job. |
