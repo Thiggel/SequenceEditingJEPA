@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 14:15 CEST
+Last updated: 2026-06-12 15:06 CEST
 
 The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -90,8 +90,8 @@ This means planner horizon alone did not rescue the original Grid 5 geometry.
 
 ## Active: Recursive Rollout Training Sweep
 
-Delta-target sweep submitted as `3724413_[0-5]`.
-Full-state-target sweep submitted as `3724500_[0-5]`.
+Delta-target sweep `3724413_[0-5]` completed cleanly.
+Full-state-target sweep `3724500_[0-5]` completed cleanly.
 
 Purpose: train the same recursive prediction mode that MPC-CEM uses. The base
 Grid 5 model trained mostly teacher-forced one-step prediction over rollout
@@ -122,6 +122,18 @@ Fixed base:
 - recursive loss weight `1.0`
 - K=8 uses 16-step sampled rollout segments; K=2/4 use 8-step segments
 - each job runs standard diagnostics plus MPC-CEM horizons `4/8/16/32/64`
+
+Result: failed solve gate. All 12 recursive variants solved `0` under oracle
+`latent_goal` and learned `goal_energy` in MPC-CEM at horizons `4/8/16/32/64`;
+terminal rate stayed `0.0`. Best MPC-CEM proximity was
+`grid5_recursive_mlp_mlp_delta_z128_k2` with oracle `latent_goal` at h64, mean
+remaining Hamming `49.88`. Best learned `goal_energy` proximity was
+`grid5_recursive_mlp_ar_transformer_state_z128_k2` at h64, mean remaining
+Hamming `50.50`.
+
+Decision: do not submit more compact single-state Grid 5 planner variants
+without changing the representation/objective. Recursive training did not
+repair the action-ranking/planner geometry.
 
 ## Historical
 

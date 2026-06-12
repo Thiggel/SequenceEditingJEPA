@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 14:15 CEST
+Last updated: 2026-06-12 15:06 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -49,25 +49,28 @@ completed.
 - Output roots:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_sigreg_{encoder}_{predictor}_{state|delta}_z{32|64|128}`
 
-Legacy Grid 4Z `3722524` is still running but is now superseded by Grid 5. Do
-not extend Grid 4 unless explicitly requested. Grid 4Q `3715252_[0-11]` remains
-pending with `DependencyNeverSatisfied`; it is not consuming resources.
+Legacy Grid 4Z `3722524` completed cleanly with exit `0:0` after `03:52:04`.
+It is superseded by Grid 5 and failed the planner gate: recursive hierarchy CEM
+with `latent_goal` and `goal_energy` both solved `0/16`, terminal rate `0.0`,
+mean remaining Hamming `50.5625`. Do not extend Grid 4 unless explicitly
+requested. Grid 4Q `3715252_[0-11]` remains pending with
+`DependencyNeverSatisfied`; it is not consuming resources.
 
 Grid 5 posthoc MPC-CEM lookahead diagnostics were submitted as
-`3724325_[0-23]` at 2026-06-12 13:44 CEST.
+`3724325_[0-23]` at 2026-06-12 13:44 CEST and completed cleanly.
 
 - Wrapper: `scripts/slurm/run_grid5_mpc_cem_diagnostics.slurm`
 - Eval module: `puzzle_jepa/eval/grid5_mpc_cem_diagnostics.py`
-- Initial state: tasks `_0`-`_19` running on `rtxpro6k`; `_20`-`_23` pending
+- Final state: all 24 tasks completed with exit `0:0`
 - Purpose: LeWorldModel-style MPC-CEM over horizons `4/8/16/32/64`
 - Outputs:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_sigreg_*/diagnostics_mpc_cem/`
 
 Grid 5 recursive rollout training was submitted as `3724413_[0-5]` at
-2026-06-12 14:00 CEST.
+2026-06-12 14:00 CEST and completed cleanly.
 
 - Wrapper: `scripts/slurm/run_grid5_recursive_rollout.slurm`
-- Initial state: pending across `a40,a100,rtxpro6k`
+- Final state: all 6 tasks completed with exit `0:0`
 - Fixed base: MLP encoder, delta prediction, latent size `128`
 - Factors: predictor `mlp|ar_transformer` x recursive rollout K `2|4|8`
 - Outputs:
@@ -76,13 +79,16 @@ Grid 5 recursive rollout training was submitted as `3724413_[0-5]` at
   horizons `4/8/16/32/64` with oracle `latent_goal` and learned `goal_energy`.
 
 Grid 5 recursive rollout full-state counterpart was submitted as
-`3724500_[0-5]` at 2026-06-12 14:14 CEST.
+`3724500_[0-5]` at 2026-06-12 14:14 CEST and completed cleanly.
 
 - Wrapper: `scripts/slurm/run_grid5_recursive_rollout_state.slurm`
-- Initial state: pending across `a40,a100,rtxpro6k`
+- Final state: all 6 tasks completed with exit `0:0`
 - Same matrix as `3724413`, but `model.predict_delta=false`
 - Outputs:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_recursive_mlp_{predictor}_state_z128_k{K}`
+
+No current Grid 5 or Grid 4Z tasks are running or pending. Checked stderr files
+for these completed arrays are empty.
 
 ## Grid 5 Matrix
 
@@ -127,3 +133,13 @@ MPC-CEM. The posthoc `3724325` job added the CEM/MPC lookahead control and also
 failed: all 24 checkpoints solved `0` at every horizon. Average remaining
 Hamming improved slightly with horizon, from about `53` at h4 to about `51.5`
 at h64, but no run reached terminal boards or exact solves.
+
+Recursive rollout training also failed the solve gate. Both delta
+`3724413_[0-5]` and full-state `3724500_[0-5]` completed cleanly, wrote all
+standard and MPC-CEM diagnostics, and solved `0` under every score/horizon.
+Best MPC-CEM proximity was
+`grid5_recursive_mlp_mlp_delta_z128_k2` with oracle `latent_goal` at h64, mean
+remaining Hamming `49.88`. Best learned `goal_energy` proximity was
+`grid5_recursive_mlp_ar_transformer_state_z128_k2` at h64, mean remaining
+Hamming `50.50`. The recursive loss reduces the train/eval mismatch in
+principle, but this sweep did not produce a planner-ready compact latent.

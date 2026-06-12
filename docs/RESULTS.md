@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 14:15 CEST
+Last updated: 2026-06-12 15:06 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -73,10 +73,11 @@ every horizon and score. Average remaining Hamming improved mildly with
 lookahead, from about `53` at h4 to about `51.5` at h64, but no variant became
 terminal or exact.
 
-## New Training Hypothesis
+## Recursive Rollout Sweep
 
-Submitted Grid 5 recursive rollout training as `3724413_[0-5]` for delta
-prediction and `3724500_[0-5]` for full-state prediction.
+Grid 5 recursive rollout training completed cleanly: delta prediction
+`3724413_[0-5]` and full-state prediction `3724500_[0-5]` all exited `0:0`
+with empty checked stderr files.
 
 Hypothesis: the compact latent may fail MPC-CEM partly because training is
 mostly teacher-forced one-step prediction, while planning recursively feeds
@@ -84,6 +85,24 @@ predicted latents back into the predictor. The six new jobs add recursive
 rollout loss with K `2/4/8`, crossed with MLP vs AR-transformer predictor.
 Both use MLP encoder and latent size `128`; the two arrays compare delta vs
 full-state prediction.
+
+Result: failed. All 12 recursive variants solved `0` under oracle
+`latent_goal` and learned `goal_energy` in MPC-CEM at horizons `4/8/16/32/64`.
+Terminal rate stayed `0.0`.
+
+Best proximity reads:
+
+- best oracle `latent_goal`: `grid5_recursive_mlp_mlp_delta_z128_k2`, h64,
+  mean remaining Hamming `49.88`
+- best learned `goal_energy`: `grid5_recursive_mlp_ar_transformer_state_z128_k2`,
+  h64, mean remaining Hamming `50.50`
+- best cheap standard-diagnostic beam proximity among the recursive runs:
+  `grid5_recursive_mlp_mlp_delta_z128_k8`, oracle mean remaining Hamming `39.6`
+
+Interpretation: recursive rollout training improved some small beam proximity
+signals, but it did not make MPC-CEM planning solve boards. The compact
+single-state geometry still fails as a planner objective, even when trained in
+the same recursive mode used by MPC-CEM.
 
 ## Diagnostics To Read First
 
