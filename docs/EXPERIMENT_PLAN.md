@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 15:31 CEST
+Last updated: 2026-06-12 15:54 CEST
 
 The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -143,6 +143,45 @@ not solve at the same CEM budget, so the next grid should not be just "more CEM"
 on the same compact scorer. The useful next branches are a more LeWM-faithful
 encoder/SIGReg setup, a direct action/constraint ranking objective, or a
 hierarchical setup only after the low-level symbolic/re-encode scorer improves.
+
+## Active: Grid 5B 10M Stabilizer Screen
+
+Submitted as `3724634_[0-11]` via
+`scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`.
+
+Purpose: test whether the compact single-state failure was mainly capacity or
+stabilization, before spending on hierarchy.
+
+Fixed large scale:
+
+- latent size `512`
+- hidden size `3072`
+- action embedding size `64`
+- one transformer layer for transformer encoder/predictor variants
+- batch size `512`, max steps `5000`
+- trainable params about `10.6M-13.4M`
+
+Screen:
+
+| Task | Run | Main Contrast |
+| ---: | --- | --- |
+| 0 | `canonical_sigreg_k4` | CLS encoder + AR predictor + full target + SIGReg + K4 |
+| 1 | `canonical_ema_sigreg_k4` | task 0 plus EMA target encoder |
+| 2 | `canonical_vicreg_k4` | task 0 with VICReg instead of SIGReg |
+| 3 | `canonical_ema_vicreg_k4` | VICReg plus EMA target encoder |
+| 4 | `canonical_sigreg_k1` | task 0 with one-step loss only |
+| 5 | `canonical_ema_sigreg_k1` | EMA SIGReg one-step loss |
+| 6 | `delta_sigreg_k4` | delta target instead of full target |
+| 7 | `mlp_pred_sigreg_k4` | MLP predictor instead of AR predictor |
+| 8 | `mlp_enc_sigreg_k4` | MLP encoder instead of CLS encoder |
+| 9 | `oldbest_scaled_sigreg_k4` | scaled old best: MLP encoder + MLP predictor + delta |
+| 10 | `oldbest_scaled_ema_sigreg_k4` | scaled old best plus EMA target |
+| 11 | `oldbest_scaled_sigreg_k1` | scaled old best one-step loss |
+
+Gate: the first pass is not exact solve only. Read symbolic re-encode action
+ranking, K=32 drift, and symbolic re-encode MPC-CEM before judging. If no
+variant improves symbolic re-encode ranking/proximity, the compact latent path
+needs a different objective or a tokenized/verifier control before hierarchy.
 
 ## Historical
 

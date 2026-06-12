@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 
 import torch
@@ -210,25 +211,35 @@ class SigRegActionJEPA(nn.Module):
         action_size: int = 16,
         max_rollout_steps: int = 8,
         dropout: float = 0.0,
+        stabilizer_type: str = "sigreg",
         sigreg_weight: float = 1.0,
         sigreg_projections: int = 64,
         sigreg_knots: int = 16,
         sigreg_knot_max: float = 5.0,
+        vicreg_variance_weight: float = 1.0,
+        vicreg_covariance_weight: float = 0.04,
+        target_encoder_momentum: float = 0.0,
     ):
         super().__init__()
         if encoder_type not in {"mlp", "cls_transformer"}:
             raise ValueError("encoder_type must be 'mlp' or 'cls_transformer'.")
         if predictor_type not in {"mlp", "ar_transformer"}:
             raise ValueError("predictor_type must be 'mlp' or 'ar_transformer'.")
+        if stabilizer_type not in {"sigreg", "vicreg"}:
+            raise ValueError("stabilizer_type must be 'sigreg' or 'vicreg'.")
         self.latent_size = int(latent_size)
         self.encoder_type = encoder_type
         self.predictor_type = predictor_type
         self.predict_delta = bool(predict_delta)
         self.max_rollout_steps = int(max_rollout_steps)
+        self.stabilizer_type = stabilizer_type
         self.sigreg_weight = float(sigreg_weight)
         self.sigreg_projections = int(sigreg_projections)
         self.sigreg_knots = int(sigreg_knots)
         self.sigreg_knot_max = float(sigreg_knot_max)
+        self.vicreg_variance_weight = float(vicreg_variance_weight)
+        self.vicreg_covariance_weight = float(vicreg_covariance_weight)
+        self.target_encoder_momentum = float(target_encoder_momentum)
         encoder_hidden_size = int(encoder_hidden_size or max(64, 4 * latent_size))
         predictor_hidden_size = int(predictor_hidden_size or max(64, 4 * latent_size))
         if encoder_type == "mlp":
@@ -252,6 +263,11 @@ class SigRegActionJEPA(nn.Module):
                 max_width=max_width,
                 dropout=dropout,
             )
+        self.target_encoder: nn.Module | None = None
+        if self.target_encoder_momentum > 0.0:
+            self.target_encoder = copy.deepcopy(self.encoder)
+            for param in self.target_encoder.parameters():
+                param.requires_grad_(False)
         self.action_encoder = ActionEncoder(max_height, max_width, action_value_vocab_size, action_size)
         if predictor_type == "mlp":
             self.predictor = _make_one_hidden_mlp(latent_size + action_size, predictor_hidden_size, latent_size, dropout)
@@ -274,6 +290,21 @@ class SigRegActionJEPA(nn.Module):
 
     def encode(self, states: torch.Tensor) -> torch.Tensor:
         return self.encoder(states)
+
+    def encode_target(self, states: torch.Tensor) -> torch.Tensor:
+        if self.target_encoder is None:
+            return self.encoder(states)
+        return self.target_encoder(states)
+
+    @torch.no_grad()
+    def update_target_encoder(self) -> None:
+        if self.target_encoder is None:
+            return
+        momentum = float(self.target_encoder_momentum)
+        for online, target in zip(self.encoder.parameters(), self.target_encoder.parameters(), strict=True):
+            target.data.mul_(momentum).add_(online.data, alpha=1.0 - momentum)
+        for online_buffer, target_buffer in zip(self.encoder.buffers(), self.target_encoder.buffers(), strict=True):
+            target_buffer.copy_(online_buffer)
 
     def predict_sequence(self, latents: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         if latents.ndim != 3:
@@ -335,25 +366,25 @@ class SigRegActionJEPA(nn.Module):
         batch, sequence_length, height, width = state_sequence.shape
         flat_states = state_sequence.reshape(batch * sequence_length, height, width)
         latents = self.encode(flat_states).reshape(batch, sequence_length, self.latent_size)
+        if self.target_encoder is None:
+            target_latents = latents
+        else:
+            with torch.no_grad():
+                target_latents = self.encode_target(flat_states).reshape(batch, sequence_length, self.latent_size)
         inputs = latents[:, :-1]
-        targets = latents[:, 1:]
+        targets = target_latents[:, 1:]
         pred = self.predict_sequence(inputs, actions)
         teacher_forced_loss = F.mse_loss(pred, targets)
-        recursive = self.recursive_rollout_loss(latents, actions, recursive_steps)
+        recursive = self.recursive_rollout_loss(latents, target_latents, actions, recursive_steps)
         prediction_loss = teacher_forced_loss + float(recursive_weight) * recursive
-        sigreg = sigreg_loss(
-            latents.reshape(batch * sequence_length, self.latent_size),
-            projections=self.sigreg_projections,
-            knots=self.sigreg_knots,
-            knot_max=self.sigreg_knot_max,
-        )
+        sigreg = self.stabilizer_loss(latents.reshape(batch * sequence_length, self.latent_size))
         initial_latents = latents[:, :1].expand(batch, sequence_length, self.latent_size)
         pred_energy = self.predict_goal_energy_from_latents(
             latents.reshape(batch * sequence_length, self.latent_size),
             initial_latents.reshape(batch * sequence_length, self.latent_size),
         )
         with torch.no_grad():
-            goal_latents = self.encode(goals).unsqueeze(1).expand(batch, sequence_length, self.latent_size)
+            goal_latents = self.encode_target(goals).unsqueeze(1).expand(batch, sequence_length, self.latent_size)
             target_energy = F.mse_loss(latents, goal_latents, reduction="none").mean(dim=-1).reshape(
                 batch * sequence_length
             )
@@ -370,11 +401,35 @@ class SigRegActionJEPA(nn.Module):
             target_latents=targets.detach(),
         )
 
-    def recursive_rollout_loss(self, latents: torch.Tensor, actions: torch.Tensor, recursive_steps: int) -> torch.Tensor:
+    def stabilizer_loss(self, embeddings: torch.Tensor) -> torch.Tensor:
+        if self.stabilizer_type == "sigreg":
+            return sigreg_loss(
+                embeddings,
+                projections=self.sigreg_projections,
+                knots=self.sigreg_knots,
+                knot_max=self.sigreg_knot_max,
+            )
+        if self.stabilizer_type == "vicreg":
+            return vicreg_loss(
+                embeddings,
+                variance_weight=self.vicreg_variance_weight,
+                covariance_weight=self.vicreg_covariance_weight,
+            )
+        raise ValueError(f"unknown stabilizer_type {self.stabilizer_type!r}.")
+
+    def recursive_rollout_loss(
+        self,
+        latents: torch.Tensor,
+        target_latents: torch.Tensor,
+        actions: torch.Tensor,
+        recursive_steps: int,
+    ) -> torch.Tensor:
         if recursive_steps <= 1:
             return latents.new_zeros(())
-        if latents.ndim != 3 or actions.ndim != 3:
-            raise ValueError("recursive rollout expects latents [batch,steps+1,latent] and actions [batch,steps,4].")
+        if latents.ndim != 3 or target_latents.ndim != 3 or actions.ndim != 3:
+            raise ValueError("recursive rollout expects latents/targets [batch,steps+1,latent] and actions [batch,steps,4].")
+        if latents.shape != target_latents.shape:
+            raise ValueError("recursive rollout latents and target_latents must have the same shape.")
         batch, sequence_length, latent_size = latents.shape
         action_steps = actions.shape[1]
         if sequence_length != action_steps + 1:
@@ -403,7 +458,7 @@ class SigRegActionJEPA(nn.Module):
                 valid_starts,
                 latent_size,
             )
-            target = latents[:, horizon : horizon + valid_starts]
+            target = target_latents[:, horizon : horizon + valid_starts]
             losses.append(F.mse_loss(pred, target))
             predictions.append(pred)
         return torch.stack(losses).mean()
@@ -449,3 +504,24 @@ def sigreg_loss(
     empirical_imag = torch.sin(values).mean(dim=0)
     target_real = torch.exp(-0.5 * t.pow(2)).view(1, -1)
     return (empirical_real - target_real).pow(2).mean() + empirical_imag.pow(2).mean()
+
+
+def vicreg_loss(
+    embeddings: torch.Tensor,
+    *,
+    variance_weight: float = 1.0,
+    covariance_weight: float = 0.04,
+    eps: float = 1.0e-4,
+) -> torch.Tensor:
+    if embeddings.ndim != 2:
+        raise ValueError("VICReg embeddings must have shape [items,features].")
+    items, features = embeddings.shape
+    if items < 2:
+        return embeddings.new_zeros(())
+    centered = embeddings - embeddings.mean(dim=0, keepdim=True)
+    std = torch.sqrt(centered.var(dim=0, unbiased=False) + float(eps))
+    variance = F.relu(1.0 - std).mean()
+    cov = centered.t() @ centered / max(1, items - 1)
+    offdiag = cov - torch.diag(torch.diagonal(cov))
+    covariance = offdiag.pow(2).sum() / float(features)
+    return float(variance_weight) * variance + float(covariance_weight) * covariance

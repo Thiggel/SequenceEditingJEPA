@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 15:31 CEST
+Last updated: 2026-06-12 15:54 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -20,6 +20,7 @@ The active experiment surface has been reset to Grid 5.
 - Train: `puzzle_jepa/train/grid5.py`
 - Diagnostics: `puzzle_jepa/eval/grid5_diagnostics.py`
 - Latest analysis probe: `scripts/analysis/grid5_symbolic_planning_probe.py`
+- Active 10M screen: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
 
 Old `grid0`-`grid4` experiment configs and Slurm wrappers were removed from the
 active tree. Historical results remain in `../sequence-editing-report`.
@@ -90,6 +91,27 @@ Grid 5 recursive rollout full-state counterpart was submitted as
 
 No current Grid 5 or Grid 4Z tasks are running or pending. Checked stderr files
 for these completed arrays are empty.
+
+Grid 5B 10M stabilizer screen was submitted as `3724634_[0-11]` at
+2026-06-12 15:54 CEST. All 12 tasks started immediately on `rtxpro6k`.
+
+- Wrapper: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
+- Partition request: `a40,a100,rtxpro6k`
+- Resource request: one GPU per task, 8 CPUs, 12h wall time
+- Run roots: `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_*`
+- Initial stderr check: empty
+- Trainable params: `10.6M` to `13.4M`; EMA variants carry frozen target
+  encoders, so total params are larger but trainable params stay in this range
+
+The 12-job screen covers:
+
+- stabilizer: SIGReg, EMA target + SIGReg, VICReg, EMA target + VICReg
+- rollout loss: K=1 vs K=4
+- prediction target: full-state vs delta
+- architecture: MLP vs CLS-transformer encoder, MLP vs AR-transformer predictor
+
+Each task trains, then runs standard diagnostics, predicted-latent MPC-CEM, and
+symbolic re-encode MPC-CEM.
 
 ## Grid 5 Matrix
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from puzzle_jepa.data import SudokuWorld, collate_rollouts, sample_oracle_rollout_transition
 from puzzle_jepa.eval.grid5_diagnostics import candidate_actions
 from puzzle_jepa.eval.grid5_mpc_cem_diagnostics import cem_optimize_action_sequence, score_latent_rollouts
-from puzzle_jepa.models import SigRegActionJEPA, sigreg_loss
+from puzzle_jepa.models import SigRegActionJEPA, sigreg_loss, vicreg_loss
 
 
 _PROBE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "analysis" / "grid5_symbolic_planning_probe.py"
@@ -62,6 +62,15 @@ def test_sigreg_penalizes_degenerate_embeddings_more_than_gaussian():
     gaussian = torch.randn(256, 16)
     degenerate_loss = sigreg_loss(degenerate, projections=64, knots=16)
     gaussian_loss = sigreg_loss(gaussian, projections=64, knots=16)
+    assert gaussian_loss < degenerate_loss
+
+
+def test_vicreg_penalizes_degenerate_embeddings_more_than_gaussian():
+    torch.manual_seed(0)
+    degenerate = torch.zeros(256, 16)
+    gaussian = torch.randn(256, 16)
+    degenerate_loss = vicreg_loss(degenerate)
+    gaussian_loss = vicreg_loss(gaussian)
     assert gaussian_loss < degenerate_loss
 
 
@@ -126,6 +135,33 @@ def test_grid5_recursive_rollout_loss_backpropagates_through_multistep_predictio
         assert any(param.grad is not None for param in model.predictor.parameters())
 
 
+def test_grid5_ema_target_encoder_is_frozen_and_updates():
+    world, batch = _rollout_batch(steps=3, batch_size=2)
+    model = SigRegActionJEPA(
+        vocab_size=world.vocab_size,
+        latent_size=16,
+        encoder_type="mlp",
+        predictor_type="mlp",
+        encoder_hidden_size=32,
+        predictor_hidden_size=32,
+        target_encoder_momentum=0.5,
+        sigreg_projections=8,
+        sigreg_knots=4,
+    )
+    assert model.target_encoder is not None
+    assert not any(param.requires_grad for param in model.target_encoder.parameters())
+    output = model.rollout_loss(batch.states, batch.actions, batch.target_states, batch.goals)
+    output.loss.backward()
+    assert any(param.grad is not None for param in model.encoder.parameters())
+    assert not any(param.grad is not None for param in model.target_encoder.parameters())
+    with torch.no_grad():
+        next(model.encoder.parameters()).add_(1.0)
+    before = next(model.target_encoder.parameters()).detach().clone()
+    model.update_target_encoder()
+    after = next(model.target_encoder.parameters()).detach()
+    assert not torch.allclose(before, after)
+
+
 def test_ar_transformer_predictor_is_causal_over_training_sequence():
     torch.manual_seed(0)
     model = SigRegActionJEPA(
@@ -169,6 +205,8 @@ def test_grid5_hydra_config_composes():
     assert cfg.training.goal_energy_weight == 1.0
     assert cfg.training.recursive_rollout_steps == 1
     assert cfg.training.recursive_rollout_weight == 0.0
+    assert cfg.model.stabilizer_type == "sigreg"
+    assert cfg.model.target_encoder_momentum == 0.0
 
 
 def test_grid5_mpc_cem_components_return_valid_sequences():

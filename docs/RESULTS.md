@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 15:31 CEST
+Last updated: 2026-06-12 15:54 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -136,6 +136,17 @@ closer at h8, mean remaining Hamming `7.5`, but still solved `0/4`. So flat
 categorical CEM is also a weak Sudoku optimizer at this budget; however, the
 latent/learned scores are the larger blocker because they remain near
 `45-51` wrong cells.
+
+## Active Grid 5B
+
+Submitted 10M-scale stabilizer/capacity screen `3724634_[0-11]`.
+
+- Trainable params: `10.6M-13.4M`
+- Stabilizers: SIGReg, EMA+SIGReg, VICReg, EMA+VICReg
+- Other anchored contrasts: K1/K4, full/delta, MLP/CLS encoder, MLP/AR
+  predictor
+- Each job runs standard diagnostics, predicted-latent MPC-CEM, and symbolic
+  re-encode MPC-CEM
 
 ## Diagnostics To Read First
 

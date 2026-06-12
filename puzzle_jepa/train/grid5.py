@@ -76,6 +76,7 @@ def run_grid5(config: dict[str, Any]) -> dict[str, Any]:
         output.loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
+        model.update_target_encoder()
 
         if step == 1 or step % eval_every == 0 or step == max_steps:
             latest_metrics = _eval_grid5(
@@ -95,6 +96,7 @@ def run_grid5(config: dict[str, Any]) -> dict[str, Any]:
                     "train_teacher_forced_loss": float(output.teacher_forced_loss.cpu()),
                     "train_recursive_loss": float(output.recursive_loss.cpu()),
                     "train_sigreg_loss": float(output.sigreg_loss.cpu()),
+                    "train_stabilizer_loss": float(output.sigreg_loss.cpu()),
                     "train_goal_energy_loss": float(output.goal_energy_loss.cpu()),
                     "rollout_steps": rollout_steps,
                     "recursive_rollout_steps": recursive_steps,
@@ -105,7 +107,9 @@ def run_grid5(config: dict[str, Any]) -> dict[str, Any]:
                     "predictor_type": str(config["model"]["predictor_type"]),
                     "predict_delta": bool(config["model"].get("predict_delta", False)),
                     "latent_size": int(config["model"]["latent_size"]),
+                    "stabilizer_type": str(config["model"].get("stabilizer_type", "sigreg")),
                     "sigreg_weight": float(config["model"].get("sigreg_weight", 1.0)),
+                    "target_encoder_momentum": float(config["model"].get("target_encoder_momentum", 0.0)),
                     "param_count": _param_count(model),
                     "trainable_param_count": _param_count(model, trainable_only=True),
                 }
@@ -165,6 +169,7 @@ def _eval_grid5(model, world, examples, rng, train_cfg, eval_cfg, device) -> dic
         "eval_teacher_forced_loss": float(output.teacher_forced_loss.cpu()),
         "eval_recursive_loss": float(output.recursive_loss.cpu()),
         "eval_sigreg_loss": float(output.sigreg_loss.cpu()),
+        "eval_stabilizer_loss": float(output.sigreg_loss.cpu()),
         "eval_goal_energy_loss": float(output.goal_energy_loss.cpu()),
     }
 
