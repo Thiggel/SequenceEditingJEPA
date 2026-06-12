@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 15:06 CEST
+Last updated: 2026-06-12 15:31 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -19,6 +19,7 @@ The active experiment surface has been reset to Grid 5.
 - Model: `puzzle_jepa/models/sigreg_jepa.py`
 - Train: `puzzle_jepa/train/grid5.py`
 - Diagnostics: `puzzle_jepa/eval/grid5_diagnostics.py`
+- Latest analysis probe: `scripts/analysis/grid5_symbolic_planning_probe.py`
 
 Old `grid0`-`grid4` experiment configs and Slurm wrappers were removed from the
 active tree. Historical results remain in `../sequence-editing-report`.
@@ -143,3 +144,16 @@ remaining Hamming `49.88`. Best learned `goal_energy` proximity was
 `grid5_recursive_mlp_ar_transformer_state_z128_k2` at h64, mean remaining
 Hamming `50.50`. The recursive loss reduces the train/eval mismatch in
 principle, but this sweep did not produce a planner-ready compact latent.
+
+Latest local CPU probe:
+`$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_symbolic_probe_20260612/`,
+`grid5_symbolic_probe_state_20260612/`, and
+`grid5_symbolic_probe_true_hamming_20260612/`.
+
+It removes learned predictor rollout from planning by executing candidate
+futures symbolically, re-encoding the exact boards, and scoring them. This also
+failed: `0/4` solves at horizons `8/16/32/64/full` for oracle `latent_goal` and
+learned `goal_energy`, with mean remaining Hamming around `45-51`. The AR
+full-state recursive checkpoint has much lower K=32 latent drift than the base
+MLP-delta checkpoint, but symbolic re-encode planning still fails, so the
+current blocker is not only predictor drift.

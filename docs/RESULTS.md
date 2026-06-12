@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 15:06 CEST
+Last updated: 2026-06-12 15:31 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -103,6 +103,39 @@ Interpretation: recursive rollout training improved some small beam proximity
 signals, but it did not make MPC-CEM planning solve boards. The compact
 single-state geometry still fails as a planner objective, even when trained in
 the same recursive mode used by MPC-CEM.
+
+## Symbolic Re-Encode Probe
+
+Added and ran `scripts/analysis/grid5_symbolic_planning_probe.py` on CPU for
+three representative checkpoints:
+
+- `grid5_sigreg_mlp_mlp_delta_z128`
+- `grid5_recursive_mlp_mlp_delta_z128_k2`
+- `grid5_recursive_mlp_ar_transformer_state_z128_k2`
+
+Artifacts:
+
+- `$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_symbolic_probe_20260612/`
+- `$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_symbolic_probe_state_20260612/`
+- `$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_symbolic_probe_true_hamming_20260612/`
+
+The probe executes candidate futures symbolically, re-encodes the resulting
+boards, and scores with oracle `latent_goal` or learned `goal_energy`, using a
+fill-empty action space. It still solved `0/4` for every horizon
+`8/16/32/64/full`; remaining Hamming stayed roughly `45-51`, which is close to
+random filled-board quality from starts with about `55` blanks.
+
+Random rollout drift is real but not the only blocker. The AR full-state
+recursive checkpoint reduced K=32 drift to MSE `0.1369` / L2 `3.39`, versus
+MSE `1.1407` / L2 `11.32` for the base MLP-delta checkpoint. Yet symbolic
+re-encode planning still solved `0`. Therefore predictor drift matters, but
+the encoder/scorer geometry itself is not ranking exact symbolic boards well.
+
+Perfect-score sanity: using true Hamming as the symbolic CEM cost got much
+closer at h8, mean remaining Hamming `7.5`, but still solved `0/4`. So flat
+categorical CEM is also a weak Sudoku optimizer at this budget; however, the
+latent/learned scores are the larger blocker because they remain near
+`45-51` wrong cells.
 
 ## Diagnostics To Read First
 

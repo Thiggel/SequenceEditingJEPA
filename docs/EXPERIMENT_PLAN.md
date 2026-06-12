@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 15:06 CEST
+Last updated: 2026-06-12 15:31 CEST
 
 The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -134,6 +134,15 @@ Hamming `50.50`.
 Decision: do not submit more compact single-state Grid 5 planner variants
 without changing the representation/objective. Recursive training did not
 repair the action-ranking/planner geometry.
+
+Follow-up symbolic re-encode probe confirms this decision. Even when candidate
+futures are exact symbolic Sudoku boards and are re-encoded before scoring,
+oracle `latent_goal` and learned `goal_energy` solve `0/4` across horizons
+`8/16/32/64/full`. A perfect true-Hamming cost gets much closer but still does
+not solve at the same CEM budget, so the next grid should not be just "more CEM"
+on the same compact scorer. The useful next branches are a more LeWM-faithful
+encoder/SIGReg setup, a direct action/constraint ranking objective, or a
+hierarchical setup only after the low-level symbolic/re-encode scorer improves.
 
 ## Historical
 
