@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 13:30 CEST
+Last updated: 2026-06-12 13:47 CEST
 
 The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -56,6 +56,28 @@ Next decision: do not spend on planner variants for this compact single-state
 geometry until the action-ranking objective/representation is changed, or wait
 for the still-running tokenized Grid 4Z control to decide whether tokenized
 local geometry remains the better base.
+
+## Active Posthoc: Grid 5 MPC-CEM Lookahead
+
+Submitted as `3724325_[0-23]`.
+
+Purpose: check whether the failed Grid 5 read was partly caused by the cheap
+enumerated beam diagnostic rather than by the latent geometry. This follows the
+LeWorldModel-style planning recipe more closely:
+
+- CEM optimizes a sequence of symbolic Sudoku actions in latent space.
+- Candidate sequences are rolled through the JEPA predictor.
+- The final predicted latent is scored against the solved-board latent.
+- MPC executes only the first action, updates the symbolic board, re-encodes,
+  and replans.
+- Horizons: `4`, `8`, `16`, `32`, `64`.
+
+Artifacts:
+
+- `diagnostics_mpc_cem/mpc_cem_summary.json`
+- `diagnostics_mpc_cem/mpc_cem_records.jsonl`
+- `diagnostics_mpc_cem/mpc_cem_root_actions.jsonl`
+- `diagnostics_mpc_cem/mpc_cem_lookahead_examples.jsonl`
 
 ## Historical
 

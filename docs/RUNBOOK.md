@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 13:30 CEST
+Last updated: 2026-06-12 13:47 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -53,6 +53,16 @@ Legacy Grid 4Z `3722524` is still running but is now superseded by Grid 5. Do
 not extend Grid 4 unless explicitly requested. Grid 4Q `3715252_[0-11]` remains
 pending with `DependencyNeverSatisfied`; it is not consuming resources.
 
+Grid 5 posthoc MPC-CEM lookahead diagnostics were submitted as
+`3724325_[0-23]` at 2026-06-12 13:44 CEST.
+
+- Wrapper: `scripts/slurm/run_grid5_mpc_cem_diagnostics.slurm`
+- Eval module: `puzzle_jepa/eval/grid5_mpc_cem_diagnostics.py`
+- Initial state: tasks `_0`-`_19` running on `rtxpro6k`; `_20`-`_23` pending
+- Purpose: LeWorldModel-style MPC-CEM over horizons `4/8/16/32/64`
+- Outputs:
+  `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_sigreg_*/diagnostics_mpc_cem/`
+
 ## Grid 5 Matrix
 
 All variants train JEPA latent MSE plus SIGReg and a learned terminal-energy
@@ -90,3 +100,6 @@ ranking. For the best oracle variant, latent and learned-energy monotone rates
 are both `0.992`, but oracle latent top-1 gold action is only `0.031`, oracle
 latent top action is goal-correct only `0.156`, learned-energy top-1 gold is
 `0.000`, and learned-energy top action is goal-correct only `0.063`.
+
+The completed Grid 5 diagnostics used a small enumerated beam, not LeWorldModel
+MPC-CEM. The posthoc `3724325` job is the CEM/MPC lookahead control.

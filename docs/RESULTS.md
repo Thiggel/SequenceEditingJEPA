@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 13:30 CEST
+Last updated: 2026-06-12 13:47 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -39,6 +39,34 @@ Representative best oracle variant:
 So SIGReg avoided trivial collapse and the gold path is mostly directionally
 ordered, but the geometry still does not distinguish the correct next action
 from adjacent/wrong actions reliably enough for planning.
+
+## Loss-Curve Read
+
+Grid 5 does not look like a simple job crash or totally unconverged run. Most
+one-step prediction losses drop sharply by step `1000` and then plateau or
+wiggle. CLS-transformer encoders have much lower SIGReg/eval total losses than
+MLP encoders, but both families fail planning.
+
+Aggregate final eval metrics:
+
+- CLS-transformer encoder: pred `0.00501`, SIGReg `0.02515`, energy `0.00661`
+- MLP encoder: pred `0.00543`, SIGReg `0.12707`, energy `0.04419`
+- MLP predictor: pred `0.00508`, SIGReg `0.07333`, energy `0.02564`
+- AR-transformer predictor: pred `0.00536`, SIGReg `0.07889`, energy `0.02516`
+- delta target: pred `0.00449`, SIGReg `0.06829`, energy `0.03065`
+- full-state target: pred `0.00595`, SIGReg `0.08393`, energy `0.02014`
+
+Interpretation: delta prediction is easier for one-step dynamics; CLS
+transformer gives healthier SIGReg geometry; neither is sufficient for local
+action ranking.
+
+## New Posthoc Control
+
+Submitted Grid 5 posthoc MPC-CEM diagnostics as `3724325_[0-23]`. This is the
+LeWorldModel-style planner control missing from the first Grid 5 read:
+optimize latent action sequences with CEM, score final predicted latent against
+the solved-board latent, execute one action, re-encode/replan, and sweep
+horizons `4/8/16/32/64`.
 
 ## Diagnostics To Read First
 

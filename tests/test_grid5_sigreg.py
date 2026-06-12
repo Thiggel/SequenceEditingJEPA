@@ -5,6 +5,8 @@ from hydra import compose, initialize_config_dir
 from pathlib import Path
 
 from puzzle_jepa.data import SudokuWorld, collate_rollouts, sample_oracle_rollout_transition
+from puzzle_jepa.eval.grid5_diagnostics import candidate_actions
+from puzzle_jepa.eval.grid5_mpc_cem_diagnostics import cem_optimize_action_sequence, score_latent_rollouts
 from puzzle_jepa.models import SigRegActionJEPA, sigreg_loss
 
 
@@ -120,3 +122,94 @@ def test_grid5_hydra_config_composes():
     assert cfg.model.sigreg_weight == 1.0
     assert cfg.model.action_size == 16
     assert cfg.training.goal_energy_weight == 1.0
+
+
+def test_grid5_mpc_cem_components_return_valid_sequences():
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    clue_mask = world.clue_mask_from_puzzle(example.state)
+    actions = candidate_actions(world, example.state, clue_mask)[:12]
+    model = SigRegActionJEPA(
+        vocab_size=world.vocab_size,
+        latent_size=16,
+        encoder_type="mlp",
+        predictor_type="mlp",
+        encoder_hidden_size=32,
+        predictor_hidden_size=32,
+        max_rollout_steps=4,
+        sigreg_projections=8,
+        sigreg_knots=4,
+    )
+    action_tensor = torch.as_tensor(
+        np.stack([[action.as_array(world.task_id) for action in actions[:3]] for _ in range(2)]),
+        dtype=torch.long,
+    )
+    scores = score_latent_rollouts(
+        model,
+        example.state,
+        example.goal,
+        example.state,
+        action_tensor,
+        score_mode="latent_goal",
+        device=torch.device("cpu"),
+    )
+    assert scores.shape == (2,)
+    assert torch.isfinite(scores).all()
+
+    plan = cem_optimize_action_sequence(
+        model,
+        world,
+        example.state,
+        example.goal,
+        example.state,
+        actions,
+        horizon=3,
+        score_mode="latent_goal",
+        candidates=16,
+        elites=4,
+        iterations=2,
+        smoothing=0.7,
+        rng=rng,
+        device=torch.device("cpu"),
+    )
+    assert len(plan["indices"]) == 3
+    assert all(0 <= index < len(actions) for index in plan["indices"])
+    assert np.isfinite(plan["score"])
+
+
+def test_grid5_mpc_cem_uses_ar_history_beyond_predictor_window():
+    torch.manual_seed(0)
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    clue_mask = world.clue_mask_from_puzzle(example.state)
+    actions = candidate_actions(world, example.state, clue_mask)[:6]
+    model = SigRegActionJEPA(
+        vocab_size=world.vocab_size,
+        latent_size=16,
+        encoder_type="mlp",
+        predictor_type="ar_transformer",
+        encoder_hidden_size=32,
+        predictor_hidden_size=32,
+        predictor_layers=1,
+        num_heads=4,
+        max_rollout_steps=4,
+        sigreg_projections=8,
+        sigreg_knots=4,
+    )
+    action_tensor = torch.as_tensor(
+        np.stack([[actions[(batch + step) % len(actions)].as_array(world.task_id) for step in range(6)] for batch in range(2)]),
+        dtype=torch.long,
+    )
+    scores = score_latent_rollouts(
+        model,
+        example.state,
+        example.goal,
+        example.state,
+        action_tensor,
+        score_mode="goal_energy",
+        device=torch.device("cpu"),
+    )
+    assert scores.shape == (2,)
+    assert torch.isfinite(scores).all()
