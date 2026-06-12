@@ -147,7 +147,10 @@ hierarchical setup only after the low-level symbolic/re-encode scorer improves.
 ## Active: Grid 5B 10M Stabilizer Screen
 
 Submitted as `3724634_[0-11]` via
-`scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`.
+`scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`. Original tasks `0-5`
+hit Slurm `NODE_FAIL` on node `a2143` with empty stderr and were resubmitted as
+`3724689_[0-5]` with that node excluded. Original tasks `9-11` and `8`
+completed; tasks `6-7` were still running at the last check.
 
 Purpose: test whether the compact single-state failure was mainly capacity or
 stabilization, before spending on hierarchy.
@@ -182,6 +185,46 @@ Gate: the first pass is not exact solve only. Read symbolic re-encode action
 ranking, K=32 drift, and symbolic re-encode MPC-CEM before judging. If no
 variant improves symbolic re-encode ranking/proximity, the compact latent path
 needs a different objective or a tokenized/verifier control before hierarchy.
+
+## Active: Grid 5C Planner Matrix
+
+Submitted as dependent eval jobs using
+`scripts/slurm/run_grid5c_planner_matrix_eval.slurm`:
+
+- `3724691_[0-5]`, after `3724689`
+- `3724698_[9-11]`, started immediately for completed old-best tasks
+- `3724700_[6]`, after `3724634_6`
+- `3724701_[7]`, after `3724634_7`
+- `3724702_[8]`, after `3724634_8`; task `8` has started
+
+Purpose: test the planner axes requested after Grid 5B without retraining.
+Every read is MPC: plan a horizon, execute the first symbolic action, update
+the board, then replan.
+
+Planner axis:
+
+- `beam`
+- `mcts`
+- `nn_cem`: CEM in the continuous action-embedding space, decoded each step to
+  the nearest currently valid mutable-cell symbolic action
+
+Transition axis:
+
+- `symbolic_reencode`: apply the candidate sequence to the exact Sudoku board,
+  encode the horizon board, then score
+- `latent_rollout`: keep the symbolic board only for valid action decoding, but
+  score the recursively predicted latent after the horizon
+
+Score axis:
+
+- `latent_goal`: oracle solved-board latent MSE, lower is better
+- `goal_energy`: learned terminal-energy head, lower is better
+
+Gate: if symbolic re-encode plus oracle scoring works but latent rollout does
+not, the failure is still predictor drift. If oracle symbolic re-encode fails
+for all three optimizers, the compact scorer geometry/action parameterization
+is the blocker. If learned energy fails while oracle works, the learned scorer
+remains the blocker.
 
 ## Historical
 

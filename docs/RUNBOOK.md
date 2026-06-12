@@ -89,17 +89,18 @@ Grid 5 recursive rollout full-state counterpart was submitted as
 - Outputs:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_recursive_mlp_{predictor}_state_z128_k{K}`
 
-No current Grid 5 or Grid 4Z tasks are running or pending. Checked stderr files
-for these completed arrays are empty.
-
 Grid 5B 10M stabilizer screen was submitted as `3724634_[0-11]` at
-2026-06-12 15:54 CEST. All 12 tasks started immediately on `rtxpro6k`.
+2026-06-12 15:54 CEST. Tasks `0-5` hit Slurm `NODE_FAIL` on node `a2143`
+after about four minutes with empty stderr. Tasks `9-11` and `8` completed
+cleanly; tasks `6-7` were still running at the latest check. The failed slice
+was resubmitted as `3724689_[0-5]` with `--exclude=a2143`.
 
 - Wrapper: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
 - Partition request: `a40,a100,rtxpro6k`
 - Resource request: one GPU per task, 8 CPUs, 12h wall time
 - Run roots: `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_*`
-- Initial stderr check: empty
+- Stderr check for failed original tasks `0-5`: empty; Slurm reason was
+  `NODE_FAIL`, not a Python traceback
 - Trainable params: `10.6M` to `13.4M`; EMA variants carry frozen target
   encoders, so total params are larger but trainable params stay in this range
 
@@ -112,6 +113,29 @@ The 12-job screen covers:
 
 Each task trains, then runs standard diagnostics, predicted-latent MPC-CEM, and
 symbolic re-encode MPC-CEM.
+
+Grid 5C planner matrix was added as
+`scripts/slurm/run_grid5c_planner_matrix_eval.slurm` and
+`puzzle_jepa/eval/grid5_planner_matrix.py`.
+
+- Verification passed: `py_compile`, `bash -n`, full
+  `pytest tests/test_grid5_sigreg.py -q`, and a tiny real-checkpoint CLI smoke.
+- Planner optimizers: `beam`, `mcts`, and continuous action-embedding
+  nearest-neighbor CEM (`nn_cem`).
+- Transition axis: exact symbolic board application + re-encode at the horizon
+  (`symbolic_reencode`) vs recursive latent predictor rollout
+  (`latent_rollout`).
+- Scoring axis: oracle solved-board latent distance (`latent_goal`) vs learned
+  terminal-energy head (`goal_energy`).
+- Action mode: mutable-cell overwrites, preserving clue cells.
+- Submitted eval jobs:
+  - `3724691_[0-5]`, dependent on Grid 5B rerun `3724689`
+  - `3724698_[9-11]`, started immediately for already-completed tasks `9-11`
+    but landed on node `a2143`; monitor for repeat node failure
+  - `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each dependent on the
+    matching original Grid 5B task; `3724702_8` has started
+- Pending Grid 5C jobs have 12h limits. The already-running `3724698_[9-11]`
+  retained its original 8h limit because Slurm denied extension after start.
 
 ## Grid 5 Matrix
 

@@ -1,11 +1,17 @@
 # Results
 
-Last updated: 2026-06-12 15:54 CEST
+Last updated: 2026-06-12 16:20 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
 
 ## Current Result
+
+Grid 5B/5C are active. Grid 5B original tasks `0-5` hit Slurm `NODE_FAIL` on
+`a2143` and were resubmitted as `3724689_[0-5]`; tasks `9-11` and `8`
+completed, and tasks `6-7` were still running at the latest check. Grid 5C planner matrix eval
+has been submitted as dependent jobs `3724691`, `3724698`, `3724700`,
+`3724701`, and `3724702`.
 
 Grid 5 `3722613_[0-23]` completed cleanly. All 24 tasks exited `0:0`, all
 stderr files are empty, and all expected diagnostics were written.
@@ -139,7 +145,9 @@ latent/learned scores are the larger blocker because they remain near
 
 ## Active Grid 5B
 
-Submitted 10M-scale stabilizer/capacity screen `3724634_[0-11]`.
+Submitted 10M-scale stabilizer/capacity screen `3724634_[0-11]`. Original
+tasks `0-5` failed with Slurm `NODE_FAIL` on `a2143` and empty stderr; they
+were resubmitted as `3724689_[0-5]` excluding `a2143`.
 
 - Trainable params: `10.6M-13.4M`
 - Stabilizers: SIGReg, EMA+SIGReg, VICReg, EMA+VICReg
@@ -147,6 +155,29 @@ Submitted 10M-scale stabilizer/capacity screen `3724634_[0-11]`.
   predictor
 - Each job runs standard diagnostics, predicted-latent MPC-CEM, and symbolic
   re-encode MPC-CEM
+
+## Active Grid 5C
+
+Added `puzzle_jepa/eval/grid5_planner_matrix.py` and
+`scripts/slurm/run_grid5c_planner_matrix_eval.slurm`.
+
+The matrix evaluates all Grid 5B checkpoints with MPC over:
+
+- optimizer: `beam`, `mcts`, `nn_cem`
+- transition: symbolic board application + horizon re-encode vs latent-only
+  recursive predictor rollout
+- score: oracle `latent_goal` vs learned `goal_energy`
+
+Submitted jobs:
+
+- `3724691_[0-5]` after rerun `3724689`
+- `3724698_[9-11]` for completed old-best tasks; currently running on `a2143`
+  with 8h limit, so monitor for repeat node failure
+- `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each after its matching
+  original Grid 5B task; `3724702_8` has started
+
+Verification passed: compile, Slurm syntax,
+`pytest tests/test_grid5_sigreg.py -q`, and a tiny real-checkpoint CLI smoke.
 
 ## Diagnostics To Read First
 

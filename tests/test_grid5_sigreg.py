@@ -9,6 +9,14 @@ from pathlib import Path
 from puzzle_jepa.data import SudokuWorld, collate_rollouts, sample_oracle_rollout_transition
 from puzzle_jepa.eval.grid5_diagnostics import candidate_actions
 from puzzle_jepa.eval.grid5_mpc_cem_diagnostics import cem_optimize_action_sequence, score_latent_rollouts
+from puzzle_jepa.eval.grid5_planner_matrix import (
+    action_embedding_matrix,
+    beam_search_plan_once,
+    decode_nearest_action,
+    mcts_plan_once,
+    nearest_neighbor_cem_plan_once,
+    run_closed_loop,
+)
 from puzzle_jepa.models import SigRegActionJEPA, sigreg_loss, vicreg_loss
 
 
@@ -333,3 +341,123 @@ def test_grid5_symbolic_probe_true_hamming_score_orders_exact_goal_best():
     )
     assert scores[0] == 0.0
     assert scores[1] > scores[0]
+
+
+def test_grid5_planner_matrix_optimizers_return_valid_actions():
+    torch.manual_seed(0)
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    clue_mask = world.clue_mask_from_puzzle(example.state)
+    model = SigRegActionJEPA(
+        vocab_size=world.vocab_size,
+        latent_size=16,
+        encoder_type="mlp",
+        predictor_type="mlp",
+        encoder_hidden_size=32,
+        predictor_hidden_size=32,
+        max_rollout_steps=4,
+        sigreg_projections=8,
+        sigreg_knots=4,
+    )
+    common = dict(
+        model=model,
+        world=world,
+        board=example.state,
+        goal_np=example.goal,
+        initial_np=example.state,
+        clue_mask=clue_mask,
+        horizon=2,
+        transition_mode="symbolic_reencode",
+        score_mode="latent_goal",
+        action_mode="mutable_overwrite",
+        device=torch.device("cpu"),
+    )
+    beam = beam_search_plan_once(beam_width=2, branch_size=4, **common)
+    mcts = mcts_plan_once(simulations=8, branch_size=4, exploration=1.0, **common)
+    nn_cem = nearest_neighbor_cem_plan_once(
+        candidates=8,
+        elites=2,
+        iterations=2,
+        smoothing=0.7,
+        seed=0,
+        **common,
+    )
+    for plan in (beam, mcts, nn_cem):
+        action = plan["action"]
+        assert action is not None
+        assert not clue_mask[action.row, action.col]
+        assert action.value != int(example.state[action.row, action.col])
+        assert np.isfinite(plan["leaf_score"])
+
+
+def test_grid5_nearest_neighbor_decode_uses_action_embedding_space():
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    clue_mask = world.clue_mask_from_puzzle(example.state)
+    model = SigRegActionJEPA(
+        vocab_size=world.vocab_size,
+        latent_size=16,
+        encoder_hidden_size=32,
+        predictor_hidden_size=32,
+        sigreg_projections=8,
+        sigreg_knots=4,
+    )
+    actions = candidate_actions(world, example.state, clue_mask)
+    target = actions[5]
+    embeddings = action_embedding_matrix(model, world, [target], torch.device("cpu"))
+    decoded = decode_nearest_action(
+        model,
+        world,
+        example.state,
+        clue_mask,
+        embeddings[0],
+        action_mode="mutable_overwrite",
+        device=torch.device("cpu"),
+    )
+    assert decoded is not None
+    assert (decoded.row, decoded.col, decoded.value) == (target.row, target.col, target.value)
+
+
+def test_grid5_closed_loop_runs_all_planner_axes():
+    torch.manual_seed(0)
+    world = SudokuWorld()
+    example = world.example_from_strings(SUDOKU_PUZZLE, SUDOKU_SOLUTION)
+    model = SigRegActionJEPA(
+        vocab_size=world.vocab_size,
+        latent_size=16,
+        encoder_type="mlp",
+        predictor_type="ar_transformer",
+        encoder_hidden_size=32,
+        predictor_hidden_size=32,
+        predictor_layers=1,
+        num_heads=4,
+        max_rollout_steps=4,
+        sigreg_projections=8,
+        sigreg_knots=4,
+    )
+    for optimizer in ("beam", "mcts", "nn_cem"):
+        for transition_mode in ("symbolic_reencode", "latent_rollout"):
+            result = run_closed_loop(
+                model,
+                world,
+                example,
+                optimizer=optimizer,
+                transition_mode=transition_mode,
+                score_mode="goal_energy",
+                action_mode="mutable_overwrite",
+                horizon=2,
+                max_steps=2,
+                beam_width=2,
+                branch_size=4,
+                mcts_simulations=8,
+                mcts_exploration=1.0,
+                nn_cem_candidates=8,
+                nn_cem_elites=2,
+                nn_cem_iterations=2,
+                nn_cem_smoothing=0.7,
+                seed=0,
+                device=torch.device("cpu"),
+            )
+            assert result["steps"] <= 2
+            assert result["remaining_hamming"] >= 0
+            assert isinstance(result["root_goal_value"], bool)
