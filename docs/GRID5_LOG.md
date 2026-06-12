@@ -63,3 +63,7 @@ Concise Grid-5-era log. Full historical logs remain in
     CPU/RSS activity, but no `diagnostics_planner_matrix/planner_summary.json`
     files exist yet. No new experiment was submitted while this gate is
     pending.
+  - Committed code-repo docs as `552657b` and report-repo docs as `c525344`.
+    Push failed for both repos with:
+    `ssh: connect to host github.com port 22: Connection timed out` and
+    `fatal: Could not read from remote repository.`
