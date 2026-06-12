@@ -13,6 +13,8 @@ from puzzle_jepa.models.layers import TransformerStack
 class SigRegJEPAOutput:
     loss: torch.Tensor
     prediction_loss: torch.Tensor
+    teacher_forced_loss: torch.Tensor
+    recursive_loss: torch.Tensor
     sigreg_loss: torch.Tensor
     goal_energy_loss: torch.Tensor
     pred_latents: torch.Tensor
@@ -318,6 +320,8 @@ class SigRegActionJEPA(nn.Module):
         goals: torch.Tensor,
         *,
         goal_energy_weight: float = 1.0,
+        recursive_steps: int = 1,
+        recursive_weight: float = 0.0,
     ) -> SigRegJEPAOutput:
         if actions.ndim != 3 or actions.shape[-1] != 4:
             raise ValueError("actions must have shape [batch,steps,4].")
@@ -334,7 +338,9 @@ class SigRegActionJEPA(nn.Module):
         inputs = latents[:, :-1]
         targets = latents[:, 1:]
         pred = self.predict_sequence(inputs, actions)
-        prediction_loss = F.mse_loss(pred, targets)
+        teacher_forced_loss = F.mse_loss(pred, targets)
+        recursive = self.recursive_rollout_loss(latents, actions, recursive_steps)
+        prediction_loss = teacher_forced_loss + float(recursive_weight) * recursive
         sigreg = sigreg_loss(
             latents.reshape(batch * sequence_length, self.latent_size),
             projections=self.sigreg_projections,
@@ -356,11 +362,51 @@ class SigRegActionJEPA(nn.Module):
         return SigRegJEPAOutput(
             loss=loss,
             prediction_loss=prediction_loss.detach(),
+            teacher_forced_loss=teacher_forced_loss.detach(),
+            recursive_loss=recursive.detach(),
             sigreg_loss=sigreg.detach(),
             goal_energy_loss=goal_energy_loss.detach(),
             pred_latents=pred,
             target_latents=targets.detach(),
         )
+
+    def recursive_rollout_loss(self, latents: torch.Tensor, actions: torch.Tensor, recursive_steps: int) -> torch.Tensor:
+        if recursive_steps <= 1:
+            return latents.new_zeros(())
+        if latents.ndim != 3 or actions.ndim != 3:
+            raise ValueError("recursive rollout expects latents [batch,steps+1,latent] and actions [batch,steps,4].")
+        batch, sequence_length, latent_size = latents.shape
+        action_steps = actions.shape[1]
+        if sequence_length != action_steps + 1:
+            raise ValueError("latents must contain exactly one more item than actions.")
+        max_horizon = min(int(recursive_steps), action_steps, int(self.max_rollout_steps))
+        if max_horizon <= 1:
+            return latents.new_zeros(())
+        predictions: list[torch.Tensor] = []
+        losses = []
+        for horizon in range(1, max_horizon + 1):
+            valid_starts = action_steps - horizon + 1
+            latent_window_parts = [latents[:, :valid_starts]]
+            for offset in range(1, horizon):
+                latent_window_parts.append(predictions[offset - 1][:, :valid_starts])
+            latent_window = torch.stack(latent_window_parts, dim=2).reshape(
+                batch * valid_starts,
+                horizon,
+                latent_size,
+            )
+            action_window = torch.stack(
+                [actions[:, offset : offset + valid_starts] for offset in range(horizon)],
+                dim=2,
+            ).reshape(batch * valid_starts, horizon, actions.shape[-1])
+            pred = self.predict_sequence(latent_window, action_window)[:, -1].reshape(
+                batch,
+                valid_starts,
+                latent_size,
+            )
+            target = latents[:, horizon : horizon + valid_starts]
+            losses.append(F.mse_loss(pred, target))
+            predictions.append(pred)
+        return torch.stack(losses).mean()
 
     def score_states_to_goal(self, states: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
         if states.ndim == 2:

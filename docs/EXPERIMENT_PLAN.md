@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 13:47 CEST
+Last updated: 2026-06-12 14:00 CEST
 
 The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -78,6 +78,40 @@ Artifacts:
 - `diagnostics_mpc_cem/mpc_cem_records.jsonl`
 - `diagnostics_mpc_cem/mpc_cem_root_actions.jsonl`
 - `diagnostics_mpc_cem/mpc_cem_lookahead_examples.jsonl`
+
+## Active: Recursive Rollout Training Sweep
+
+Submitted as `3724413_[0-5]`.
+
+Purpose: train the same recursive prediction mode that MPC-CEM uses. The base
+Grid 5 model trained mostly teacher-forced one-step prediction over rollout
+segments. The new loss adds recursive predicted-latent rollout supervision:
+
+```text
+z_t, a_t -> zhat_{t+1}
+zhat_{t+1}, a_{t+1} -> zhat_{t+2}
+...
+```
+
+The recursive loss compares each `zhat_{t+h}` to the encoded target
+`z_{t+h}` for horizons up to K, from every valid start inside the sampled
+rollout segment.
+
+Matrix:
+
+| Factor | Values |
+| --- | --- |
+| Predictor | `mlp`, `ar_transformer` |
+| Recursive K | `2`, `4`, `8` |
+
+Fixed base:
+
+- encoder `mlp`
+- latent size `128`
+- delta prediction
+- recursive loss weight `1.0`
+- K=8 uses 16-step sampled rollout segments; K=2/4 use 8-step segments
+- each job runs standard diagnostics plus MPC-CEM horizons `4/8/16/32/64`
 
 ## Historical
 

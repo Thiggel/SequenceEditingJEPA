@@ -41,6 +41,8 @@ def run_grid5(config: dict[str, Any]) -> dict[str, Any]:
     rollout_steps = int(train_cfg.get("rollout_steps", 8))
     oracle_probability = float(train_cfg.get("rollout_oracle_probability", 0.5))
     goal_energy_weight = float(train_cfg.get("goal_energy_weight", 1.0))
+    recursive_steps = int(train_cfg.get("recursive_rollout_steps", 1))
+    recursive_weight = float(train_cfg.get("recursive_rollout_weight", 0.0))
     eval_every = int(train_cfg.get("eval_every_steps", max_steps))
     save_every = int(train_cfg.get("save_every_steps", eval_every))
     grad_clip = float(train_cfg.get("grad_clip", 1.0))
@@ -68,6 +70,8 @@ def run_grid5(config: dict[str, Any]) -> dict[str, Any]:
                 batch.target_states,
                 batch.goals,
                 goal_energy_weight=goal_energy_weight,
+                recursive_steps=recursive_steps,
+                recursive_weight=recursive_weight,
             )
         output.loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
@@ -88,9 +92,13 @@ def run_grid5(config: dict[str, Any]) -> dict[str, Any]:
                     "step": step,
                     "train_loss": float(output.loss.detach().cpu()),
                     "train_prediction_loss": float(output.prediction_loss.cpu()),
+                    "train_teacher_forced_loss": float(output.teacher_forced_loss.cpu()),
+                    "train_recursive_loss": float(output.recursive_loss.cpu()),
                     "train_sigreg_loss": float(output.sigreg_loss.cpu()),
                     "train_goal_energy_loss": float(output.goal_energy_loss.cpu()),
                     "rollout_steps": rollout_steps,
+                    "recursive_rollout_steps": recursive_steps,
+                    "recursive_rollout_weight": recursive_weight,
                     "rollout_oracle_probability": oracle_probability,
                     "goal_energy_weight": goal_energy_weight,
                     "encoder_type": str(config["model"]["encoder_type"]),
@@ -148,10 +156,14 @@ def _eval_grid5(model, world, examples, rng, train_cfg, eval_cfg, device) -> dic
         batch.target_states,
         batch.goals,
         goal_energy_weight=float(train_cfg.get("goal_energy_weight", 1.0)),
+        recursive_steps=int(train_cfg.get("recursive_rollout_steps", 1)),
+        recursive_weight=float(train_cfg.get("recursive_rollout_weight", 0.0)),
     )
     return {
         "eval_loss": float(output.loss.detach().cpu()),
         "eval_prediction_loss": float(output.prediction_loss.cpu()),
+        "eval_teacher_forced_loss": float(output.teacher_forced_loss.cpu()),
+        "eval_recursive_loss": float(output.recursive_loss.cpu()),
         "eval_sigreg_loss": float(output.sigreg_loss.cpu()),
         "eval_goal_energy_loss": float(output.goal_energy_loss.cpu()),
     }

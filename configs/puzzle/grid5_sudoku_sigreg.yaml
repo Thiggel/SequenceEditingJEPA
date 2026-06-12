@@ -32,6 +32,8 @@ training:
   batch_size: 512
   rollout_steps: 8
   rollout_oracle_probability: 0.5
+  recursive_rollout_steps: 1
+  recursive_rollout_weight: 0.0
   goal_energy_weight: 1.0
   learning_rate: 1.0e-4
   weight_decay: 0.05

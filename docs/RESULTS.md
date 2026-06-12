@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 13:47 CEST
+Last updated: 2026-06-12 14:00 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -67,6 +67,17 @@ LeWorldModel-style planner control missing from the first Grid 5 read:
 optimize latent action sequences with CEM, score final predicted latent against
 the solved-board latent, execute one action, re-encode/replan, and sweep
 horizons `4/8/16/32/64`.
+
+## New Training Hypothesis
+
+Submitted Grid 5 recursive rollout training as `3724413_[0-5]`.
+
+Hypothesis: the compact latent may fail MPC-CEM partly because training is
+mostly teacher-forced one-step prediction, while planning recursively feeds
+predicted latents back into the predictor. The six new jobs add recursive
+rollout loss with K `2/4/8`, crossed with MLP vs AR-transformer predictor,
+using the best Grid 5 base factors: MLP encoder, delta prediction, latent
+size `128`.
 
 ## Diagnostics To Read First
 

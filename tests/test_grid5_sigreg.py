@@ -75,10 +75,43 @@ def test_grid5_variants_produce_single_latent_and_backpropagate():
                 )
                 output = model.rollout_loss(batch.states, batch.actions, batch.target_states, batch.goals)
                 assert torch.isfinite(output.loss)
+                assert torch.isfinite(output.teacher_forced_loss)
+                assert output.recursive_loss.item() == 0.0
                 assert output.pred_latents.shape == output.target_latents.shape == (2, 3, 32)
                 output.loss.backward()
                 assert any(param.grad is not None for param in model.encoder.parameters())
                 assert any(param.grad is not None for param in model.goal_energy_head.parameters())
+
+
+def test_grid5_recursive_rollout_loss_backpropagates_through_multistep_predictions():
+    world, batch = _rollout_batch(steps=5, batch_size=2)
+    for predictor_type in ("mlp", "ar_transformer"):
+        model = SigRegActionJEPA(
+            vocab_size=world.vocab_size,
+            latent_size=16,
+            encoder_type="mlp",
+            predictor_type=predictor_type,
+            encoder_hidden_size=32,
+            predictor_hidden_size=32,
+            predictor_layers=1,
+            num_heads=4,
+            max_rollout_steps=5,
+            sigreg_projections=8,
+            sigreg_knots=4,
+        )
+        output = model.rollout_loss(
+            batch.states,
+            batch.actions,
+            batch.target_states,
+            batch.goals,
+            recursive_steps=4,
+            recursive_weight=1.0,
+        )
+        assert torch.isfinite(output.loss)
+        assert output.recursive_loss.item() > 0.0
+        assert output.prediction_loss.item() > output.teacher_forced_loss.item()
+        output.loss.backward()
+        assert any(param.grad is not None for param in model.predictor.parameters())
 
 
 def test_ar_transformer_predictor_is_causal_over_training_sequence():
@@ -122,6 +155,8 @@ def test_grid5_hydra_config_composes():
     assert cfg.model.sigreg_weight == 1.0
     assert cfg.model.action_size == 16
     assert cfg.training.goal_energy_weight == 1.0
+    assert cfg.training.recursive_rollout_steps == 1
+    assert cfg.training.recursive_rollout_weight == 0.0
 
 
 def test_grid5_mpc_cem_components_return_valid_sequences():

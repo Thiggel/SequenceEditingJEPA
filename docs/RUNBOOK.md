@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 13:47 CEST
+Last updated: 2026-06-12 14:00 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -62,6 +62,18 @@ Grid 5 posthoc MPC-CEM lookahead diagnostics were submitted as
 - Purpose: LeWorldModel-style MPC-CEM over horizons `4/8/16/32/64`
 - Outputs:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_sigreg_*/diagnostics_mpc_cem/`
+
+Grid 5 recursive rollout training was submitted as `3724413_[0-5]` at
+2026-06-12 14:00 CEST.
+
+- Wrapper: `scripts/slurm/run_grid5_recursive_rollout.slurm`
+- Initial state: pending across `a40,a100,rtxpro6k`
+- Fixed base: MLP encoder, delta prediction, latent size `128`
+- Factors: predictor `mlp|ar_transformer` x recursive rollout K `2|4|8`
+- Outputs:
+  `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_recursive_mlp_{predictor}_delta_z128_k{K}`
+- Each task trains, runs standard Grid 5 diagnostics, then runs MPC-CEM
+  horizons `4/8/16/32/64` with oracle `latent_goal` and learned `goal_energy`.
 
 ## Grid 5 Matrix
 
