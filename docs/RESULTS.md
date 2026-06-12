@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 16:50 CEST
+Last updated: 2026-06-12 22:52 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -11,11 +11,12 @@ source-of-truth versions live in `../sequence-editing-report/`.
 
 ## Current Result
 
-Grid 5B/5C are active. Grid 5B original tasks `0-5` hit Slurm `NODE_FAIL` on
-`a2143` and were resubmitted as `3724689_[0-5]`; original tasks `6-11`
-completed cleanly, and rerun tasks `0-5` are active. Grid 5C planner matrix eval
-has been submitted as dependent jobs `3724691`, `3724698`, `3724700`,
-`3724701`, and `3724702`; tasks `6-11` are running.
+Grid 5B completed. Original tasks `0-5` hit Slurm `NODE_FAIL` on `a2143` and
+were resubmitted as `3724689_[0-5]`; the rerun completed cleanly, and final
+Grid5B stderrs checked so far are empty. Grid 5C planner matrix eval is active
+as jobs `3724691`, `3724698`, `3724700`, `3724701`, and `3724702`; all 12
+planner tasks are running as of 2026-06-12 22:52 CEST, with empty stderrs and
+no completed `planner_summary.json` files yet.
 
 Grid5 oversight checks are scheduled every 6h for the next 2.5 days as
 `3724789`-`3724798`. Dummy alias-path verification passed as `3724787`.
@@ -150,18 +151,34 @@ categorical CEM is also a weak Sudoku optimizer at this budget; however, the
 latent/learned scores are the larger blocker because they remain near
 `45-51` wrong cells.
 
-## Active Grid 5B
+## Grid 5B 10M Stabilizer Screen
 
 Submitted 10M-scale stabilizer/capacity screen `3724634_[0-11]`. Original
 tasks `0-5` failed with Slurm `NODE_FAIL` on `a2143` and empty stderr; they
-were resubmitted as `3724689_[0-5]` excluding `a2143`.
+were resubmitted as `3724689_[0-5]` excluding `a2143` and completed cleanly.
 
 - Trainable params: `10.6M-13.4M`
 - Stabilizers: SIGReg, EMA+SIGReg, VICReg, EMA+VICReg
 - Other anchored contrasts: K1/K4, full/delta, MLP/CLS encoder, MLP/AR
   predictor
-- Each job runs standard diagnostics, predicted-latent MPC-CEM, and symbolic
+- Each job ran standard diagnostics, predicted-latent MPC-CEM, and symbolic
   re-encode MPC-CEM
+
+Result: still no exact solve. The best symbolic oracle proximity is
+`grid5b_10m_canonical_ema_vicreg_k4`, horizon 8, mean remaining Hamming
+`41.00`, root goal-value rate `0.500`, solve `0/4`. Its cheap standard beam
+diagnostic is stronger than earlier compact runs, with oracle mean remaining
+Hamming `29.56`, latent gold-action top-1 `0.125`, and latent top-goal-value
+rate `0.969`, but exact symbolic re-encode planning still fails. Predicted
+latent MPC-CEM solves `0` for every Grid5B variant; best proximity is
+`grid5b_10m_canonical_ema_sigreg_k4`, h64 `goal_energy`, mean remaining
+Hamming `49.50`.
+
+True-Hamming symbolic CEM reaches mean remaining Hamming `1.75` and solve
+`1/4` for `canonical_ema_vicreg_k4`, `oldbest_scaled_ema_sigreg_k4`, and
+`oldbest_scaled_sigreg_k4`. This shows the small symbolic optimizer can get
+near a solution on these boards, but the learned/oracle latent scores remain
+the larger blocker.
 
 ## Active Grid 5C
 
@@ -182,6 +199,13 @@ Submitted jobs:
   with 8h limit, so monitor for repeat node failure
 - `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each after its matching
   original Grid 5B task; `3724702_8` has started
+
+Current state at 2026-06-12 22:52 CEST: all 12 Grid5C tasks are running.
+`3724691_[0-5]` is on `a40`; `3724698_[9-11]`, `3724700_6`,
+`3724701_7`, and `3724702_8` are on `rtxpro6k` node `a2143`. Stderrs are
+empty, `sstat` shows CPU/RSS activity, and no planner summaries have been
+written yet. `3724698_[9-11]` still has the old 8h wall time and may time out
+before producing artifacts.
 
 Verification passed: compile, Slurm syntax,
 `pytest tests/test_grid5_sigreg.py -q`, and a tiny real-checkpoint CLI smoke.

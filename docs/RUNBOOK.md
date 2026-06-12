@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 15:54 CEST
+Last updated: 2026-06-12 22:52 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -96,7 +96,7 @@ Grid 5B 10M stabilizer screen was submitted as `3724634_[0-11]` at
 2026-06-12 15:54 CEST. Tasks `0-5` hit Slurm `NODE_FAIL` on node `a2143`
 after about four minutes with empty stderr. Original tasks `6-11` completed
 cleanly. The failed slice was resubmitted as `3724689_[0-5]` with
-`--exclude=a2143` and is active.
+`--exclude=a2143` and completed cleanly by 2026-06-12 17:12 CEST.
 
 - Wrapper: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
 - Partition request: `a40,a100,rtxpro6k`
@@ -104,6 +104,7 @@ cleanly. The failed slice was resubmitted as `3724689_[0-5]` with
 - Run roots: `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_*`
 - Stderr check for failed original tasks `0-5`: empty; Slurm reason was
   `NODE_FAIL`, not a Python traceback
+- Final Grid5B stderrs checked for rerun `0-5` and original `6-11`: empty
 - Trainable params: `10.6M` to `13.4M`; EMA variants carry frozen target
   encoders, so total params are larger but trainable params stay in this range
 
@@ -114,8 +115,13 @@ The 12-job screen covers:
 - prediction target: full-state vs delta
 - architecture: MLP vs CLS-transformer encoder, MLP vs AR-transformer predictor
 
-Each task trains, then runs standard diagnostics, predicted-latent MPC-CEM, and
-symbolic re-encode MPC-CEM.
+Each task trained, then ran standard diagnostics, predicted-latent MPC-CEM, and
+symbolic re-encode MPC-CEM. Grid5B improved proximity but still did not solve:
+best symbolic oracle read is `grid5b_10m_canonical_ema_vicreg_k4`, h8 mean
+remaining Hamming `41.00`, root goal-value rate `0.500`, solve `0/4`.
+Predicted-latent MPC-CEM solved `0` for every variant; best proximity is
+`grid5b_10m_canonical_ema_sigreg_k4`, h64 `goal_energy`, mean remaining
+Hamming `49.50`.
 
 Grid 5C planner matrix was added as
 `scripts/slurm/run_grid5c_planner_matrix_eval.slurm` and
@@ -132,13 +138,16 @@ Grid 5C planner matrix was added as
   terminal-energy head (`goal_energy`).
 - Action mode: mutable-cell overwrites, preserving clue cells.
 - Submitted eval jobs:
-  - `3724691_[0-5]`, dependent on Grid 5B rerun `3724689`
+  - `3724691_[0-5]`, dependent on Grid 5B rerun `3724689`; started at
+    2026-06-12 17:13 CEST on `a40`
   - `3724698_[9-11]`, started immediately for already-completed tasks `9-11`
     but landed on node `a2143`; monitor for repeat node failure
   - `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each dependent on the
     matching original Grid 5B task; tasks `6-8` have started
-- Pending Grid 5C jobs have 12h limits. The already-running `3724698_[9-11]`
-  retained its original 8h limit because Slurm denied extension after start.
+- As of 2026-06-12 22:52 CEST all 12 Grid5C tasks are running, stderrs are
+  empty, and no `planner_summary.json` artifacts exist yet. The
+  already-running `3724698_[9-11]` retained its original 8h limit because Slurm
+  denied extension after start and has timeout risk.
 
 Grid 5 oversight is re-enabled for the current Grid5 wave only.
 
@@ -225,3 +234,12 @@ learned `goal_energy`, with mean remaining Hamming around `45-51`. The AR
 full-state recursive checkpoint has much lower K=32 latent drift than the base
 MLP-delta checkpoint, but symbolic re-encode planning still fails, so the
 current blocker is not only predictor drift.
+
+Latest Grid5B 10M read: capacity/stabilization improved directional signals but
+not exact solving. `canonical_ema_vicreg_k4` is the best symbolic oracle
+variant so far, with cheap beam oracle mean remaining Hamming `29.56`, latent
+top-goal-value rate `0.969`, symbolic re-encode h8 mean remaining Hamming
+`41.00`, and solve `0/4`. True-Hamming symbolic CEM can reach mean remaining
+Hamming `1.75` and solve `1/4` on several variants, so the flat symbolic
+optimizer is not hopeless, but the latent and learned scores still do not rank
+solutions sharply enough.

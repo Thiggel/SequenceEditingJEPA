@@ -43,3 +43,23 @@ Concise Grid-5-era log. Full historical logs remain in
 - Original Grid5B tasks `3724634_6` and `3724634_7` completed cleanly; Grid5C
   planner eval tasks `3724700_6` and `3724701_7` started. Grid5C tasks
   `6-11` are now running; eval `0-5` waits on rerun `3724689`.
+- 22:52 CEST oversight read:
+  - Grid5B rerun `3724689_[0-5]` completed cleanly; all final Grid5B tasks
+    are now complete. Stderrs checked for final runs are empty.
+  - Grid5B did not pass the solve gate. Best symbolic re-encode oracle
+    proximity is `grid5b_10m_canonical_ema_vicreg_k4`, h8 mean remaining
+    Hamming `41.00`, root goal-value rate `0.500`, solve `0/4`; its cheap
+    beam diagnostic has oracle mean remaining Hamming `29.56` and latent
+    top-goal-value rate `0.969`, but exact solves remain `0`.
+  - Predicted-latent MPC-CEM still solved `0` for every Grid5B variant; best
+    proximity is `grid5b_10m_canonical_ema_sigreg_k4`, h64 `goal_energy`,
+    mean remaining Hamming `49.50`.
+  - Perfect true-Hamming symbolic CEM gets near the solution for several
+    Grid5B runs, including mean remaining Hamming `1.75` and solve `1/4` for
+    `canonical_ema_vicreg_k4`, `oldbest_scaled_ema_sigreg_k4`, and
+    `oldbest_scaled_sigreg_k4`. This keeps planner/action factorization on
+    the table, but latent and learned scores remain the blocker.
+  - All Grid5C planner jobs are running. Stderrs are empty and the tasks show
+    CPU/RSS activity, but no `diagnostics_planner_matrix/planner_summary.json`
+    files exist yet. No new experiment was submitted while this gate is
+    pending.

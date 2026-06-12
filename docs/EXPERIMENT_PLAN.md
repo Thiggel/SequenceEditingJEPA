@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 15:54 CEST
+Last updated: 2026-06-12 22:52 CEST
 
 The active source-of-truth backlog lives in
 `../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
@@ -153,8 +153,8 @@ hierarchical setup only after the low-level symbolic/re-encode scorer improves.
 Submitted as `3724634_[0-11]` via
 `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`. Original tasks `0-5`
 hit Slurm `NODE_FAIL` on node `a2143` with empty stderr and were resubmitted as
-`3724689_[0-5]` with that node excluded. Original tasks `9-11` and `8`
-completed; tasks `6-7` were still running at the last check.
+`3724689_[0-5]` with that node excluded. The rerun and original tasks `6-11`
+completed cleanly, so all 12 Grid5B runs have final diagnostics.
 
 Purpose: test whether the compact single-state failure was mainly capacity or
 stabilization, before spending on hierarchy.
@@ -185,10 +185,12 @@ Screen:
 | 10 | `oldbest_scaled_ema_sigreg_k4` | scaled old best plus EMA target |
 | 11 | `oldbest_scaled_sigreg_k1` | scaled old best one-step loss |
 
-Gate: the first pass is not exact solve only. Read symbolic re-encode action
-ranking, K=32 drift, and symbolic re-encode MPC-CEM before judging. If no
-variant improves symbolic re-encode ranking/proximity, the compact latent path
-needs a different objective or a tokenized/verifier control before hierarchy.
+Gate read: capacity/stabilization improved proximity but not exact solving.
+Best symbolic oracle result is `grid5b_10m_canonical_ema_vicreg_k4`, h8 mean
+remaining Hamming `41.00`, solve `0/4`; cheap beam oracle mean remaining
+Hamming is `29.56` with latent top-goal-value rate `0.969`. Predicted-latent
+MPC-CEM still solves `0` for all variants. Treat Grid5C as the deciding
+planner/transition/score gate before launching any next experiment.
 
 ## Active: Grid 5C Planner Matrix
 
@@ -199,7 +201,12 @@ Submitted as dependent eval jobs using
 - `3724698_[9-11]`, started immediately for completed old-best tasks
 - `3724700_[6]`, after `3724634_6`
 - `3724701_[7]`, after `3724634_7`
-- `3724702_[8]`, after `3724634_8`; task `8` has started
+- `3724702_[8]`, after `3724634_8`
+
+As of 2026-06-12 22:52 CEST all 12 Grid5C tasks are running. No planner summary
+artifacts exist yet; do not submit a broad successor before this gate is read.
+If the 8h `3724698_[9-11]` slice times out without artifacts, rerun the
+smallest streaming/partial diagnostic first.
 
 Purpose: test the planner axes requested after Grid 5B without retraining.
 Every read is MPC: plan a horizon, execute the first symbolic action, update
