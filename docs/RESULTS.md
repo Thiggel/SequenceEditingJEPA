@@ -12,10 +12,10 @@ source-of-truth versions live in `../sequence-editing-report/`.
 ## Current Result
 
 Grid 5B/5C are active. Grid 5B original tasks `0-5` hit Slurm `NODE_FAIL` on
-`a2143` and were resubmitted as `3724689_[0-5]`; tasks `9-11` and `8`
-completed, and tasks `6-7` were still running at the latest check. Grid 5C planner matrix eval
+`a2143` and were resubmitted as `3724689_[0-5]`; original tasks `6-11`
+completed cleanly, and rerun tasks `0-5` are active. Grid 5C planner matrix eval
 has been submitted as dependent jobs `3724691`, `3724698`, `3724700`,
-`3724701`, and `3724702`.
+`3724701`, and `3724702`; tasks `6-11` are running.
 
 Grid5 oversight checks are scheduled every 6h for the next 2.5 days as
 `3724789`-`3724798`. Dummy alias-path verification passed as `3724787`.

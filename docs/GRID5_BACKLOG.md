@@ -6,8 +6,8 @@ Clean Grid-5-only backlog and running experiment snapshot.
 
 | Item | Jobs | Status | Read First |
 | --- | --- | --- | --- |
-| Grid 5B 10M stabilizer/capacity screen | Original `3724634_[0-11]`; rerun `3724689_[0-5]` | Original tasks `0-5` hit Slurm `NODE_FAIL` on `a2143`; rerun is active. Original tasks `8-11` completed, `6-7` still active at last check. | Per-run `diagnostics/`, `diagnostics_mpc_cem/`, `diagnostics_symbolic_reencode/` |
-| Grid 5C planner matrix | `3724691_[0-5]`, `3724698_[9-11]`, `3724700_[6]`, `3724701_[7]`, `3724702_[8]` | Dependent planner evals for all Grid 5B tasks. Tasks `8-11` are running or eligible first. | Per-run `diagnostics_planner_matrix/planner_summary.json` and `planner_records.jsonl` |
+| Grid 5B 10M stabilizer/capacity screen | Original `3724634_[0-11]`; rerun `3724689_[0-5]` | Original tasks `0-5` hit Slurm `NODE_FAIL` on `a2143`; rerun `0-5` is active. Original tasks `6-11` completed cleanly. | Per-run `diagnostics/`, `diagnostics_mpc_cem/`, `diagnostics_symbolic_reencode/` |
+| Grid 5C planner matrix | `3724691_[0-5]`, `3724698_[9-11]`, `3724700_[6]`, `3724701_[7]`, `3724702_[8]` | Planner eval tasks `6-11` are running; eval `0-5` is pending on rerun `3724689`. | Per-run `diagnostics_planner_matrix/planner_summary.json` and `planner_records.jsonl` |
 | Grid 5 oversight checks | `3724789`-`3724798` | Scheduled every 6h from 2026-06-12 22:50 CEST through 2026-06-15 04:50 CEST on `a100mig`. Uses the local `cs` alias with medium reasoning. | Logs `logs/grid5_watch_<jobid>.out/.err` and last messages |
 
 ## Immediate Analysis Tasks

@@ -94,9 +94,9 @@ Grid 5 recursive rollout full-state counterpart was submitted as
 
 Grid 5B 10M stabilizer screen was submitted as `3724634_[0-11]` at
 2026-06-12 15:54 CEST. Tasks `0-5` hit Slurm `NODE_FAIL` on node `a2143`
-after about four minutes with empty stderr. Tasks `9-11` and `8` completed
-cleanly; tasks `6-7` were still running at the latest check. The failed slice
-was resubmitted as `3724689_[0-5]` with `--exclude=a2143`.
+after about four minutes with empty stderr. Original tasks `6-11` completed
+cleanly. The failed slice was resubmitted as `3724689_[0-5]` with
+`--exclude=a2143` and is active.
 
 - Wrapper: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
 - Partition request: `a40,a100,rtxpro6k`
@@ -136,7 +136,7 @@ Grid 5C planner matrix was added as
   - `3724698_[9-11]`, started immediately for already-completed tasks `9-11`
     but landed on node `a2143`; monitor for repeat node failure
   - `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each dependent on the
-    matching original Grid 5B task; `3724702_8` has started
+    matching original Grid 5B task; tasks `6-8` have started
 - Pending Grid 5C jobs have 12h limits. The already-running `3724698_[9-11]`
   retained its original 8h limit because Slurm denied extension after start.
 

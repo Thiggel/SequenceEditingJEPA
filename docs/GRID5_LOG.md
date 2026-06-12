@@ -40,3 +40,6 @@ Concise Grid-5-era log. Full historical logs remain in
 - Scheduled Grid5 oversight checks every 6h for 2.5 days:
   `3724789`, `3724790`, `3724791`, `3724792`, `3724793`, `3724794`,
   `3724795`, `3724796`, `3724797`, `3724798`.
+- Original Grid5B tasks `3724634_6` and `3724634_7` completed cleanly; Grid5C
+  planner eval tasks `3724700_6` and `3724701_7` started. Grid5C tasks
+  `6-11` are now running; eval `0-5` waits on rerun `3724689`.
