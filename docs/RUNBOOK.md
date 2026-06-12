@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 11:30 CEST
+Last updated: 2026-06-12 13:30 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -36,14 +36,16 @@ Runtime outputs default to:
 /home/vault/$(id -gn)/$USER/sequence-editing
 ```
 
-## Active Slurm Snapshot
+## Slurm Snapshot
 
-Grid 5 was submitted as `3722613_[0-23]` at 2026-06-12 11:29 CEST.
+Grid 5 was submitted as `3722613_[0-23]` at 2026-06-12 11:29 CEST and has
+completed.
 
 - Partition request: `a40,a100,rtxpro6k`
 - Resource request: one GPU per task, 8 CPUs, 8h wall time
-- Initial state: tasks `_0`-`_19` running on `rtxpro6k`; tasks `_20`-`_23`
-  pending for priority
+- Final state: all 24 tasks completed with exit code `0:0`
+- Runtime: about 10-12 minutes on `rtxpro6k`, 20-27 minutes on `a40`
+- Stderr: all Grid 5 stderr files are empty
 - Output roots:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_sigreg_{encoder}_{predictor}_{state|delta}_z{32|64|128}`
 
@@ -71,3 +73,20 @@ Each task automatically runs diagnostics after training:
 - small enumerated beam planning under oracle latent distance and learned energy
 
 Diagnostic artifacts are written under each run root in `diagnostics/`.
+
+## Latest Grid 5 Read
+
+The solve gate failed:
+
+- oracle `latent_goal` beam planning: `0/16` solves for all variants
+- learned `goal_energy` beam planning: `0/16` solves for all variants
+- best oracle remaining Hamming:
+  `grid5_sigreg_mlp_mlp_delta_z128`, mean `44.88`
+- best learned-energy remaining Hamming:
+  `grid5_sigreg_mlp_mlp_delta_z64`, mean `48.19`
+
+The main diagnostic pattern is monotone gold trajectories but poor all-action
+ranking. For the best oracle variant, latent and learned-energy monotone rates
+are both `0.992`, but oracle latent top-1 gold action is only `0.031`, oracle
+latent top action is goal-correct only `0.156`, learned-energy top-1 gold is
+`0.000`, and learned-energy top action is goal-correct only `0.063`.

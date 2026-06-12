@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 11:30 CEST
+Last updated: 2026-06-12 13:30 CEST
 
 The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -10,7 +10,8 @@ Goal: restart the Sudoku JEPA experiments around a compact single-state latent
 with JEPA latent MSE plus SIGReg always enabled, and diagnose whether the latent
 geometry is planner-ready.
 
-Submitted Slurm array: `3722613_[0-23]`
+Submitted Slurm array: `3722613_[0-23]`; completed cleanly with all tasks
+exit `0:0`.
 
 | Factor | Values |
 | --- | --- |
@@ -31,7 +32,13 @@ Fixed defaults:
 
 ## Gate
 
-Do not judge Grid 5 only by solve rate. First check:
+Grid 5 failed the gate. The reason is not training/Slurm failure: all variants
+produced metrics and diagnostics. The failure is representational/planning:
+oracle latent distances are mostly monotone along gold trajectories, but
+all-action ranking is poor and planning solves `0/16` under both oracle
+`latent_goal` and learned `goal_energy` for every variant.
+
+The decisive diagnostics to inspect are:
 
 - Does SIGReg produce approximately healthy latent spread?
 - Is oracle latent-goal distance monotone along oracle trajectories?
@@ -40,10 +47,15 @@ Do not judge Grid 5 only by solve rate. First check:
 - Does small enumerated beam planning solve or at least reduce remaining
   Hamming under oracle latent distance?
 
-If oracle latent geometry fails, change representation/objective before planner
-work. If oracle latent geometry passes but learned energy fails, focus on the
-terminal-energy objective. If both pass but planning fails, revisit planner
-horizon/beam/CEM.
+Observed answer: monotone trajectories mostly pass, action ranking and planning
+fail. The best oracle variant is `grid5_sigreg_mlp_mlp_delta_z128` with mean
+remaining Hamming `44.88`, latent monotone rate `0.992`, latent gold-action
+top-1 `0.031`, and latent top-goal-value rate `0.156`.
+
+Next decision: do not spend on planner variants for this compact single-state
+geometry until the action-ranking objective/representation is changed, or wait
+for the still-running tokenized Grid 4Z control to decide whether tokenized
+local geometry remains the better base.
 
 ## Historical
 

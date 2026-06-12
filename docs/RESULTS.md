@@ -1,23 +1,44 @@
 # Results
 
-Last updated: 2026-06-12 11:30 CEST
+Last updated: 2026-06-12 13:30 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
 
 ## Current Result
 
-No Grid 5 result yet. Grid 5 `3722613_[0-23]` is running.
+Grid 5 `3722613_[0-23]` completed cleanly. All 24 tasks exited `0:0`, all
+stderr files are empty, and all expected diagnostics were written.
+
+Solve gate failed for every variant:
+
+- oracle `latent_goal` small beam planning: `0/16` solves for all 24 variants
+- learned `goal_energy` small beam planning: `0/16` solves for all 24 variants
+- best oracle remaining Hamming:
+  `grid5_sigreg_mlp_mlp_delta_z128`, mean remaining Hamming `44.88`
+- best learned-energy remaining Hamming:
+  `grid5_sigreg_mlp_mlp_delta_z64`, mean remaining Hamming `48.19`
 
 ## Current Interpretation
 
-The old tokenized oracle-goal reset branch solved Sudoku, but that result was
-heavily supported by a cell-factorized latent representation and oracle solved
-board latents. The new Grid 5 branch tests whether a compact single-state JEPA
-can learn a useful metric geometry when SIGReg is always part of the objective.
+The compact single-state Grid 5 representation does not yet learn a
+planner-ready metric, even with SIGReg. The strongest variants have monotone
+oracle latent distance along known gold trajectories, but they fail local
+all-action ranking and therefore fail planning.
 
-The old global-MLP branch did not include this SIGReg geometry regularizer, so
-it is no longer treated as a decisive test of single-state JEPA.
+Representative best oracle variant:
+`grid5_sigreg_mlp_mlp_delta_z128`.
+
+- latent trajectory monotone rate: `0.992`
+- learned-energy trajectory monotone rate: `0.992`
+- oracle latent gold-action top-1: `0.031`
+- oracle latent top action is any goal-correct value: `0.156`
+- learned-energy gold-action top-1: `0.000`
+- learned-energy top action is any goal-correct value: `0.063`
+
+So SIGReg avoided trivial collapse and the gold path is mostly directionally
+ordered, but the geometry still does not distinguish the correct next action
+from adjacent/wrong actions reliably enough for planning.
 
 ## Diagnostics To Read First
 
