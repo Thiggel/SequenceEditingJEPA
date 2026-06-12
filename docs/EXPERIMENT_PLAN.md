@@ -226,6 +226,56 @@ for all three optimizers, the compact scorer geometry/action parameterization
 is the blocker. If learned energy fails while oracle works, the learned scorer
 remains the blocker.
 
+## Next Decision Tree After Grid 5C
+
+Do not submit the next training grid until Grid 5C identifies the bottleneck.
+
+If Grid 5C works under oracle `latent_goal` with `symbolic_reencode`:
+
+- Treat the compact representation as potentially viable.
+- Scale the best planner read to more boards, then compare exact solve rate,
+  remaining Hamming, root goal-value rate, and runtime.
+- If `latent_rollout` is still worse than `symbolic_reencode`, train for
+  longer rollout fidelity: recursive K `8/16/32`, scheduled re-encoding,
+  and predictor consistency against re-encoded horizon states.
+- If `goal_energy` is worse than `latent_goal`, keep the world model but train
+  a better learned scorer from the oracle action-ranking signal.
+
+If Grid 5C works only for one optimizer:
+
+- If `beam` wins, the best next planner is structured discrete search with
+  better pruning, not continuous action optimization.
+- If `mcts` wins, add progressive widening, cached re-encoded leaf scoring,
+  and a cheap default rollout policy before scaling.
+- If `nn_cem` wins, keep continuous action-embedding planning and test
+  gradient/CEM hybrids plus vector-quantized action embeddings.
+
+If Grid 5C does not work even for oracle `latent_goal` with
+`symbolic_reencode`:
+
+- Stop scaling compact single-state JEPA as-is; hierarchy would sit on a weak
+  low-level scorer.
+- Move to objectives that directly shape candidate-action ordering:
+  action-conditioned advantage/ranking, multi-positive feasible successor
+  contrastive learning, and verifier-style terminal/constraint heads.
+- Reintroduce the tokenized/local representation as the control, because the
+  old re-encoded oracle planner solved Sudoku and therefore isolates what the
+  compact bottleneck lost.
+- Keep symbolic true-Hamming/constraint scoring only as a diagnostic upper
+  bound, not as the target recipe for Maze/ARC.
+
+If Grid 5B capacity/stabilizer helps but still does not solve:
+
+- Isolate the winning factor with small follow-up jobs rather than expanding a
+  full factorial grid.
+- Prefer the branch that improves exact symbolic-board action ranking, not the
+  branch with only lower one-step JEPA loss.
+
+Only after a low-level scorer passes the exact symbolic-board ranking gate
+should hierarchy be retried. Then use HWM-style macro-action encoders and make
+the top-level scorer rank reachable chunks/subgoals, not arbitrary latent
+states.
+
 ## Historical
 
 Old `grid0`-`grid4` configs and Slurm wrappers were removed from the active
