@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 14:00 CEST
+Last updated: 2026-06-12 14:15 CEST
 
 The active backlog lives in `../sequence-editing-report/BACKLOG.md`.
 
@@ -59,7 +59,7 @@ local geometry remains the better base.
 
 ## Active Posthoc: Grid 5 MPC-CEM Lookahead
 
-Submitted as `3724325_[0-23]`.
+Completed as `3724325_[0-23]`.
 
 Purpose: check whether the failed Grid 5 read was partly caused by the cheap
 enumerated beam diagnostic rather than by the latent geometry. This follows the
@@ -79,9 +79,19 @@ Artifacts:
 - `diagnostics_mpc_cem/mpc_cem_root_actions.jsonl`
 - `diagnostics_mpc_cem/mpc_cem_lookahead_examples.jsonl`
 
+Result: failed. All 24 checkpoints solved `0` under every horizon and score.
+Mean remaining Hamming improved only mildly with lookahead:
+
+- h4: latent `52.98`, learned energy `53.41`
+- h16: latent `51.90`, learned energy `52.48`
+- h64: latent `51.49`, learned energy `51.48`
+
+This means planner horizon alone did not rescue the original Grid 5 geometry.
+
 ## Active: Recursive Rollout Training Sweep
 
-Submitted as `3724413_[0-5]`.
+Delta-target sweep submitted as `3724413_[0-5]`.
+Full-state-target sweep submitted as `3724500_[0-5]`.
 
 Purpose: train the same recursive prediction mode that MPC-CEM uses. The base
 Grid 5 model trained mostly teacher-forced one-step prediction over rollout
@@ -103,12 +113,12 @@ Matrix:
 | --- | --- |
 | Predictor | `mlp`, `ar_transformer` |
 | Recursive K | `2`, `4`, `8` |
+| Target | delta in `3724413`; full-state in `3724500` |
 
 Fixed base:
 
 - encoder `mlp`
 - latent size `128`
-- delta prediction
 - recursive loss weight `1.0`
 - K=8 uses 16-step sampled rollout segments; K=2/4 use 8-step segments
 - each job runs standard diagnostics plus MPC-CEM horizons `4/8/16/32/64`

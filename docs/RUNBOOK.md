@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 14:00 CEST
+Last updated: 2026-06-12 14:15 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -75,6 +75,15 @@ Grid 5 recursive rollout training was submitted as `3724413_[0-5]` at
 - Each task trains, runs standard Grid 5 diagnostics, then runs MPC-CEM
   horizons `4/8/16/32/64` with oracle `latent_goal` and learned `goal_energy`.
 
+Grid 5 recursive rollout full-state counterpart was submitted as
+`3724500_[0-5]` at 2026-06-12 14:14 CEST.
+
+- Wrapper: `scripts/slurm/run_grid5_recursive_rollout_state.slurm`
+- Initial state: pending across `a40,a100,rtxpro6k`
+- Same matrix as `3724413`, but `model.predict_delta=false`
+- Outputs:
+  `$PUZZLE_JEPA_WORK_ROOT/runs/grid5_recursive_mlp_{predictor}_state_z128_k{K}`
+
 ## Grid 5 Matrix
 
 All variants train JEPA latent MSE plus SIGReg and a learned terminal-energy
@@ -114,4 +123,7 @@ latent top action is goal-correct only `0.156`, learned-energy top-1 gold is
 `0.000`, and learned-energy top action is goal-correct only `0.063`.
 
 The completed Grid 5 diagnostics used a small enumerated beam, not LeWorldModel
-MPC-CEM. The posthoc `3724325` job is the CEM/MPC lookahead control.
+MPC-CEM. The posthoc `3724325` job added the CEM/MPC lookahead control and also
+failed: all 24 checkpoints solved `0` at every horizon. Average remaining
+Hamming improved slightly with horizon, from about `53` at h4 to about `51.5`
+at h64, but no run reached terminal boards or exact solves.

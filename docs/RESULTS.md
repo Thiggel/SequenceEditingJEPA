@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 14:00 CEST
+Last updated: 2026-06-12 14:15 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -68,16 +68,22 @@ optimize latent action sequences with CEM, score final predicted latent against
 the solved-board latent, execute one action, re-encode/replan, and sweep
 horizons `4/8/16/32/64`.
 
+Final read: still failed. All 24 original Grid 5 checkpoints solved `0` at
+every horizon and score. Average remaining Hamming improved mildly with
+lookahead, from about `53` at h4 to about `51.5` at h64, but no variant became
+terminal or exact.
+
 ## New Training Hypothesis
 
-Submitted Grid 5 recursive rollout training as `3724413_[0-5]`.
+Submitted Grid 5 recursive rollout training as `3724413_[0-5]` for delta
+prediction and `3724500_[0-5]` for full-state prediction.
 
 Hypothesis: the compact latent may fail MPC-CEM partly because training is
 mostly teacher-forced one-step prediction, while planning recursively feeds
 predicted latents back into the predictor. The six new jobs add recursive
-rollout loss with K `2/4/8`, crossed with MLP vs AR-transformer predictor,
-using the best Grid 5 base factors: MLP encoder, delta prediction, latent
-size `128`.
+rollout loss with K `2/4/8`, crossed with MLP vs AR-transformer predictor.
+Both use MLP encoder and latent size `128`; the two arrays compare delta vs
+full-state prediction.
 
 ## Diagnostics To Read First
 
