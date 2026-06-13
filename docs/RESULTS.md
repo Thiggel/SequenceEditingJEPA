@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-13 10:56 CEST
+Last updated: 2026-06-13 12:36 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -29,8 +29,9 @@ one-cell corrupt terminal boards, latent/Hamming nearest-neighbor Spearman
 in `84.4%` of sampled states.
 
 Grid5 oversight checks are scheduled every 6h as `3724789`-`3724798`.
-`3724789` and `3724790` completed cleanly; `3724791` was running at the latest
-read. Dummy alias-path verification passed as `3724787`.
+`3724789`, `3724790`, and `3724791` completed cleanly; `3724792`-`3724798`
+remain pending by begin time. Dummy alias-path verification passed as
+`3724787`.
 
 Grid 5 `3722613_[0-23]` completed cleanly. All 24 tasks exited `0:0`, all
 stderr files are empty, and all expected diagnostics were written.

@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-13 10:56 CEST
+Last updated: 2026-06-13 12:36 CEST
 
 The active source-of-truth backlog lives in
 `../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
@@ -56,10 +56,10 @@ fail. The best oracle variant is `grid5_sigreg_mlp_mlp_delta_z128` with mean
 remaining Hamming `44.88`, latent monotone rate `0.992`, latent gold-action
 top-1 `0.031`, and latent top-goal-value rate `0.156`.
 
-Next decision: do not spend on planner variants for this compact single-state
-geometry until the action-ranking objective/representation is changed, or wait
-for the still-running tokenized Grid 4Z control to decide whether tokenized
-local geometry remains the better base.
+Next decision: do not spend on more planner variants for this compact
+single-state geometry until the action-ranking objective/representation is
+changed. Grid 4Z has since completed and also failed, but it remains a useful
+tokenized/local-control reference point for the next repair branch.
 
 ## Active Posthoc: Grid 5 MPC-CEM Lookahead
 

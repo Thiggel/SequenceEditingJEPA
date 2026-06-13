@@ -70,6 +70,15 @@ Concise Grid-5-era log. Full historical logs remain in
 
 ## 2026-06-13
 
+- 12:36 CEST status check:
+  - Oversight job `3724791` completed cleanly at 2026-06-13 11:08:35 CEST on
+    `a0605` (`00:18:05`, exit `0:0`). It did not submit new experiments beyond
+    the already-recorded Grid5C streaming probe and geometry probe.
+  - Scheduled oversight jobs `3724792`-`3724798` remain pending by `BeginTime`;
+    partition broadening cannot help these holds.
+  - No new Grid5 artifacts appeared after the 10:56 read. The active decision
+    remains: do not broaden Grid5C or add hierarchy on the compact scorer until
+    geometry/action ranking is repaired or a tokenized/local control is used.
 - 04:54 CEST oversight read:
   - Grid5C tasks `3724698_[9-11]`, `3724700_6`, `3724701_7`, and
     `3724702_8` timed out before writing `planner_summary.json`. Their

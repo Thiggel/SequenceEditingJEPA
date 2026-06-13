@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-13 10:56 CEST
+Last updated: 2026-06-13 12:36 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -177,9 +177,8 @@ Grid 5 oversight is re-enabled for the current Grid5 wave only.
 - Invocation: sources `~/.bash_profile`, then uses the local `cs` alias as
   `cs ... exec` with `model_reasoning_effort="medium"`
 - Dummy verified job: `3724787`, exit `0:0`, no edits
-- Scheduled jobs every 6h for 2.5 days. `3724789` and `3724790` completed
-  cleanly; `3724791` was running on `a0605` at 2026-06-13 10:56 CEST; later
-  jobs are pending by begin time:
+- Scheduled jobs every 6h for 2.5 days. `3724789`, `3724790`, and `3724791`
+  completed cleanly; later jobs are pending by begin time:
   `3724792` at 2026-06-13 16:50,
   `3724793` at 2026-06-13 22:50,
   `3724794` at 2026-06-14 04:50,
