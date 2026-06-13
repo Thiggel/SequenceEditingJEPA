@@ -101,6 +101,10 @@ Concise Grid-5-era log. Full historical logs remain in
   - Oversight job `3724792` completed cleanly in `00:14:45`; `3724793` is the
     active 22:50 CEST check on `a100mig/a0605`; `3724794`-`3724798` remain
     pending by `BeginTime`, so partition broadening would not help.
+  - Committed code-repo handoff update as `1331a59` and report-repo handoff
+    update as `6d9eccc`. Push failed for both repos with:
+    `ssh: connect to host github.com port 22: Connection timed out` and
+    `fatal: Could not read from remote repository.`
 - 16:50 CEST oversight read:
   - Slurm has no live entries for the requested Grid5B/Grid5C job IDs. Final
     state is unchanged: original Grid5B `3724634_[0-5]` hit `NODE_FAIL` on
