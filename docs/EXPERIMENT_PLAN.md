@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-13 14:11 CEST
+Last updated: 2026-06-13 16:56 CEST
 
 The active source-of-truth backlog lives in
 `../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
@@ -16,8 +16,9 @@ paths but bad at candidate-action ranking.
 
 Submitted Slurm arrays:
 
-- Training: `3739195_[0-1]`
-- Dependent eval: `3739196_[0-1]` with `afterok:3739195`
+- Training: `3739195_[0-1]`, completed cleanly
+- Dependent eval: `3739196_[0-1]` with `afterok:3739195`, running on
+  `a40/a1721` at 2026-06-13 16:56 CEST
 
 Architecture:
 
@@ -59,6 +60,12 @@ Eval gate:
 
 Pre-submit verification passed: compile, Slurm syntax, focused Grid6 pytest,
 combined Grid6+Hydra pytest, one-step train smoke, and planner CLI smoke.
+
+Training read at 2026-06-13 16:56 CEST: both tasks completed with empty
+stderrs and finite final losses. K1 final eval loss is `0.01431`;
+multi-horizon final eval loss is `0.02343`. The eval array has partial streamed
+summaries only so far, with beam + symbolic re-encode + oracle `latent_goal`
+solving `0/2` at h4/h8 for both runs.
 
 ## Background: Grid 5 SIGReg Single-State JEPA
 

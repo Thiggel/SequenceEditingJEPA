@@ -70,6 +70,27 @@ Concise Grid-5-era log. Full historical logs remain in
 
 ## 2026-06-13
 
+- 16:50 CEST oversight read:
+  - Slurm has no live entries for the requested Grid5B/Grid5C job IDs. Final
+    state is unchanged: original Grid5B `3724634_[0-5]` hit `NODE_FAIL` on
+    `a2143`; rerun `3724689_[0-5]` and original tasks `6-11` completed
+    cleanly; all original Grid5C planner-matrix tasks timed out by wall time.
+  - Checked Grid5C stderrs again. Each contains only the Slurm time-limit
+    cancellation line; there is still no Python traceback, quota write failure,
+    missing-checkpoint failure, or dependency problem.
+  - Artifact check found no original full-matrix `diagnostics_planner_matrix`
+    summaries/records. The only Grid5 planner-matrix artifact remains the
+    small probe `3728790`.
+  - Re-read Grid5B/Grid5C summaries. Best Grid5B standard diagnostic remains
+    `grid5b_10m_canonical_ema_vicreg_k4`, oracle beam mean remaining Hamming
+    `29.5625`, solve `0/16`; best symbolic re-encode non-true score remains
+    h8 oracle `latent_goal`, mean remaining Hamming `41.00`, solve `0/4`.
+    Predicted-latent MPC-CEM best proximity is still around `49.5`, solve `0`.
+  - Decision unchanged: do not rerun or broaden Grid5C, and do not submit
+    hierarchy on this compact scorer. The next useful Grid5-family job must
+    first repair geometry/action ranking or use a tokenized/local control.
+  - Oversight job `3724792` is the active 16:50 CEST check on `a0605`;
+    later checks `3724793`-`3724798` remain pending by `BeginTime`.
 - 12:36 CEST status check:
   - Oversight job `3724791` completed cleanly at 2026-06-13 11:08:35 CEST on
     `a0605` (`00:18:05`, exit `0:0`). It did not submit new experiments beyond
