@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-13 12:36 CEST
+Last updated: 2026-06-13 14:11 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -15,15 +15,18 @@ Long-form handoff source of truth: `../sequence-editing-report`.
 
 ## Active Surface
 
-The active experiment surface has been reset to Grid 5.
+The active experiment surface has moved to Grid 6 causal trajectory JEPA. Grid
+5 remains the negative compact single-state baseline/background.
 
-- Config: `configs/puzzle/grid5_sudoku_sigreg.yaml`
-- Slurm: `scripts/slurm/run_grid5_sigreg_ablation.slurm`
-- Model: `puzzle_jepa/models/sigreg_jepa.py`
-- Train: `puzzle_jepa/train/grid5.py`
-- Diagnostics: `puzzle_jepa/eval/grid5_diagnostics.py`
-- Latest analysis probe: `scripts/analysis/grid5_geometry_probe.py`
-- Active 10M screen: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
+- Config: `configs/puzzle/grid6_sudoku_trajectory.yaml`
+- Model: `puzzle_jepa/models/trajectory_jepa.py`
+- Train: `puzzle_jepa/train/grid6.py`
+- Planner eval: `puzzle_jepa/eval/grid6_planner_matrix.py`
+- Slurm train: `scripts/slurm/run_grid6_causal_trajectory.slurm`
+- Slurm eval: `scripts/slurm/run_grid6_causal_trajectory_eval.slurm`
+- Grid5 background model/probes:
+  `puzzle_jepa/models/sigreg_jepa.py`,
+  `scripts/analysis/grid5_geometry_probe.py`
 
 Old `grid0`-`grid4` experiment configs and Slurm wrappers were removed from the
 active tree. Historical results remain in `../sequence-editing-report`.
@@ -32,7 +35,7 @@ active tree. Historical results remain in `../sequence-editing-report`.
 
 ```bash
 source scripts/env.sh
-pytest tests/test_grid5_sigreg.py tests/test_puzzle_hydra.py -q
+pytest tests/test_grid6_trajectory.py tests/test_puzzle_hydra.py -q
 ```
 
 Runtime outputs default to:
@@ -42,6 +45,33 @@ Runtime outputs default to:
 ```
 
 ## Slurm Snapshot
+
+Grid 6 causal trajectory JEPA was submitted at 2026-06-13 14:11 CEST.
+
+- Train array: `3739195_[0-1]`
+- Dependent planner eval array: `3739196_[0-1]`, dependency `afterok:3739195`
+- Slurm state at 2026-06-13 14:13 CEST: train task `3739195_0` running on
+  `a40` node `a0228`; train task `3739195_1` running on `a100` node `a0804`;
+  eval array `3739196_[0-1]` pending with reason `Dependency`
+- Partition request: `a40,a100,rtxpro6k`
+- Resources: train one GPU, 8 CPUs, 18h; eval one GPU, 4 CPUs, 12h
+- Run roots:
+  `$PUZZLE_JEPA_WORK_ROOT/runs/grid6_causal_traj_k1_d320` and
+  `$PUZZLE_JEPA_WORK_ROOT/runs/grid6_causal_traj_mh_d320`
+- Architecture: causal board/action history encoder, frozen EMA target
+  encoder, action-chunk encoder, horizon predictor, JEPA latent MSE + SIGReg +
+  learned `goal_energy` head
+- Scale: `23.25M` total params including frozen EMA target encoder, `15.70M`
+  trainable params
+- Tasks:
+  - task `0`: one-step horizons `[1]`
+  - task `1`: multi-horizon `[1,2,4,8,16]`
+- Eval matrix after training: Beam/CEM/MCTS, `symbolic_reencode` vs
+  `latent_rollout`, oracle `latent_goal` vs learned `goal_energy`, horizons
+  `4/8/16` plus mean-prefix score over `1/2/4/8/16`.
+- Verification before submission: `py_compile`, `bash -n`, focused Grid6
+  pytest, combined Grid6+Hydra pytest, one-step train smoke, and planner CLI
+  smoke.
 
 Grid 5 was submitted as `3722613_[0-23]` at 2026-06-12 11:29 CEST and has
 completed.

@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-13 12:36 CEST
+Last updated: 2026-06-13 14:11 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -10,6 +10,21 @@ Clean Grid5-only planning and running-experiment docs live in
 source-of-truth versions live in `../sequence-editing-report/`.
 
 ## Current Result
+
+Grid 6 causal trajectory JEPA has been implemented, locally verified, and
+submitted. There are no training results yet.
+
+- Train array: `3739195_[0-1]`; at 2026-06-13 14:13 CEST, task `0` was
+  running on `a40/a0228` and task `1` was running on `a100/a0804`
+- Eval array: `3739196_[0-1]`, pending on dependency `afterok:3739195`
+- Runs:
+  `grid6_causal_traj_k1_d320` and `grid6_causal_traj_mh_d320`
+- Scale: `15.70M` trainable params, `23.25M` total params including the frozen
+  EMA target encoder
+- Verification passed: `py_compile`, `bash -n`, `pytest
+  tests/test_grid6_trajectory.py -q`, `pytest tests/test_puzzle_hydra.py
+  tests/test_grid6_trajectory.py -q`, one-step train smoke, and planner CLI
+  smoke
 
 Grid 5B completed. Original tasks `0-5` hit Slurm `NODE_FAIL` on `a2143` and
 were resubmitted as `3724689_[0-5]`; the rerun completed cleanly, and final

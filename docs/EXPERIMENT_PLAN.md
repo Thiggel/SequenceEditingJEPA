@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-13 12:36 CEST
+Last updated: 2026-06-13 14:11 CEST
 
 The active source-of-truth backlog lives in
 `../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
@@ -8,7 +8,59 @@ live in `../sequence-editing-report/GRID5_PLAN.md`,
 `../sequence-editing-report/GRID5_BACKLOG.md`, and
 `../sequence-editing-report/GRID5_LOG.md`.
 
-## Active: Grid 5 SIGReg Single-State JEPA
+## Active: Grid 6 Causal Trajectory JEPA
+
+Goal: test whether a sequence-conditioned JEPA representation repairs the
+Grid5 failure mode where compact single-state latents were monotone along gold
+paths but bad at candidate-action ranking.
+
+Submitted Slurm arrays:
+
+- Training: `3739195_[0-1]`
+- Dependent eval: `3739196_[0-1]` with `afterok:3739195`
+
+Architecture:
+
+- board stem receives current board, initial puzzle board, and clue mask
+- causal encoder attends over past board/action history only
+- target encoder is a frozen EMA copy of the online causal encoder
+- action-chunk encoder compresses the intervening primitive actions for a
+  requested horizon
+- horizon predictor predicts the future target latent from the causal current
+  latent and the action chunk
+- loss is JEPA latent MSE + SIGReg + learned terminal `goal_energy`
+- no anti-causal target encoder branch in this first run
+
+Matrix:
+
+| Task | Run | Horizons |
+| ---: | --- | --- |
+| 0 | `grid6_causal_traj_k1_d320` | `[1]` |
+| 1 | `grid6_causal_traj_mh_d320` | `[1,2,4,8,16]` |
+
+Fixed scale:
+
+- `d_model=320`, action embedding `32`
+- encoder layers `4`, predictor layers `4`, action-chunk layers `2`
+- hidden/intermediate size `1280`
+- trainable params `15.70M`; total params with EMA target `23.25M`
+- rollout length `32`, batch size `192`, max steps `5000`
+- rollout training mix `50%` oracle/correct and `50%` wrong/random mutable
+  trajectories
+
+Eval gate:
+
+- planner axis: Beam, CEM, diagnostic MCTS
+- transition axis: exact symbolic board application plus re-encode at horizon
+  vs latent-only predictor rollout
+- score axis: oracle solved-board latent distance (`latent_goal`) vs learned
+  terminal energy (`goal_energy`)
+- horizon axis: `4/8/16` and mean-prefix score over `1/2/4/8/16`
+
+Pre-submit verification passed: compile, Slurm syntax, focused Grid6 pytest,
+combined Grid6+Hydra pytest, one-step train smoke, and planner CLI smoke.
+
+## Background: Grid 5 SIGReg Single-State JEPA
 
 Goal: restart the Sudoku JEPA experiments around a compact single-state latent
 with JEPA latent MSE plus SIGReg always enabled, and diagnose whether the latent
