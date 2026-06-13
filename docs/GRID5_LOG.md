@@ -93,3 +93,9 @@ Concise Grid-5-era log. Full historical logs remain in
     `grid5b_10m_canonical_ema_vicreg_k4` with one board, h8, all optimizer /
     transition / score axes, reduced budgets, and `a2143` excluded. It was
     running on `a40` node `a0124` at the handoff.
+- 05:03 CEST push attempt:
+  - Committed code-repo changes as `e5c9a37` and report-repo changes as
+    `9763418`, then attempted `git push` in both repos.
+  - Push failed for both repos with:
+    `ssh: connect to host github.com port 22: Connection timed out` and
+    `fatal: Could not read from remote repository.`
