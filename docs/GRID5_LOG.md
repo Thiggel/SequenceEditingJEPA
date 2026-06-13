@@ -70,6 +70,37 @@ Concise Grid-5-era log. Full historical logs remain in
 
 ## 2026-06-13
 
+- 22:53 CEST oversight read:
+  - Requested Grid5B/Grid5C jobs remain out of the live queue. Slurm
+    accounting again shows original Grid5B `3724634_[0-5]` as `NODE_FAIL` on
+    `a2143`, rerun `3724689_[0-5]` plus original tasks `6-11` as clean
+    completions, and all original Grid5C full-matrix tasks as walltime
+    timeouts.
+  - Rechecked Grid5C stderrs and stdout job statistics. Stderrs contain only
+    Slurm time-limit cancellation messages. No Python traceback, quota hard
+    failure, missing-checkpoint failure, or dependency problem was found.
+    `/home/vault` was over soft quota in the job epilogues but below hard
+    quota.
+  - Artifact check is unchanged: the original full-matrix jobs left no
+    `diagnostics_planner_matrix` summaries/records. The only usable Grid5C
+    matrix artifact remains small probe `3728790`.
+  - Re-aggregated Grid5B diagnostics. Best standard oracle beam remains
+    `grid5b_10m_canonical_ema_vicreg_k4`, mean remaining Hamming `29.5625`,
+    solve `0/16`, latent gold-action top1 `0.125`. Best non-true symbolic
+    re-encode read remains h8 oracle `latent_goal`, mean remaining Hamming
+    `41.00`, solve `0/4`. Predicted-latent MPC-CEM still solves `0`; best
+    proximity is `49.5`.
+  - Re-read small probe `3728790`: best mode remains MCTS +
+    `symbolic_reencode` + oracle `latent_goal`, remaining Hamming `37` from
+    start `55`, solve `0/1`. Latent-rollout modes remain `53-55`; learned
+    `goal_energy` remains weaker at `49-54`.
+  - Decision unchanged: no Grid5 code change, cancellation, broad Grid5C
+    rerun, or hierarchy job is justified. The next Grid5-family experiment
+    should first repair geometry/action ranking or use a tokenized/local
+    control.
+  - Oversight job `3724792` completed cleanly in `00:14:45`; `3724793` is the
+    active 22:50 CEST check on `a100mig/a0605`; `3724794`-`3724798` remain
+    pending by `BeginTime`, so partition broadening would not help.
 - 16:50 CEST oversight read:
   - Slurm has no live entries for the requested Grid5B/Grid5C job IDs. Final
     state is unchanged: original Grid5B `3724634_[0-5]` hit `NODE_FAIL` on
