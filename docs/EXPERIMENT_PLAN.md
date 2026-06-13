@@ -257,14 +257,16 @@ hierarchy on this compact scorer before repairing geometry/action ranking.
 Grid 5C identified the bottleneck as compact scorer geometry/action
 parameterization. Do not submit a broad planner grid on this representation.
 
-Candidate repair branch: trajectory-context JEPA. Encode full correct and
-wrong board/action trajectories with a causal input encoder and an EMA/frozen
-anti-causal future target encoder, then train multi-horizon action-conditioned
-JEPA predictions plus SIGReg. The gate is whether this improves exact
-symbolic-board ranking. The design must avoid making a state's target latent
-depend on unobserved arbitrary future choices unless those future actions are
-also conditioned on; otherwise the same board can receive incompatible target
-latents.
+Candidate repair branch: trajectory-context JEPA. Two variants are now the
+clean plan. First, a causal trajectory encoder predicts direct future
+state latents at horizons K from the current causal context plus the
+intervening action chunk. Second, a separate learned anti-causal target encoder
+produces future-summary targets over suffix windows; this should be an
+auxiliary target, not the sole Markov state latent used for planning. Both
+variants must condition the predictor on all actions between `t` and `t+K`, so
+the same board cannot receive incompatible unconditioned future labels. Gate on
+exact symbolic-board ranking and MPC/beam/MCTS planning with symbolic
+re-encode and latent rollout.
 
 If Grid 5C works under oracle `latent_goal` with `symbolic_reencode`:
 
