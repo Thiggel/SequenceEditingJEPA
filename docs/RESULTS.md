@@ -21,6 +21,9 @@ submitted. There are no training results yet.
   `grid6_causal_traj_k1_d320` and `grid6_causal_traj_mh_d320`
 - Scale: `15.70M` trainable params, `23.25M` total params including the frozen
   EMA target encoder
+- Step-1 metrics are finite and stderrs are empty. K1 eval loss is `1.4958`
+  with eval h1 `1.2261`; multi-horizon eval loss is `1.6853` with eval
+  h1/h2/h4/h8/h16 `1.2727/1.2759/1.2737/1.2670/1.2965`.
 - Verification passed: `py_compile`, `bash -n`, `pytest
   tests/test_grid6_trajectory.py -q`, `pytest tests/test_puzzle_hydra.py
   tests/test_grid6_trajectory.py -q`, one-step train smoke, and planner CLI

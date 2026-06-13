@@ -69,6 +69,12 @@ Grid 6 causal trajectory JEPA was submitted at 2026-06-13 14:11 CEST.
 - Eval matrix after training: Beam/CEM/MCTS, `symbolic_reencode` vs
   `latent_rollout`, oracle `latent_goal` vs learned `goal_energy`, horizons
   `4/8/16` plus mean-prefix score over `1/2/4/8/16`.
+- Step-1 startup metrics are written and stderrs are empty:
+  - `grid6_causal_traj_k1_d320`: eval loss `1.4958`, eval prediction
+    `1.2261`, eval goal-energy loss `0.2415`, eval h1 `1.2261`
+  - `grid6_causal_traj_mh_d320`: eval loss `1.6853`, eval prediction
+    `1.2772`, eval goal-energy loss `0.3827`, eval h1/h2/h4/h8/h16
+    `1.2727/1.2759/1.2737/1.2670/1.2965`
 - Verification before submission: `py_compile`, `bash -n`, focused Grid6
   pytest, combined Grid6+Hydra pytest, one-step train smoke, and planner CLI
   smoke.
