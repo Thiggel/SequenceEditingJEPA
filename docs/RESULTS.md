@@ -192,6 +192,16 @@ True-Hamming symbolic CEM reaches mean remaining Hamming `1.75` and solve
 near a solution on these boards, but the learned/oracle latent scores remain
 the larger blocker.
 
+Stabilizer read: EMA is the only canonical stabilizer change that materially
+improves local oracle action ranking. Canonical SIGReg K4 has symbolic oracle
+remaining Hamming `48.00` and latent top-goal-value rate `0.125`; EMA+SIGReg
+K4 improves these to `44.50` and `0.969`. VICReg alone improves latent health
+but not planning (`48.25`, top-goal `0.156`). EMA+VICReg is the best symbolic
+oracle run (`41.00`, top-goal `0.969`) but still solves `0/4`, and its learned
+energy remains weak (`44.25`, learned top-goal `0.281`). Low drift is not
+sufficient: VICReg and delta controls have lower K32 drift than EMA+VICReg but
+worse symbolic planning.
+
 ## Grid 5C and Geometry Probe
 
 Added `puzzle_jepa/eval/grid5_planner_matrix.py` and
