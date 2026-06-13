@@ -99,3 +99,31 @@ Concise Grid-5-era log. Full historical logs remain in
   - Push failed for both repos with:
     `ssh: connect to host github.com port 22: Connection timed out` and
     `fatal: Could not read from remote repository.`
+- 10:56 CEST oversight read:
+  - Grid5C tasks `3724691_[0-5]` also timed out at 2026-06-13 05:13 CEST.
+    Together with `3724698_[9-11]`, `3724700_6`, `3724701_7`, and
+    `3724702_8`, the full planner matrix produced no usable summaries. All
+    checked stderrs contain only Slurm time-limit messages.
+  - Small streaming probe `3728790` completed cleanly in `01:03:08` on a40
+    node `a0124` and wrote `planner_summary.json` plus `planner_records.jsonl`.
+    On one eval board for `grid5b_10m_canonical_ema_vicreg_k4`, best h8 result
+    was MCTS + `symbolic_reencode` + oracle `latent_goal`: start Hamming `55`,
+    final remaining Hamming `37`, solve `0/1`. Beam oracle symbolic was `39`;
+    learned-energy symbolic was `49` for beam/MCTS and `54` for `nn_cem`;
+    latent-rollout modes stayed `53-55`.
+  - Added and ran `scripts/analysis/grid5_geometry_probe.py` locally on the
+    same checkpoint. Artifact:
+    `$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_geometry_probe_canonical_ema_vicreg_k4_20260613/`.
+    Read: one-cell terminal corruptions can be extremely close to the true
+    terminal latent (`p10` corrupt latent MSE `0.00168`, mean minimum margin
+    `0.00047`); learned `goal_energy` ranked the true terminal top-1 in `0/16`
+    boards; latent/Hamming nearest-neighbor Spearman was `0.133`; the best
+    wrong action displacement had higher goal-direction cosine than the gold
+    action in `84.4%` of samples.
+  - Interpretation: this follows the Grid5C failure branch. Do not broaden the
+    planner matrix or add hierarchy on this compact scorer. The next useful
+    experiment should first repair geometry/action ranking or use a
+    tokenized/local control.
+  - Oversight jobs `3724789` and `3724790` completed cleanly; `3724791` was
+    running on `a0605`; later oversight jobs were pending only by `BeginTime`,
+    so no partition broadening was applicable.

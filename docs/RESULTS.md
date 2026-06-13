@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-13 04:58 CEST
+Last updated: 2026-06-13 10:56 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -13,14 +13,24 @@ source-of-truth versions live in `../sequence-editing-report/`.
 
 Grid 5B completed. Original tasks `0-5` hit Slurm `NODE_FAIL` on `a2143` and
 were resubmitted as `3724689_[0-5]`; the rerun completed cleanly, and final
-Grid5B stderrs checked so far are empty. Grid 5C planner matrix eval has not
-yet produced usable full-matrix artifacts: tasks `6-11` timed out before
-writing summaries, and tasks `0-5` were still running near their 12h limit at
-2026-06-13 04:54 CEST. The eval now writes incremental records/summaries, and
-small streaming probe `3728790` is running on a40 node a0124.
+Grid5B stderrs checked so far are empty. Grid 5C full planner matrix eval did
+not produce usable full-matrix artifacts: `3724691_[0-5]`,
+`3724698_[9-11]`, `3724700_6`, `3724701_7`, and `3724702_8` all timed out.
+The stderrs contain only Slurm time-limit messages.
 
-Grid5 oversight checks are scheduled every 6h for the next 2.5 days as
-`3724789`-`3724798`. Dummy alias-path verification passed as `3724787`.
+Small streaming probe `3728790` completed cleanly and is the current Grid5C
+read. On one board from `grid5b_10m_canonical_ema_vicreg_k4`, h8 MCTS +
+`symbolic_reencode` + oracle `latent_goal` reduced remaining Hamming from `55`
+to `37` but solved `0/1`; beam oracle symbolic reached `39`; latent-rollout
+modes stayed `53-55`; learned `goal_energy` remained weak (`49-54`). A follow-up
+geometry probe shows learned `goal_energy` true-terminal top1 `0/16` among
+one-cell corrupt terminal boards, latent/Hamming nearest-neighbor Spearman
+`0.133`, and best wrong action displacement beating gold goal-direction cosine
+in `84.4%` of sampled states.
+
+Grid5 oversight checks are scheduled every 6h as `3724789`-`3724798`.
+`3724789` and `3724790` completed cleanly; `3724791` was running at the latest
+read. Dummy alias-path verification passed as `3724787`.
 
 Grid 5 `3722613_[0-23]` completed cleanly. All 24 tasks exited `0:0`, all
 stderr files are empty, and all expected diagnostics were written.
@@ -181,7 +191,7 @@ True-Hamming symbolic CEM reaches mean remaining Hamming `1.75` and solve
 near a solution on these boards, but the learned/oracle latent scores remain
 the larger blocker.
 
-## Active Grid 5C
+## Grid 5C and Geometry Probe
 
 Added `puzzle_jepa/eval/grid5_planner_matrix.py` and
 `scripts/slurm/run_grid5c_planner_matrix_eval.slurm`.
@@ -195,18 +205,32 @@ The matrix evaluates all Grid 5B checkpoints with MPC over:
 
 Submitted jobs:
 
-- `3724691_[0-5]` after rerun `3724689`
-- `3724698_[9-11]` for completed old-best tasks; currently running on `a2143`
-  with 8h limit, so monitor for repeat node failure
-- `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each after its matching
-  original Grid 5B task; `3724702_8` has started
+- `3724691_[0-5]` after rerun `3724689`: timed out at 12h on `a40`
+- `3724698_[9-11]`: timed out at 8h on `a2143`
+- `3724700_6`, `3724701_7`, `3724702_8`: timed out at 12h on `a2143`
 
-Current state at 2026-06-12 22:52 CEST: all 12 Grid5C tasks are running.
-`3724691_[0-5]` is on `a40`; `3724698_[9-11]`, `3724700_6`,
-`3724701_7`, and `3724702_8` are on `rtxpro6k` node `a2143`. Stderrs are
-empty, `sstat` shows CPU/RSS activity, and no planner summaries have been
-written yet. `3724698_[9-11]` still has the old 8h wall time and may time out
-before producing artifacts.
+The full matrix was a runtime/artifact failure, not a Python failure: checked
+stderrs contain only time-limit messages. The smaller streaming replacement
+`3728790` completed in `01:03:08` on a40 node `a0124` and wrote:
+
+- `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_canonical_ema_vicreg_k4/diagnostics_planner_matrix_probe_20260613/planner_summary.json`
+- `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_canonical_ema_vicreg_k4/diagnostics_planner_matrix_probe_20260613/planner_records.jsonl`
+
+Result: oracle symbolic re-encode improves proximity but does not solve even
+one board. Best h8 mode is MCTS + oracle `latent_goal` +
+`symbolic_reencode`, remaining Hamming `37` from start `55`, solve `0/1`.
+Beam oracle symbolic gives `39`. Learned-energy symbolic gives `49` for
+beam/MCTS and `54` for `nn_cem`. All latent-rollout modes remain `53-55`.
+
+Added `scripts/analysis/grid5_geometry_probe.py` and ran it on the same
+checkpoint. Artifact:
+`$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_geometry_probe_canonical_ema_vicreg_k4_20260613/`.
+The audit supports the metric-mismatch diagnosis: one-cell corrupt terminal
+boards can be very close to the true terminal latent (`p10` corrupt latent MSE
+`0.00168`, mean minimum margin `0.00047`); learned `goal_energy` ranks the true
+terminal top1 in `0/16`; latent/Hamming nearest-neighbor Spearman is only
+`0.133`; and best wrong action displacement beats the gold action's
+goal-direction cosine in `84.4%` of sampled states.
 
 Verification passed: compile, Slurm syntax,
 `pytest tests/test_grid5_sigreg.py -q`, and a tiny real-checkpoint CLI smoke.

@@ -7,23 +7,20 @@ Clean Grid-5-only backlog and running experiment snapshot.
 | Item | Jobs | Status | Read First |
 | --- | --- | --- | --- |
 | Grid 5B 10M stabilizer/capacity screen | Original `3724634_[0-11]`; rerun `3724689_[0-5]` | Complete. Original tasks `0-5` hit Slurm `NODE_FAIL` on `a2143`; rerun `0-5` completed cleanly. All 12 final runs wrote standard, MPC-CEM, and symbolic re-encode diagnostics. Best symbolic oracle read is `canonical_ema_vicreg_k4`, h8 mean remaining Hamming `41.00`, solve `0/4`. | Per-run `diagnostics/diagnostics.json`, `diagnostics_mpc_cem/mpc_cem_summary.json`, `diagnostics_symbolic_reencode/summary.json` |
-| Grid 5C planner matrix | `3724691_[0-5]`, `3724698_[9-11]`, `3724700_[6]`, `3724701_[7]`, `3724702_[8]` | Tasks `6-11` timed out before writing summaries; stderrs contain only Slurm time-limit messages. Tasks `0-5` were still running at 2026-06-13 04:54 CEST with about 19 minutes left; Slurm denied walltime extension. The eval now writes incremental `planner_records.jsonl` and `planner_summary.json` after each mode. | Per-run `diagnostics_planner_matrix/planner_summary.json` and `planner_records.jsonl` |
-| Grid 5C small streaming probe | `3728790` | Submitted 2026-06-13 04:53 CEST; running on a40 node a0124 as of 2026-06-13 04:58 CEST. One representative checkpoint, `grid5b_10m_canonical_ema_vicreg_k4`; one board; h8; all three optimizers, both transition modes, both score modes; `a2143` excluded. | `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_canonical_ema_vicreg_k4/diagnostics_planner_matrix_probe_20260613/` |
-| Grid 5 oversight checks | `3724789`-`3724798` | Scheduled every 6h from 2026-06-12 22:50 CEST through 2026-06-15 04:50 CEST on `a100mig`. Uses the local `cs` alias with medium reasoning. | Logs `logs/grid5_watch_<jobid>.out/.err` and last messages |
+| Grid 5C planner matrix | `3724691_[0-5]`, `3724698_[9-11]`, `3724700_[6]`, `3724701_[7]`, `3724702_[8]` | All original full-matrix tasks timed out. Stderrs contain only Slurm time-limit messages; no Python traceback. The eval now writes incremental `planner_records.jsonl` and `planner_summary.json` after each mode. | Per-run `diagnostics_planner_matrix/planner_summary.json` and `planner_records.jsonl` |
+| Grid 5C small streaming probe | `3728790` | Complete, exit `0:0`, runtime `01:03:08` on a40 node `a0124`. One-board h8 result on `grid5b_10m_canonical_ema_vicreg_k4`: best read is MCTS + `symbolic_reencode` + oracle `latent_goal`, remaining Hamming `37` from start `55`, solve `0/1`; beam oracle symbolic gives `39`; all latent-rollout modes stay `53-55`; learned `goal_energy` symbolic stays `49-54`. | `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_canonical_ema_vicreg_k4/diagnostics_planner_matrix_probe_20260613/` |
+| Grid 5 geometry probe | local analysis | Complete. `scripts/analysis/grid5_geometry_probe.py` on `grid5b_10m_canonical_ema_vicreg_k4`: one-cell terminal corruptions are very close to the true solved latent, learned `goal_energy` true-terminal top1 `0/16`, latent/Hamming nearest-neighbor Spearman `0.133`, and best wrong action displacement beats gold cosine in `84.4%` of sampled states. | `$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_geometry_probe_canonical_ema_vicreg_k4_20260613/summary.{json,md}` |
+| Grid 5 oversight checks | `3724789`-`3724798` | `3724789` and `3724790` completed cleanly; `3724791` is running on `a0605` as of 2026-06-13 10:56 CEST; later jobs are pending by `BeginTime`, so partition broadening would not help. | Logs `logs/grid5_watch_<jobid>.out/.err` and last messages |
 
 ## Immediate Analysis Tasks
 
 1. Check whether any Grid 5B/5C tasks failed because of node/quota/runtime
    rather than code.
-2. For each completed Grid 5C checkpoint, tabulate:
-   - best solve rate and mean remaining Hamming by planner;
-   - symbolic re-encode vs latent rollout gap;
-   - oracle `latent_goal` vs learned `goal_energy` gap;
-   - root goal-value rate;
-   - runtime by planner.
-3. If Grid 5C times out before writing summaries, resubmit the smallest
-   streaming/partial diagnostic for one representative checkpoint before any
-   broad rerun.
+2. Treat the Grid5C probe as a negative gate for compact single-state planning:
+   oracle symbolic re-encode improves proximity but does not solve even on one
+   board; latent rollout and learned energy are weaker.
+3. Do not submit a broad Grid5C rerun unless a new objective/representation
+   first improves exact symbolic-board ranking.
 4. Save qualitative examples for the best and worst reads.
 5. Oversight jobs should update these Grid5 docs and the required report docs
    whenever they submit jobs, find failures, or change interpretation.

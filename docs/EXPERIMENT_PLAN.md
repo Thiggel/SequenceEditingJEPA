@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-13 04:58 CEST
+Last updated: 2026-06-13 10:56 CEST
 
 The active source-of-truth backlog lives in
 `../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
@@ -148,11 +148,12 @@ on the same compact scorer. The useful next branches are a more LeWM-faithful
 encoder/SIGReg setup, a direct action/constraint ranking objective, or a
 hierarchical setup only after the low-level symbolic/re-encode scorer improves.
 
-Grid 5C is the current gate but the first full-matrix attempt exceeded wall
-time before writing complete summaries. The eval now streams partial JSONL and
-summary outputs after each mode. Read small probe `3728790` first; it covers
-the planner/transition/score axes on the best Grid5B checkpoint before any
-broad rerun is justified.
+Grid 5C is now a negative gate for the compact single-state scorer. The first
+full-matrix attempt exceeded wall time, but small probe `3728790` completed and
+covered the planner/transition/score axes on the best Grid5B checkpoint. Oracle
+`latent_goal` with `symbolic_reencode` improved one board from start Hamming
+`55` to `37` under MCTS, but still solved `0/1`; latent rollout stayed near
+the start (`53-55`), and learned `goal_energy` remained weak (`49-54`).
 
 ## Active: Grid 5B 10M Stabilizer Screen
 
@@ -209,10 +210,9 @@ Submitted as dependent eval jobs using
 - `3724701_[7]`, after `3724634_7`
 - `3724702_[8]`, after `3724634_8`
 
-As of 2026-06-12 22:52 CEST all 12 Grid5C tasks are running. No planner summary
-artifacts exist yet; do not submit a broad successor before this gate is read.
-If the 8h `3724698_[9-11]` slice times out without artifacts, rerun the
-smallest streaming/partial diagnostic first.
+All full-matrix tasks timed out without usable summaries:
+`3724691_[0-5]`, `3724698_[9-11]`, `3724700_6`, `3724701_7`, and
+`3724702_8`. Checked stderrs contain only Slurm time-limit messages.
 
 Purpose: test the planner axes requested after Grid 5B without retraining.
 Every read is MPC: plan a horizon, execute the first symbolic action, update
@@ -243,9 +243,19 @@ for all three optimizers, the compact scorer geometry/action parameterization
 is the blocker. If learned energy fails while oracle works, the learned scorer
 remains the blocker.
 
+Actual small-probe read: oracle symbolic re-encode did not solve even on one
+board, although it was less bad than latent rollout. A follow-up geometry probe
+on `grid5b_10m_canonical_ema_vicreg_k4` found learned true-terminal top1
+`0/16` among one-cell corrupt terminal boards, latent/Hamming nearest-neighbor
+Spearman `0.133`, and best wrong action displacement beating the gold action's
+goal-direction cosine in `84.4%` of sampled states. This follows the
+oracle-symbolic-reencode-fails branch: do not scale the planner matrix or add
+hierarchy on this compact scorer before repairing geometry/action ranking.
+
 ## Next Decision Tree After Grid 5C
 
-Do not submit the next training grid until Grid 5C identifies the bottleneck.
+Grid 5C identified the bottleneck as compact scorer geometry/action
+parameterization. Do not submit a broad planner grid on this representation.
 
 If Grid 5C works under oracle `latent_goal` with `symbolic_reencode`:
 

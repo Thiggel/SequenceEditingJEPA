@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-13 04:58 CEST
+Last updated: 2026-06-13 10:56 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -22,7 +22,7 @@ The active experiment surface has been reset to Grid 5.
 - Model: `puzzle_jepa/models/sigreg_jepa.py`
 - Train: `puzzle_jepa/train/grid5.py`
 - Diagnostics: `puzzle_jepa/eval/grid5_diagnostics.py`
-- Latest analysis probe: `scripts/slurm/run_grid5c_planner_matrix_probe.slurm`
+- Latest analysis probe: `scripts/analysis/grid5_geometry_probe.py`
 - Active 10M screen: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
 
 Old `grid0`-`grid4` experiment configs and Slurm wrappers were removed from the
@@ -144,21 +144,31 @@ Grid 5C planner matrix was added as
     but landed on node `a2143`; monitor for repeat node failure
   - `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each dependent on the
     matching original Grid 5B task; tasks `6-8` have started
-- As of 2026-06-13 04:54 CEST, Grid5C tasks `3724698_[9-11]`,
-  `3724700_6`, `3724701_7`, and `3724702_8` have timed out before writing
-  summaries. Their stderrs contain only Slurm time-limit messages. Tasks
-  `3724691_[0-5]` were still running on `a40` at elapsed `11:41/12:00`, but
-  Slurm denied a walltime extension with `Access/permission denied`.
+- Grid5C tasks `3724698_[9-11]`, `3724700_6`, `3724701_7`, and `3724702_8`
+  timed out before writing summaries. Tasks `3724691_[0-5]` also timed out at
+  2026-06-13 05:13 CEST. All checked stderrs contain only Slurm time-limit
+  messages; no Python traceback was found.
 - `puzzle_jepa/eval/grid5_planner_matrix.py` now writes
   `planner_records.jsonl` and `planner_summary.json` incrementally after each
   completed mode, so future timeouts preserve partial reads.
-- Small streaming replacement probe `3728790` was submitted at 2026-06-13
-  04:53 CEST via `scripts/slurm/run_grid5c_planner_matrix_probe.slurm`. It
-  evaluates `grid5b_10m_canonical_ema_vicreg_k4` on one board at h8 across
-  `beam|mcts|nn_cem`, `symbolic_reencode|latent_rollout`, and
-  `latent_goal|goal_energy`, with reduced budgets and `a2143` excluded.
-  Output root:
+- Small streaming replacement probe `3728790` completed cleanly in `01:03:08`
+  on a40 node `a0124`. It evaluated `grid5b_10m_canonical_ema_vicreg_k4` on
+  one board at h8 across `beam|mcts|nn_cem`, `symbolic_reencode|latent_rollout`,
+  and `latent_goal|goal_energy`. Best result was MCTS +
+  `symbolic_reencode` + oracle `latent_goal`, remaining Hamming `37` from
+  start `55`, solve `0/1`. Beam oracle symbolic was `39`; latent-rollout modes
+  stayed `53-55`; learned energy stayed weak (`49-54`). Output root:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_canonical_ema_vicreg_k4/diagnostics_planner_matrix_probe_20260613/`.
+
+Grid 5 geometry probe was added as `scripts/analysis/grid5_geometry_probe.py`
+and run locally on `grid5b_10m_canonical_ema_vicreg_k4`. Artifact:
+`$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_geometry_probe_canonical_ema_vicreg_k4_20260613/`.
+Key read: learned `goal_energy` true-terminal top1 is `0/16` among one-cell
+corrupt terminal boards; latent/Hamming nearest-neighbor Spearman is `0.133`;
+best wrong action displacement beats gold goal-direction cosine in `84.4%` of
+sampled states. This puts Grid5 on the oracle-symbolic-reencode-fails branch:
+repair geometry/action ranking or use tokenized/local controls before more
+planner scale or hierarchy.
 
 Grid 5 oversight is re-enabled for the current Grid5 wave only.
 
@@ -167,10 +177,9 @@ Grid 5 oversight is re-enabled for the current Grid5 wave only.
 - Invocation: sources `~/.bash_profile`, then uses the local `cs` alias as
   `cs ... exec` with `model_reasoning_effort="medium"`
 - Dummy verified job: `3724787`, exit `0:0`, no edits
-- Scheduled jobs every 6h for 2.5 days:
-  `3724789` at 2026-06-12 22:50 CEST,
-  `3724790` at 2026-06-13 04:50,
-  `3724791` at 2026-06-13 10:50,
+- Scheduled jobs every 6h for 2.5 days. `3724789` and `3724790` completed
+  cleanly; `3724791` was running on `a0605` at 2026-06-13 10:56 CEST; later
+  jobs are pending by begin time:
   `3724792` at 2026-06-13 16:50,
   `3724793` at 2026-06-13 22:50,
   `3724794` at 2026-06-14 04:50,
