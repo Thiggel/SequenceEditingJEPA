@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-12 22:52 CEST
+Last updated: 2026-06-13 04:58 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -22,7 +22,7 @@ The active experiment surface has been reset to Grid 5.
 - Model: `puzzle_jepa/models/sigreg_jepa.py`
 - Train: `puzzle_jepa/train/grid5.py`
 - Diagnostics: `puzzle_jepa/eval/grid5_diagnostics.py`
-- Latest analysis probe: `scripts/analysis/grid5_symbolic_planning_probe.py`
+- Latest analysis probe: `scripts/slurm/run_grid5c_planner_matrix_probe.slurm`
 - Active 10M screen: `scripts/slurm/run_grid5b_10m_stabilizer_screen.slurm`
 
 Old `grid0`-`grid4` experiment configs and Slurm wrappers were removed from the
@@ -144,10 +144,21 @@ Grid 5C planner matrix was added as
     but landed on node `a2143`; monitor for repeat node failure
   - `3724700_[6]`, `3724701_[7]`, `3724702_[8]`, each dependent on the
     matching original Grid 5B task; tasks `6-8` have started
-- As of 2026-06-12 22:52 CEST all 12 Grid5C tasks are running, stderrs are
-  empty, and no `planner_summary.json` artifacts exist yet. The
-  already-running `3724698_[9-11]` retained its original 8h limit because Slurm
-  denied extension after start and has timeout risk.
+- As of 2026-06-13 04:54 CEST, Grid5C tasks `3724698_[9-11]`,
+  `3724700_6`, `3724701_7`, and `3724702_8` have timed out before writing
+  summaries. Their stderrs contain only Slurm time-limit messages. Tasks
+  `3724691_[0-5]` were still running on `a40` at elapsed `11:41/12:00`, but
+  Slurm denied a walltime extension with `Access/permission denied`.
+- `puzzle_jepa/eval/grid5_planner_matrix.py` now writes
+  `planner_records.jsonl` and `planner_summary.json` incrementally after each
+  completed mode, so future timeouts preserve partial reads.
+- Small streaming replacement probe `3728790` was submitted at 2026-06-13
+  04:53 CEST via `scripts/slurm/run_grid5c_planner_matrix_probe.slurm`. It
+  evaluates `grid5b_10m_canonical_ema_vicreg_k4` on one board at h8 across
+  `beam|mcts|nn_cem`, `symbolic_reencode|latent_rollout`, and
+  `latent_goal|goal_energy`, with reduced budgets and `a2143` excluded.
+  Output root:
+  `$PUZZLE_JEPA_WORK_ROOT/runs/grid5b_10m_canonical_ema_vicreg_k4/diagnostics_planner_matrix_probe_20260613/`.
 
 Grid 5 oversight is re-enabled for the current Grid5 wave only.
 

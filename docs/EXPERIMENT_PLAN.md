@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-12 22:52 CEST
+Last updated: 2026-06-13 04:58 CEST
 
 The active source-of-truth backlog lives in
 `../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
@@ -147,6 +147,12 @@ not solve at the same CEM budget, so the next grid should not be just "more CEM"
 on the same compact scorer. The useful next branches are a more LeWM-faithful
 encoder/SIGReg setup, a direct action/constraint ranking objective, or a
 hierarchical setup only after the low-level symbolic/re-encode scorer improves.
+
+Grid 5C is the current gate but the first full-matrix attempt exceeded wall
+time before writing complete summaries. The eval now streams partial JSONL and
+summary outputs after each mode. Read small probe `3728790` first; it covers
+the planner/transition/score axes on the best Grid5B checkpoint before any
+broad rerun is justified.
 
 ## Active: Grid 5B 10M Stabilizer Screen
 

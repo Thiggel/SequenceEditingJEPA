@@ -63,6 +63,11 @@ def write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+def write_planner_outputs(output_dir: Path, records: list[dict[str, Any]], summary: dict[str, Any]) -> None:
+    write_jsonl(output_dir / "planner_records.jsonl", records)
+    (output_dir / "planner_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+
+
 def encode_board(model: SigRegActionJEPA, board: np.ndarray, device: torch.device) -> torch.Tensor:
     tensor = torch.as_tensor(board[None], dtype=torch.long, device=device)
     return model.encode(tensor)
@@ -752,8 +757,7 @@ def run_grid5_planner_matrix(
                         mode_records.append(record)
                     key = f"{optimizer}_{transition_mode}_{score_mode}_h{int(horizon)}"
                     summary["modes"][key] = summarize(mode_records)
-    write_jsonl(output_dir / "planner_records.jsonl", records)
-    (output_dir / "planner_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+                    write_planner_outputs(output_dir, records, summary)
     return summary
 
 

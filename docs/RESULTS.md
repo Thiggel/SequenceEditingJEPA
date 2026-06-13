@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-12 22:52 CEST
+Last updated: 2026-06-13 04:58 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -13,10 +13,11 @@ source-of-truth versions live in `../sequence-editing-report/`.
 
 Grid 5B completed. Original tasks `0-5` hit Slurm `NODE_FAIL` on `a2143` and
 were resubmitted as `3724689_[0-5]`; the rerun completed cleanly, and final
-Grid5B stderrs checked so far are empty. Grid 5C planner matrix eval is active
-as jobs `3724691`, `3724698`, `3724700`, `3724701`, and `3724702`; all 12
-planner tasks are running as of 2026-06-12 22:52 CEST, with empty stderrs and
-no completed `planner_summary.json` files yet.
+Grid5B stderrs checked so far are empty. Grid 5C planner matrix eval has not
+yet produced usable full-matrix artifacts: tasks `6-11` timed out before
+writing summaries, and tasks `0-5` were still running near their 12h limit at
+2026-06-13 04:54 CEST. The eval now writes incremental records/summaries, and
+small streaming probe `3728790` is running on a40 node a0124.
 
 Grid5 oversight checks are scheduled every 6h for the next 2.5 days as
 `3724789`-`3724798`. Dummy alias-path verification passed as `3724787`.

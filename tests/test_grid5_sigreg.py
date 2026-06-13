@@ -16,6 +16,7 @@ from puzzle_jepa.eval.grid5_planner_matrix import (
     mcts_plan_once,
     nearest_neighbor_cem_plan_once,
     run_closed_loop,
+    write_planner_outputs,
 )
 from puzzle_jepa.models import SigRegActionJEPA, sigreg_loss, vicreg_loss
 
@@ -388,6 +389,16 @@ def test_grid5_planner_matrix_optimizers_return_valid_actions():
         assert not clue_mask[action.row, action.col]
         assert action.value != int(example.state[action.row, action.col])
         assert np.isfinite(plan["leaf_score"])
+
+
+def test_grid5_planner_matrix_writes_incremental_outputs(tmp_path):
+    records = [{"optimizer": "beam", "solved": False, "remaining_hamming": 12}]
+    summary = {"modes": {"beam_symbolic_reencode_latent_goal_h8": {"solves": 0.0}}}
+
+    write_planner_outputs(tmp_path, records, summary)
+
+    assert (tmp_path / "planner_records.jsonl").read_text().strip()
+    assert "beam_symbolic_reencode_latent_goal_h8" in (tmp_path / "planner_summary.json").read_text()
 
 
 def test_grid5_nearest_neighbor_decode_uses_action_embedding_space():

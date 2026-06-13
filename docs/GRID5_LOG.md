@@ -67,3 +67,29 @@ Concise Grid-5-era log. Full historical logs remain in
     Push failed for both repos with:
     `ssh: connect to host github.com port 22: Connection timed out` and
     `fatal: Could not read from remote repository.`
+
+## 2026-06-13
+
+- 04:54 CEST oversight read:
+  - Grid5C tasks `3724698_[9-11]`, `3724700_6`, `3724701_7`, and
+    `3724702_8` timed out before writing `planner_summary.json`. Their
+    stderrs contain only Slurm time-limit messages; stdout job statistics show
+    low but continuous GPU/RSS use and no Python traceback. `/home/vault`
+    remains over soft quota but below hard quota, so this was runtime loss, not
+    a quota write failure.
+  - Grid5C tasks `3724691_[0-5]` were still running on `a40` at elapsed
+    `11:41/12:00`. `scontrol update JobId=3724691 TimeLimit=24:00:00` failed
+    with `Access/permission denied`, so no walltime rescue was possible.
+  - Fixed `puzzle_jepa/eval/grid5_planner_matrix.py` to write
+    `planner_records.jsonl` and `planner_summary.json` after every completed
+    mode instead of only at process end. Added a focused test and
+    `scripts/slurm/run_grid5c_planner_matrix_probe.slurm`.
+  - Verification passed: `source scripts/env.sh && pytest
+    tests/test_grid5_sigreg.py -q`, `python -m py_compile
+    puzzle_jepa/eval/grid5_planner_matrix.py`, `bash -n` for both Grid5C Slurm
+    wrappers, and a real-checkpoint CLI smoke under
+    `$PUZZLE_JEPA_WORK_ROOT/analysis/grid5_planner_matrix_incremental_smoke_20260613/`.
+  - Submitted smallest streaming diagnostic `3728790`, targeting
+    `grid5b_10m_canonical_ema_vicreg_k4` with one board, h8, all optimizer /
+    transition / score axes, reduced budgets, and `a2143` excluded. It was
+    running on `a40` node `a0124` at the handoff.
