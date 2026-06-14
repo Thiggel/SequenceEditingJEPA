@@ -34,6 +34,10 @@ Training sweep:
 - Correct/random trajectory mix: `50/50`
 - Padding: masks remove padded frames from prediction/value/SIGReg losses and
   from encoder/predictor BatchNorm projector statistics.
+- BatchNorm context: predictor projection is step-wise across sequence time,
+  so unsupervised final/future outputs cannot change supervised prefix
+  predictions. Goal-distance targets encode trajectory states and solved goals
+  in the same training-mode BatchNorm pass.
 
 Evaluation matrix:
 
@@ -49,6 +53,8 @@ Evaluation matrix:
 - Horizons: `4`, `8`, `16`, `32`, `64`.
 - Latent rollout: MPC passes observed board/action history into the predictor,
   so latent rollout uses the same absolute fill-step context as training.
+  Score-pruned branch ranking and diagnostic projection panels use the same
+  history context.
 
 Diagnostics written automatically:
 
@@ -74,9 +80,4 @@ better than the legacy compact-scorer failure mode.
 
 The first LR submission `3740707` is cancelled/superseded because it used
 8-frame training trajectories and pre-fix MCTS. Do not analyze it as the clean
-LeWM baseline.
-
-Current review blocker: before submitting a replacement sweep, make the four red
-LeWM regression tests pass. They cover predictor final-step BatchNorm masking,
-training-mode goal-distance target consistency, branch-pruned latent-rollout
-history context, and projection-panel latent-rollout history context.
+LeWM baseline. Submit the replacement sweep only after the user says `go`.

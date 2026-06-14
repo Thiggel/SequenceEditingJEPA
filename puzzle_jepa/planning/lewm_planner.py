@@ -197,6 +197,8 @@ def beam_plan_once(
                     score_mode=score_mode,
                     device=device,
                     position_offset=position_offset + len(seq),
+                    history_boards=_history_boards_for_sequence(history_boards, board, seq),
+                    history_actions=_history_actions_for_sequence(history_actions, seq),
                 )
             for action in actions:
                 score = score_action_sequence(
@@ -286,6 +288,8 @@ def best_first_plan_once(
                 score_mode=score_mode,
                 device=device,
                 position_offset=position_offset + len(seq),
+                history_boards=_history_boards_for_sequence(history_boards, board, seq),
+                history_actions=_history_actions_for_sequence(history_actions, seq),
             )
         for action in actions:
             next_board, valid = apply_action_sequence(node_board, [action])
@@ -480,6 +484,7 @@ def mcts_plan_once(
         model,
         board.copy(),
         goal,
+        root_board=board.copy(),
         seq=[],
         parent=None,
         parent_action=None,
@@ -487,6 +492,8 @@ def mcts_plan_once(
         score_mode=score_mode,
         expansion_branch_size=expansion_branch_size,
         position_offset=position_offset,
+        history_boards=history_boards,
+        history_actions=history_actions,
         device=device,
     )
     if root.action_count == 0:
@@ -503,6 +510,7 @@ def mcts_plan_once(
                     model,
                     next_board,
                     goal,
+                    root_board=board,
                     seq=[*node.seq, action],
                     parent=node,
                     parent_action=action,
@@ -510,6 +518,8 @@ def mcts_plan_once(
                     score_mode=score_mode,
                     expansion_branch_size=expansion_branch_size,
                     position_offset=position_offset + len(node.seq) + 1,
+                    history_boards=history_boards,
+                    history_actions=history_actions,
                     device=device,
                 )
                 node.children[action_id(action)] = child
@@ -550,6 +560,7 @@ def _make_mcts_node(
     board: np.ndarray,
     goal: np.ndarray,
     *,
+    root_board: np.ndarray,
     seq: list[WorldAction],
     parent: MCTSNode | None,
     parent_action: WorldAction | None,
@@ -557,6 +568,8 @@ def _make_mcts_node(
     score_mode: ScoreMode,
     expansion_branch_size: int,
     position_offset: int,
+    history_boards: list[np.ndarray] | None,
+    history_actions: list[WorldAction] | None,
     device: torch.device,
 ) -> MCTSNode:
     actions = legal_fill_actions(board, allow_conflicts=True)
@@ -571,6 +584,8 @@ def _make_mcts_node(
             transition_mode=transition_mode,
             score_mode=score_mode,
             position_offset=position_offset,
+            history_boards=_history_boards_for_sequence(history_boards, root_board, seq),
+            history_actions=_history_actions_for_sequence(history_actions, seq),
             device=device,
         )
     return MCTSNode(
@@ -843,6 +858,30 @@ def _planner_result_name(planner: PlannerName, mcts_branch_size: int) -> str:
     return "score_pruned_progressive_uct" if mcts_branch_size > 0 else "progressive_uct"
 
 
+def _history_boards_for_sequence(
+    history_boards: list[np.ndarray] | None,
+    root_board: np.ndarray,
+    sequence: list[WorldAction],
+) -> list[np.ndarray] | None:
+    if history_boards is None:
+        return None
+    extended = [np.asarray(board, dtype=np.int64).copy() for board in history_boards]
+    current = np.asarray(root_board, dtype=np.int64).copy()
+    for action in sequence:
+        current = apply_fill_action(current, action, allow_conflicts=True)
+        extended.append(current.copy())
+    return extended
+
+
+def _history_actions_for_sequence(
+    history_actions: list[WorldAction] | None,
+    sequence: list[WorldAction],
+) -> list[WorldAction] | None:
+    if history_actions is None:
+        return None
+    return [*history_actions, *sequence]
+
+
 def _rank_immediate_actions(
     model: LeWMSudokuModel | None,
     board: np.ndarray,
@@ -853,6 +892,8 @@ def _rank_immediate_actions(
     transition_mode: TransitionMode,
     score_mode: ScoreMode,
     position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
     device: torch.device,
 ) -> list[WorldAction]:
     scored = [
@@ -866,6 +907,8 @@ def _rank_immediate_actions(
                 score_mode=score_mode,
                 device=device,
                 position_offset=position_offset,
+                history_boards=history_boards,
+                history_actions=history_actions,
             ).cost,
             action,
         )

@@ -352,12 +352,14 @@ def projection_panel_diagnostics(
     records_written = 0
     with path.open("w") as handle:
         for example_index, example in enumerate(examples):
-            boards, _ = _oracle_sequence(example)
+            boards, oracle_actions = _oracle_sequence(example)
             if len(boards) < 2:
                 continue
             step_indices = _even_indices(len(boards) - 1, max_count=panel_steps)
             for step in step_indices:
                 board = boards[step]
+                history_boards = boards[: step + 1]
+                history_actions = oracle_actions[:step]
                 candidates = _candidate_action_panel(board, example.goal, limit=panel_actions)
                 if not candidates:
                     continue
@@ -375,15 +377,23 @@ def projection_panel_diagnostics(
                         for transition in ("symbolic_reencode", "latent_rollout"):
                             for score_mode in ("oracle_goal_distance", "predicted_goal_distance"):
                                 key = f"{transition}:{score_mode}"
-                                scores[key] = score_action_sequence(
-                                    model,
-                                    board,
-                                    example.goal,
-                                    sequence,
-                                    transition_mode=transition,  # type: ignore[arg-type]
-                                    score_mode=score_mode,  # type: ignore[arg-type]
-                                    device=device,
-                                ).cost
+                                try:
+                                    scores[key] = score_action_sequence(
+                                        model,
+                                        board,
+                                        example.goal,
+                                        sequence,
+                                        transition_mode=transition,  # type: ignore[arg-type]
+                                        score_mode=score_mode,  # type: ignore[arg-type]
+                                        device=device,
+                                        position_offset=step,
+                                        history_boards=history_boards,
+                                        history_actions=history_actions,
+                                    ).cost
+                                except ValueError as exc:
+                                    if "exceed max_history" not in str(exc):
+                                        raise
+                                    scores[key] = None
                         hamming_score = score_action_sequence(
                             None,
                             board,

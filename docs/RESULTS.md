@@ -37,14 +37,14 @@ Every run writes diagnostics and a planner matrix under its run root.
 Current code trains full correct/wrong fill-only trajectories with masks, uses
 LeWM-style MLP projectors, keeps padded frames out of BatchNorm projector
 statistics, uses full-history latent rollout during MPC, and reports default
-MCTS as score-pruned progressive UCT. It is currently review-blocked by four red
-LeWM regression tests covering predictor final-step BatchNorm masking,
-training-mode goal-distance target consistency, branch-pruned latent-rollout
-history context, and projection-panel latent-rollout history context.
+MCTS as score-pruned progressive UCT. The latest review fixes also make
+predictor projection BatchNorm step-wise, encode goal-distance targets in the
+same training-mode BatchNorm context as trajectory states, and pass history into
+branch-pruned latent rollout plus projection-panel latent-rollout diagnostics.
 
 Verification before resubmission:
 
-- `pytest -q` passes, including the currently red LeWM tests.
+- `pytest -q` passes.
 - Tiny train smoke writes scalar metrics plus `diagnostics/` JSONL/CSV/SVG
   artifacts.
 - Standalone planner-matrix CLI smoke runs from the smoke checkpoint.

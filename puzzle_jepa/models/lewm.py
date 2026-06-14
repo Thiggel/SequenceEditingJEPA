@@ -72,18 +72,23 @@ class BatchNormProjector(nn.Module):
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         original_shape = x.shape
-        x_flat = x.reshape(-1, original_shape[-1])
         if mask is not None:
             if mask.shape != original_shape[:-1]:
                 raise ValueError(f"Projector mask must have shape {original_shape[:-1]}, got {tuple(mask.shape)}.")
-            valid = mask.reshape(-1)
-            out = torch.zeros(*original_shape[:-1], self.fc2.out_features, dtype=x.dtype, device=x.device)
-            if not bool(valid.any()):
+            if x.ndim == 3:
+                out = torch.zeros(*original_shape[:-1], self.fc2.out_features, dtype=x.dtype, device=x.device)
+                for step in range(x.shape[1]):
+                    valid = mask[:, step]
+                    if bool(valid.any()):
+                        out[:, step].index_copy_(0, valid.nonzero(as_tuple=False).squeeze(1), self._project_flat(x[:, step][valid]))
                 return out
-            x_valid = self._project_flat(x_flat[valid])
-            return out.reshape(-1, self.fc2.out_features).index_copy(0, valid.nonzero(as_tuple=False).squeeze(1), x_valid).reshape(
-                *original_shape[:-1], self.fc2.out_features
-            )
+            x_flat = x.reshape(-1, original_shape[-1])
+            valid = mask.reshape(-1)
+            out_flat = torch.zeros(x_flat.shape[0], self.fc2.out_features, dtype=x.dtype, device=x.device)
+            if bool(valid.any()):
+                out_flat.index_copy_(0, valid.nonzero(as_tuple=False).squeeze(1), self._project_flat(x_flat[valid]))
+            return out_flat.reshape(*original_shape[:-1], self.fc2.out_features)
+        x_flat = x.reshape(-1, original_shape[-1])
         return self._project_flat(x_flat).reshape(*original_shape[:-1], -1)
 
     def _project_flat(self, x_flat: torch.Tensor) -> torch.Tensor:
@@ -409,8 +414,10 @@ class LeWMSudokuModel(nn.Module):
             masks = torch.ones(boards.shape[:2], dtype=torch.bool, device=boards.device)
         if masks.shape != boards.shape[:2]:
             raise ValueError(f"masks must have shape {tuple(boards.shape[:2])}, got {tuple(masks.shape)}.")
-        embeddings = self.encode_sequence(boards, masks=masks)
-        predicted = self.predict_sequence(embeddings, actions, mask=masks)
+        embeddings, goal_embeddings = self._encode_sequence_and_goals(boards, goals, masks)
+        supervised_prediction_mask = torch.zeros_like(masks)
+        supervised_prediction_mask[:, :-1] = masks[:, :-1] & masks[:, 1:]
+        predicted = self.predict_sequence(embeddings, actions, mask=supervised_prediction_mask)
         target = embeddings[:, 1:]
         if self.stop_gradient_target:
             target = target.detach()
@@ -418,7 +425,6 @@ class LeWMSudokuModel(nn.Module):
         prediction_loss = _masked_mse(predicted[:, :-1], target, transition_mask)
         sigreg_loss = self.sigreg(embeddings.transpose(0, 1), masks.transpose(0, 1))
 
-        goal_embeddings = self.encode_board(goals)
         goal_distances = torch.linalg.vector_norm(
             embeddings.detach() - goal_embeddings.detach().unsqueeze(1),
             dim=-1,
@@ -436,6 +442,25 @@ class LeWMSudokuModel(nn.Module):
             goal_distances=goal_distances.detach(),
             predicted_goal_distances=predicted_goal_distances,
         )
+
+    def _encode_sequence_and_goals(
+        self,
+        boards: torch.Tensor,
+        goals: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        batch, time = boards.shape[:2]
+        if goals.shape != (batch, 9, 9):
+            raise ValueError(f"goals must have shape {(batch, 9, 9)}, got {tuple(goals.shape)}.")
+        flat_boards = boards.reshape(batch * time, 9, 9)
+        flat_valid = masks.reshape(-1)
+        output = torch.zeros(batch * time, self.latent_dim, dtype=torch.float32, device=boards.device)
+        valid_boards = flat_boards[flat_valid]
+        combined = torch.cat([valid_boards, goals], dim=0)
+        encoded = self.encode_board(combined)
+        output[flat_valid] = encoded[: valid_boards.shape[0]]
+        goal_embeddings = encoded[valid_boards.shape[0] :]
+        return output.reshape(batch, time, -1), goal_embeddings
 
     @torch.no_grad()
     def score_value(self, embeddings: torch.Tensor) -> torch.Tensor:
