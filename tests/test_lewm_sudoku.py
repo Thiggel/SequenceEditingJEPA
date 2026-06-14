@@ -18,8 +18,9 @@ from puzzle_jepa.data.lewm_sudoku import (
     legal_fill_actions,
     sample_sudoku_trajectory,
 )
-from puzzle_jepa.data.worlds import SudokuWorld, WorldAction
+from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.eval.lewm_diagnostics import run_lewm_diagnostic_bundle
+from puzzle_jepa.eval.lewm_planner_matrix import run_planner_matrix
 from puzzle_jepa.models.lewm import LeWMSIGReg, LeWMSudokuModel
 from puzzle_jepa.planning.lewm_planner import (
     beam_plan_once,
@@ -78,6 +79,21 @@ def _small_model(sigreg_projections=8):
         sigreg_projections=sigreg_projections,
         sigreg_knots=5,
     )
+
+
+def _oracle_batch(batch_size=2, num_frames=4, num_blanks=3):
+    world = SudokuWorld()
+    goal = world.from_string(SUDOKU_SOLUTION)
+    state = goal.copy()
+    for row, col in np.argwhere(state > 0)[:num_blanks]:
+        state[int(row), int(col)] = 0
+    example = PuzzleExample(state, goal)
+    rng = np.random.default_rng(123)
+    trajectories = [
+        sample_sudoku_trajectory(example, rng, num_frames=num_frames, oracle_probability=1.0)
+        for _ in range(batch_size)
+    ]
+    return collate_sudoku_trajectories(trajectories)
 
 
 def test_lewm_trajectory_samples_fill_only_sequences():
@@ -209,6 +225,14 @@ def test_adaln_zero_initialized_and_predictor_is_causal():
     assert not torch.allclose(baseline[:, 3], changed[:, 3])
 
 
+def test_adaln_modulation_is_not_renormalized_inside_sublayers():
+    model = _small_model()
+    block = model.predictor.layers[0]
+
+    assert not any(isinstance(module, torch.nn.LayerNorm) for module in block.attn.modules() if module is not block.attn)
+    assert not any(isinstance(module, torch.nn.LayerNorm) for module in block.mlp.modules() if module is not block.mlp)
+
+
 def test_predictor_bn_excludes_unsupervised_final_prediction():
     torch.manual_seed(7)
     full_model = _small_model()
@@ -270,6 +294,32 @@ def test_training_goal_distance_is_zero_for_solved_frames():
         torch.zeros_like(output.goal_distances[:, -1]),
         rtol=1.0e-5,
         atol=1.0e-5,
+    )
+
+
+def test_forward_state_embeddings_do_not_depend_on_goal_argument():
+    batch = _oracle_batch(batch_size=2, num_frames=4, num_blanks=3)
+    true_goal_model = _small_model()
+    alt_goal_model = copy.deepcopy(true_goal_model)
+    true_goal_model.train()
+    alt_goal_model.train()
+    alt_goals = batch.boards[:, 0].clone()
+
+    with torch.no_grad():
+        true_goal_output = true_goal_model(batch.boards, batch.actions, batch.goals, masks=batch.masks)
+        alt_goal_output = alt_goal_model(batch.boards, batch.actions, alt_goals, masks=batch.masks)
+
+    torch.testing.assert_close(
+        true_goal_output.embeddings,
+        alt_goal_output.embeddings,
+        rtol=1.0e-6,
+        atol=1.0e-6,
+    )
+    torch.testing.assert_close(
+        true_goal_output.predicted_embeddings,
+        alt_goal_output.predicted_embeddings,
+        rtol=1.0e-6,
+        atol=1.0e-6,
     )
 
 
@@ -557,6 +607,33 @@ def test_mcts_and_mpc_work_on_one_empty_cell():
     assert result.elapsed_seconds >= 0.0
 
 
+def test_latent_rollout_mpc_replanning_respects_predictor_history_limit():
+    world = SudokuWorld()
+    goal = world.from_string(SUDOKU_SOLUTION)
+    board = goal.copy()
+    for row, col in np.argwhere(board > 0)[:10]:
+        board[int(row), int(col)] = 0
+    model = _small_model()
+    model.eval()
+
+    result = run_mpc(
+        model,
+        board,
+        goal,
+        planner="beam",
+        horizon=8,
+        transition_mode="latent_rollout",
+        score_mode="oracle_goal_distance",
+        max_steps=2,
+        beam_width=1,
+        branch_size=1,
+        rng=np.random.default_rng(0),
+        device=torch.device("cpu"),
+    )
+
+    assert result.steps <= 2
+
+
 def test_exact_symbolic_solver_solves_known_puzzle():
     _world, example = _example()
     solved = solve_sudoku_exact(example.state)
@@ -617,6 +694,30 @@ def test_projection_panel_latent_rollout_uses_oracle_history(monkeypatch, tmp_pa
 
 def hamming_distance_for_test(board, goal):
     return int(np.not_equal(board, goal).sum())
+
+
+def test_planner_matrix_records_mcts_variant_name(tmp_path):
+    world = SudokuWorld()
+    goal = world.from_string(SUDOKU_SOLUTION)
+    board = goal.copy()
+    board[0, 0] = 0
+
+    records = run_planner_matrix(
+        None,
+        [PuzzleExample(board, goal)],
+        output_path=tmp_path / "matrix.jsonl",
+        device=torch.device("cpu"),
+        seed=0,
+        planners=("mcts",),
+        transitions=("symbolic_reencode",),
+        scores=("true_hamming_oracle",),
+        depths=(1,),
+        max_examples=1,
+        max_steps=1,
+        fast=True,
+    )
+
+    assert records[0]["planner"] == "score_pruned_progressive_uct"
 
 
 def test_lewm_hydra_config_composes():

@@ -86,4 +86,15 @@ better than the legacy compact-scorer failure mode.
 
 The first LR submission `3740707` is cancelled/superseded because it used
 8-frame training trajectories and pre-fix MCTS. Do not analyze it as the clean
-LeWM baseline. Submit the replacement sweep only after the user says `go`.
+LeWM baseline.
+
+Current pre-sweep blockers:
+
+- Remove extra post-AdaLN LayerNorms inside predictor attention/MLP sublayers.
+- Prevent training-mode state embeddings from depending on the `goals` argument.
+- Make latent-rollout MPC respect `max_history` after replanning at long
+  horizons.
+- Record the concrete MCTS variant label in planner-matrix rows.
+
+Submit the replacement sweep only after those red tests pass and the user says
+`go`.

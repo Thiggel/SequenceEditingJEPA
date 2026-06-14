@@ -19,7 +19,7 @@ Sudoku JEPA.
 - Slurm launcher: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
 
 The live Slurm surface intentionally has one job file. Do not submit it until
-the user says `go`.
+the four red LeWM review tests pass and the user says `go`.
 Historical Grid4-Grid6 notes are legacy context only; see
 `docs/legacy/README.md` and `../sequence-editing-report/notes/legacy.md`.
 
@@ -27,7 +27,13 @@ Historical Grid4-Grid6 notes are legacy context only; see
 
 The LeWM regression tests cover masked BatchNorm padding, full-history latent
 rollout, local-search candidate replacement, planner sanity checks, and
-diagnostic file generation. They should all pass before submission.
+diagnostic file generation. Four newest review tests are intentionally red until
+the remaining blockers are fixed:
+
+- `test_adaln_modulation_is_not_renormalized_inside_sublayers`
+- `test_forward_state_embeddings_do_not_depend_on_goal_argument`
+- `test_latent_rollout_mpc_replanning_respects_predictor_history_limit`
+- `test_planner_matrix_records_mcts_variant_name`
 
 ```bash
 source scripts/env.sh
@@ -44,7 +50,8 @@ bash -n scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
 
 ## Submit
 
-Do not submit jobs until the user explicitly says `go`.
+Do not submit jobs until those four tests are fixed and the user explicitly says
+`go`.
 
 ```bash
 sbatch scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
@@ -77,8 +84,9 @@ or wasteful planners can be identified directly from `planner_matrix.jsonl`.
 
 Current config trains full fill-only Sudoku trajectories by default
 (`training.num_frames: null`) with variable-length masks. `model.max_history`
-is `82`, so planning horizons up to 64 are no longer beyond the trained
-positional range for the loaded Sudoku boards.
+is `82`, covering full training trajectories, but latent-rollout MPC still needs
+a fix for replans where observed history plus the requested search horizon
+exceeds this window.
 
 Fixed review notes: variable-length masks now keep padded frames out of
 encoder/predictor BatchNorm projector statistics; sequence projector BatchNorm
@@ -96,3 +104,7 @@ rollout rank divergence, branch-prune gold-action survival, latent-rollout vs
 symbolic re-encode error by horizon, and planner timing/action-eval counts. The
 branch-prune diagnostic enumerates the full immediate action set for up to four
 examples by default to keep per-checkpoint eval practical.
+
+Open blockers: AdaLN has extra post-modulation LayerNorms, training embeddings
+depend on the `goals` argument through shared BatchNorm context, latent MPC can
+overrun `max_history`, and planner-matrix rows do not use the MCTS variant label.
