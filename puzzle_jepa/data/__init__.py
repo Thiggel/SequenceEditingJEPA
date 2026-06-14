@@ -9,6 +9,18 @@ from puzzle_jepa.data.trajectories import (
 )
 from puzzle_jepa.data.worlds import MazeWorld, PuzzleExample, PuzzleWorld, SudokuWorld, WorldAction
 from puzzle_jepa.data.hf_puzzles import HFPuzzleColumns, example_from_strings, iter_hf_examples
+from puzzle_jepa.data.lewm_sudoku import (
+    SudokuTrajectory,
+    SudokuTrajectoryBatch,
+    action_from_id,
+    action_id,
+    action_to_array,
+    apply_fill_action,
+    array_to_action,
+    collate_sudoku_trajectories,
+    legal_fill_actions,
+    sample_sudoku_trajectory,
+)
 from puzzle_jepa.data.oracle import (
     sample_curriculum_rollout_transition,
     sample_curriculum_transition,
@@ -26,13 +38,22 @@ __all__ = [
     "RolloutBatch",
     "RolloutTransition",
     "SudokuWorld",
+    "SudokuTrajectory",
+    "SudokuTrajectoryBatch",
     "Transition",
     "TransitionBatch",
     "WorldAction",
+    "action_from_id",
+    "action_id",
+    "action_to_array",
+    "apply_fill_action",
+    "array_to_action",
     "collate_rollouts",
+    "collate_sudoku_trajectories",
     "collate_transitions",
     "example_from_strings",
     "iter_hf_examples",
+    "legal_fill_actions",
     "sample_curriculum_transition",
     "sample_curriculum_rollout_transition",
     "sample_oracle_partial_transition",
@@ -40,4 +61,5 @@ __all__ = [
     "sample_random_mutable_transition",
     "sample_oracle_rollout_transition",
     "sample_oracle_transition",
+    "sample_sudoku_trajectory",
 ]

@@ -1,3 +1,37 @@
 from puzzle_jepa.planning.latent_planner import LatentActionPlanner, PlanStep, SymbolicOracleScorer
+from puzzle_jepa.planning.lewm_planner import (
+    MPCResult,
+    MCTSNode,
+    SequenceScore,
+    apply_action_sequence,
+    beam_plan_once,
+    best_first_plan_once,
+    categorical_cem_plan_once,
+    greedy_plan_once,
+    hamming_distance,
+    local_search_plan_once,
+    mcts_plan_once,
+    run_mpc,
+    score_action_sequence,
+    solve_sudoku_exact,
+)
 
-__all__ = ["LatentActionPlanner", "PlanStep", "SymbolicOracleScorer"]
+__all__ = [
+    "LatentActionPlanner",
+    "MPCResult",
+    "MCTSNode",
+    "PlanStep",
+    "SequenceScore",
+    "SymbolicOracleScorer",
+    "apply_action_sequence",
+    "beam_plan_once",
+    "best_first_plan_once",
+    "categorical_cem_plan_once",
+    "greedy_plan_once",
+    "hamming_distance",
+    "local_search_plan_once",
+    "mcts_plan_once",
+    "run_mpc",
+    "score_action_sequence",
+    "solve_sudoku_exact",
+]
