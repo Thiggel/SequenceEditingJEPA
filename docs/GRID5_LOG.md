@@ -96,9 +96,9 @@ Concise Grid-5-era log. Full historical logs remain in
   - Decision unchanged: no Grid5 code change, cancellation, broad Grid5C
     rerun, or hierarchy job is justified. Next Grid5-family work should first
     repair geometry/action ranking or use a tokenized/local control.
-  - Oversight job `3724793` completed cleanly in `00:11:18`; `3724794` is the
-    active 04:50 CEST check on `a100mig/a0605`; `3724795`-`3724798` remain
-    pending by `BeginTime`, so partition broadening cannot help.
+  - Oversight jobs `3724793` and `3724794` completed cleanly in `00:11:18`
+    and `00:10:37`; `3724795`-`3724798` remain pending by `BeginTime`, so
+    partition broadening cannot help.
 
 ## 2026-06-13
 
