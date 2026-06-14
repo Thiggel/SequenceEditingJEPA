@@ -38,6 +38,10 @@ Training sweep:
   so unsupervised final/future outputs cannot change supervised prefix
   predictions. State embeddings are encoded from board sequences only; solved
   frames reuse their own state embedding as the exact goal target.
+- Runtime guard: `scripts/slurm/run_lewm_sudoku_posthoc_eval.slurm` is submitted
+  as a dependency-held fallback. It skips runs whose integrated diagnostics and
+  planner matrix completed, and otherwise runs checkpoint-based fast posthoc
+  planner-matrix eval into `posthoc_eval/`.
 
 Evaluation matrix:
 
@@ -86,7 +90,7 @@ solves under fill-only actions, and diagnostics show local action ranking is
 better than the legacy compact-scorer failure mode.
 
 The first LR submission `3740707` is cancelled/superseded because it used
-8-frame training trajectories and pre-fix MCTS. Do not analyze it as the clean
-LeWM baseline.
-
-Submit the replacement sweep only after the user says `go`.
+8-frame training trajectories and pre-fix MCTS. The first post-fix submission
+`3741086` is also superseded because BF16 autocast exposed a masked projection
+dtype bug. The active fixed sweep is `3741118_[0-24%12]`, with dependency-held
+posthoc eval fallback `3741137_[0-24%6]`; both have 24h limits.

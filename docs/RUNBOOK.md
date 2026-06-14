@@ -16,10 +16,15 @@ Sudoku JEPA.
 - Planner/eval matrix: `puzzle_jepa/eval/lewm_planner_matrix.py`
 - Diagnostics bundle: `puzzle_jepa/eval/lewm_diagnostics.py`
 - Planner algorithms: `puzzle_jepa/planning/lewm_planner.py`
-- Slurm launcher: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
+- Slurm training launcher: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
+- Slurm posthoc eval fallback:
+  `scripts/slurm/run_lewm_sudoku_posthoc_eval.slurm`
 
-The live Slurm surface intentionally has one job file. The fixed LR sweep was
-submitted as Slurm array `3741086_[0-24%12]` on 2026-06-14 14:24 CEST.
+The live Slurm surface has one training job file plus one dependency-held
+posthoc eval fallback. The fixed LR sweep is running as Slurm array
+`3741118_[0-24%12]`, submitted on 2026-06-14 14:33 CEST with a 24h time limit.
+The eval fallback is `3741137_[0-24%6]`, submitted with
+`--dependency=afterany:3741118` and its own 24h time limit.
 Historical Grid4-Grid6 notes are legacy context only; see
 `docs/legacy/README.md` and `../sequence-editing-report/notes/legacy.md`.
 
@@ -41,6 +46,7 @@ python -m py_compile \
   puzzle_jepa/eval/lewm_diagnostics.py \
   puzzle_jepa/eval/lewm_planner_matrix.py
 bash -n scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
+bash -n scripts/slurm/run_lewm_sudoku_posthoc_eval.slurm
 ```
 
 ## Submit
@@ -48,16 +54,28 @@ bash -n scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
 The fixed sweep is already submitted:
 
 ```bash
-squeue -j 3741086
-tail -f logs/lewm_sudoku_lr_3741086_0.out
+squeue -j 3741118
+squeue -j 3741137
+tail -f logs/lewm_sudoku_lr_3741118_0.out
 ```
 
-Cancelled/superseded submission: `3740707_[0-24%12]`. It trained with
-8-frame subtrajectories and pre-fix MCTS, so it should not be used as the clean
-LeWM result. It was cancelled on 2026-06-14 before code fixes; tasks `0-11`
-ran for about 21 minutes and tasks `12-24` never started.
+The dependency-held eval fallback `3741137_[0-24%6]` runs after the whole
+training array finishes. Each task checks the matching run root; if
+`diagnostics.json` and `planner_matrix.jsonl` already exist, it exits without
+doing work. If integrated eval timed out after `checkpoint.pt` was written, it
+runs the fast planner-matrix eval into `posthoc_eval/`.
 
-The array sweeps 25 learning rates:
+Cancelled/superseded submissions:
+
+- `3740707_[0-24%12]`: trained with 8-frame subtrajectories and pre-fix MCTS,
+  so it should not be used as the clean LeWM result. It was cancelled on
+  2026-06-14 before code fixes; tasks `0-11` ran for about 21 minutes and tasks
+  `12-24` never started.
+- `3741086_[0-24%12]`: first post-fix submission. Tasks `0-23` failed quickly
+  with a BF16 autocast dtype mismatch in masked projection/sequence encoding;
+  task `24` was cancelled before running. Superseded by `3741118`.
+
+The current array sweeps 25 learning rates:
 
 ```text
 1e-6..9e-6, 1e-5..9e-5, 1e-4..7e-4
@@ -68,6 +86,12 @@ Run roots are written under:
 ```text
 $PUZZLE_JEPA_WORK_ROOT/runs/lewm_sudoku_lr_<lr>
 ```
+
+Current submission health at 2026-06-14 14:35 CEST: tasks `0-11` are running
+on `a40`, tasks `12-24` are pending due `JobArrayTaskLimit`, all show
+`1-00:00:00`, task `0` has emitted step-1 metrics, and `grep` found no
+tracebacks/errors in `logs/lewm_sudoku_lr_3741118_*`. Eval fallback
+`3741137_[0-24%6]` is pending on dependency.
 
 Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
 `diagnostics.json`, a detailed `diagnostics/` directory, and
@@ -103,4 +127,5 @@ examples by default to keep per-checkpoint eval practical.
 
 The latest red review tests for AdaLN double-normalization, goal-independent
 state embeddings, latent MPC history-window handling, and MCTS matrix labels are
-green.
+green. A BF16 masked projection regression is also covered by
+`test_masked_forward_supports_bfloat16_autocast`.
