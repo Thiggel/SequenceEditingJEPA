@@ -68,6 +68,38 @@ Concise Grid-5-era log. Full historical logs remain in
     `ssh: connect to host github.com port 22: Connection timed out` and
     `fatal: Could not read from remote repository.`
 
+## 2026-06-14
+
+- 2026-06-14 04:52 CEST oversight read:
+  - Requested Grid5B/Grid5C jobs remain out of the live queue. Slurm
+    accounting is unchanged: original Grid5B `3724634_[0-5]` hit
+    `NODE_FAIL` on `a2143`; rerun `3724689_[0-5]` and original tasks `6-11`
+    completed cleanly; all original Grid5C full-matrix evals timed out by wall
+    time.
+  - Rechecked Grid5C stderrs/stdouts. Stderrs contain only Slurm time-limit
+    messages. Stdout epilogues show low continuous GPU/RSS use and
+    `/home/vault` above soft quota but below hard quota for those jobs; no
+    Python traceback, missing-checkpoint error, hard quota failure, node
+    failure, or dependency problem was found.
+  - Artifact check is unchanged: all 12 Grid5B run roots have standard,
+    MPC-CEM, and symbolic re-encode summaries; no original full-matrix
+    `diagnostics_planner_matrix` summaries/records appeared. Small probe
+    `3728790` remains the only usable Grid5C matrix artifact with 12 records.
+  - Re-aggregated Grid5B/Grid5C reads. Best standard oracle beam remains
+    `grid5b_10m_canonical_ema_vicreg_k4`, mean remaining Hamming `29.5625`,
+    solve `0/16`; best non-true symbolic re-encode read remains h8 oracle
+    `latent_goal`, mean remaining Hamming `41.00`, solve `0/4`. Predicted
+    latent MPC-CEM still solves `0`, best proximity `49.5`. Grid5C small probe
+    best mode remains MCTS + `symbolic_reencode` + oracle `latent_goal`,
+    remaining Hamming `37` from start `55`, solve `0/1`; latent rollout stays
+    `53-55`, learned energy `49-54`.
+  - Decision unchanged: no Grid5 code change, cancellation, broad Grid5C
+    rerun, or hierarchy job is justified. Next Grid5-family work should first
+    repair geometry/action ranking or use a tokenized/local control.
+  - Oversight job `3724793` completed cleanly in `00:11:18`; `3724794` is the
+    active 04:50 CEST check on `a100mig/a0605`; `3724795`-`3724798` remain
+    pending by `BeginTime`, so partition broadening cannot help.
+
 ## 2026-06-13
 
 - 22:53 CEST oversight read:

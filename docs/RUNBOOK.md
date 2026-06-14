@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-13 22:53 CEST
+Last updated: 2026-06-14 04:52 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -50,11 +50,11 @@ Grid 6 causal trajectory JEPA was submitted at 2026-06-13 14:11 CEST.
 
 - Train array: `3739195_[0-1]`
 - Dependent planner eval array: `3739196_[0-1]`, dependency `afterok:3739195`
-- Slurm state at 2026-06-13 22:53 CEST: train task `3739195_0` completed
+- Slurm state at 2026-06-14 04:52 CEST: train task `3739195_0` completed
   cleanly in `00:23:55` on `a40` node `a0228`; train task `3739195_1`
   completed cleanly in `00:29:45` on `a100` node `a0804`; eval tasks
-  `3739196_0` and `3739196_1` are running on `a40` node `a1721` at elapsed
-  `08:12:37`
+  `3739196_0` and `3739196_1` timed out at 2026-06-14 02:43 CEST after
+  `12:00:29` on `a40` node `a1721`
 - Partition request: `a40,a100,rtxpro6k`
 - Resources: train one GPU, 8 CPUs, 18h; eval one GPU, 4 CPUs, 12h
 - Run roots:
@@ -76,12 +76,12 @@ Grid 6 causal trajectory JEPA was submitted at 2026-06-13 14:11 CEST.
     eval prediction `0.00893`, eval goal-energy loss `0.00137`
   - `grid6_causal_traj_mh_d320`: train loss `0.02548`, eval loss `0.02343`,
     eval prediction `0.01991`, eval goal-energy loss `0.00105`
-- The eval jobs are streaming partial planner records. Current partial read:
-  K1 beam + symbolic re-encode + oracle `latent_goal` on 2 boards gives mean
-  remaining Hamming `44.0` at h4/h8/h16 and `45.0` for the mean-prefix score,
-  solve `0/2`; multi-horizon gives `50.5` for oracle symbolic modes and
-  `51.5-52.0` for learned-energy symbolic modes, solve `0/2`. Treat this as
-  partial until the eval array exits.
+- The eval jobs wrote partial planner records before timeout. Current partial
+  read: K1 beam + symbolic re-encode + oracle `latent_goal` on 2 boards gives
+  mean remaining Hamming `44.0` at h4/h8/h16 and `45.0` for the mean-prefix
+  score, solve `0/2`; multi-horizon gives `50.5` for oracle symbolic modes and
+  `50.0` for learned-energy mean-prefix, solve `0/2`. CEM/MCTS and most
+  latent-rollout axes are missing, so this is not a final Grid6 gate.
 - Verification before submission: `py_compile`, `bash -n`, focused Grid6
   pytest, combined Grid6+Hydra pytest, one-step train smoke, and planner CLI
   smoke.
@@ -220,10 +220,9 @@ Grid 5 oversight is re-enabled for the current Grid5 wave only.
 - Invocation: sources `~/.bash_profile`, then uses the local `cs` alias as
   `cs ... exec` with `model_reasoning_effort="medium"`
 - Dummy verified job: `3724787`, exit `0:0`, no edits
-- Scheduled jobs every 6h for 2.5 days. `3724789`, `3724790`, `3724791`, and
-  `3724792` completed cleanly. `3724793` started at 2026-06-13 22:50 CEST on
-  `a100mig` node `a0605`; later jobs are pending by begin time:
-  `3724794` at 2026-06-14 04:50,
+- Scheduled jobs every 6h for 2.5 days. `3724789`-`3724793` completed
+  cleanly. `3724794` started at 2026-06-14 04:50 CEST on `a100mig` node
+  `a0605`; later jobs are pending by begin time:
   `3724795` at 2026-06-14 10:50,
   `3724796` at 2026-06-14 16:50,
   `3724797` at 2026-06-14 22:50,

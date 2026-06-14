@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-13 16:56 CEST
+Last updated: 2026-06-14 04:52 CEST
 
 The active source-of-truth backlog lives in
 `../sequence-editing-report/BACKLOG.md`. The clean Grid5-only plan/backlog/log
@@ -17,8 +17,9 @@ paths but bad at candidate-action ranking.
 Submitted Slurm arrays:
 
 - Training: `3739195_[0-1]`, completed cleanly
-- Dependent eval: `3739196_[0-1]` with `afterok:3739195`, running on
-  `a40/a1721` at 2026-06-13 22:53 CEST, elapsed `08:12:37`
+- Dependent eval: `3739196_[0-1]` with `afterok:3739195`, timed out at
+  2026-06-14 02:43 CEST after `12:00:29` on `a40/a1721`; partial streamed
+  records were preserved
 
 Architecture:
 
@@ -61,12 +62,13 @@ Eval gate:
 Pre-submit verification passed: compile, Slurm syntax, focused Grid6 pytest,
 combined Grid6+Hydra pytest, one-step train smoke, and planner CLI smoke.
 
-Training/eval read at 2026-06-13 22:53 CEST: both training tasks completed with empty
-stderrs and finite final losses. K1 final eval loss is `0.01431`;
-multi-horizon final eval loss is `0.02343`. The eval array is still running
-with partial streamed JSONL records only so far: beam + symbolic re-encode +
-oracle `latent_goal` solves `0/2`, with K1 mean remaining Hamming `44.0` at
-h4/h8/h16 and multi-horizon `50.5` for oracle symbolic modes.
+Training/eval read at 2026-06-14 04:52 CEST: both training tasks completed with
+empty stderrs and finite final losses. K1 final eval loss is `0.01431`;
+multi-horizon final eval loss is `0.02343`. The eval array timed out after
+streaming partial beam records only: beam + symbolic re-encode + oracle
+`latent_goal` solves `0/2`, with K1 mean remaining Hamming `44.0` at
+h4/h8/h16 and multi-horizon `50.5` for oracle symbolic modes. Treat this as a
+runtime/artifact failure for the full eval matrix, not a final Grid6 gate.
 
 ## Background: Grid 5 SIGReg Single-State JEPA
 

@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-13 22:53 CEST
+Last updated: 2026-06-14 04:52 CEST
 
 Detailed historical results live in `../sequence-editing-report/RESULTS.md` and
 `../sequence-editing-report/report.tex`.
@@ -12,12 +12,13 @@ source-of-truth versions live in `../sequence-editing-report/`.
 ## Current Result
 
 Grid 6 causal trajectory JEPA has been implemented, locally verified, and
-submitted. Training completed cleanly; dependent planner eval is still running.
+submitted. Training completed cleanly; dependent planner eval timed out after
+streaming partial beam-only records.
 
 - Train array: `3739195_[0-1]`; task `0` completed in `00:23:55` on
   `a40/a0228`, task `1` completed in `00:29:45` on `a100/a0804`
-- Eval array: `3739196_[0-1]`, running on `a40/a1721` at 2026-06-13
-  22:53 CEST, elapsed `08:12:37`
+- Eval array: `3739196_[0-1]`, timed out at 2026-06-14 02:43 CEST after
+  `12:00:29` on `a40/a1721`; stderrs contain only Slurm time-limit messages
 - Runs:
   `grid6_causal_traj_k1_d320` and `grid6_causal_traj_mh_d320`
 - Scale: `15.70M` trainable params, `23.25M` total params including the frozen
@@ -29,9 +30,9 @@ submitted. Training completed cleanly; dependent planner eval is still running.
 - Partial streamed eval read from JSONL records: on two boards, K1 beam +
   symbolic re-encode + oracle `latent_goal` gives mean remaining Hamming
   `44.0` at h4/h8/h16 and `45.0` for the mean-prefix score, solve `0/2`;
-  multi-horizon gives `50.5` for oracle symbolic modes and `51.5-52.0` for
-  learned-energy symbolic modes, solve `0/2`. This is not a final eval result
-  while `3739196_[0-1]` is still running.
+  multi-horizon gives `50.5` for oracle symbolic modes and `50.0` for
+  learned-energy mean-prefix, solve `0/2`. This is not a final eval result
+  because CEM/MCTS and most latent-rollout axes are missing.
 - Verification passed: `py_compile`, `bash -n`, `pytest
   tests/test_grid6_trajectory.py -q`, `pytest tests/test_puzzle_hydra.py
   tests/test_grid6_trajectory.py -q`, one-step train smoke, and planner CLI
@@ -55,9 +56,9 @@ one-cell corrupt terminal boards, latent/Hamming nearest-neighbor Spearman
 in `84.4%` of sampled states.
 
 Grid5 oversight checks are scheduled every 6h as `3724789`-`3724798`.
-`3724789`, `3724790`, `3724791`, and `3724792` completed cleanly. `3724793` is
-the active 22:50 CEST check on `a100mig/a0605`; `3724794`-`3724798` remain
-pending by begin time. Dummy alias-path verification passed as `3724787`.
+`3724789`-`3724793` completed cleanly. `3724794` is the active 04:50 CEST
+check on `a100mig/a0605`; `3724795`-`3724798` remain pending by begin time.
+Dummy alias-path verification passed as `3724787`.
 
 Grid 5 `3722613_[0-23]` completed cleanly. All 24 tasks exited `0:0`, all
 stderr files are empty, and all expected diagnostics were written.
