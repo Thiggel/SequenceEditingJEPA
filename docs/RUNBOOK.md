@@ -17,9 +17,11 @@ Sudoku JEPA.
 - Planner algorithms: `puzzle_jepa/planning/lewm_planner.py`
 - Slurm launcher: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
 
-The live Slurm surface intentionally has one job file, but do not submit it
-until the user says `go`. Historical Grid4-Grid6 notes are legacy context only;
-see `docs/legacy/README.md` and `../sequence-editing-report/notes/legacy.md`.
+The live Slurm surface intentionally has one job file. Do not submit it until
+the masked BatchNorm and local-search review blockers in
+`../sequence-editing-report/BACKLOG.md` are fixed and the user says `go`.
+Historical Grid4-Grid6 notes are legacy context only; see
+`docs/legacy/README.md` and `../sequence-editing-report/notes/legacy.md`.
 
 ## Verify
 
@@ -37,7 +39,8 @@ bash -n scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
 
 ## Submit
 
-Do not submit jobs until the user explicitly says `go`.
+Do not submit jobs until the review blockers are fixed and the user explicitly
+says `go`.
 
 ```bash
 sbatch scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
@@ -67,3 +70,7 @@ Current config trains full fill-only Sudoku trajectories by default
 (`training.num_frames: null`) with variable-length masks. `model.max_history`
 is `82`, so planning horizons up to 64 are no longer beyond the trained
 positional range for the loaded Sudoku boards.
+
+Review note: those variable-length masks currently do not prevent padded frames
+from entering BatchNorm projector statistics, so this needs a code fix before a
+clean LR sweep.
