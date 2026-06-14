@@ -36,6 +36,8 @@ def run_lewm_sudoku(config: dict[str, Any]) -> dict[str, Any]:
     eval_cfg = dict(config.get("eval", {}))
     train_examples = _load_examples(task_cfg, split_key="train_split")
     eval_examples = _load_examples(task_cfg, split_key="eval_split")
+    max_frames = max(_max_trajectory_frames(train_examples), _max_trajectory_frames(eval_examples))
+    model_max_history = int(config["model"].get("max_history", 82))
 
     model = LeWMSudokuModel(**dict(config["model"])).to(device)
     optimizer = AdamW(
@@ -45,7 +47,13 @@ def run_lewm_sudoku(config: dict[str, Any]) -> dict[str, Any]:
     )
     max_steps = int(train_cfg["max_steps"])
     batch_size = int(train_cfg.get("batch_size", 128))
-    num_frames = int(train_cfg.get("num_frames", 8))
+    num_frames_raw = train_cfg.get("num_frames")
+    num_frames = None if num_frames_raw is None else int(num_frames_raw)
+    required_history = max_frames if num_frames is None else num_frames
+    if required_history > model_max_history:
+        raise ValueError(
+            f"Training needs {required_history} frames, but model.max_history={model_max_history}."
+        )
     oracle_probability = float(train_cfg.get("oracle_probability", 0.5))
     eval_every = int(train_cfg.get("eval_every_steps", max_steps))
     save_every = int(train_cfg.get("save_every_steps", eval_every))
@@ -66,7 +74,7 @@ def run_lewm_sudoku(config: dict[str, Any]) -> dict[str, Any]:
         )
         optimizer.zero_grad(set_to_none=True)
         with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-            output = model(batch.boards, batch.actions, batch.goals)
+            output = model(batch.boards, batch.actions, batch.goals, masks=batch.masks)
         output.loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
@@ -92,6 +100,7 @@ def run_lewm_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                     "learning_rate": float(train_cfg.get("learning_rate", 5.0e-5)),
                     "batch_size": batch_size,
                     "num_frames": num_frames,
+                    "max_loaded_trajectory_frames": max_frames,
                     "oracle_probability": oracle_probability,
                     "param_count": _param_count(model),
                     "trainable_param_count": _param_count(model, trainable_only=True),
@@ -133,12 +142,18 @@ def _load_examples(task_cfg: dict[str, Any], *, split_key: str) -> list[PuzzleEx
     )
 
 
+def _max_trajectory_frames(examples: list[PuzzleExample]) -> int:
+    if not examples:
+        raise ValueError("At least one Sudoku example is required.")
+    return max(int(np.count_nonzero(example.state == 0)) + 1 for example in examples)
+
+
 def _sample_batch(
     examples: list[PuzzleExample],
     rng: np.random.Generator,
     *,
     batch_size: int,
-    num_frames: int,
+    num_frames: int | None,
     oracle_probability: float,
     device: torch.device,
 ):
@@ -162,7 +177,7 @@ def _eval_losses(
     rng: np.random.Generator,
     *,
     batch_size: int,
-    num_frames: int,
+    num_frames: int | None,
     oracle_probability: float,
     device: torch.device,
     use_amp: bool,
@@ -177,7 +192,7 @@ def _eval_losses(
         device=device,
     )
     with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-        output = model(batch.boards, batch.actions, batch.goals)
+        output = model(batch.boards, batch.actions, batch.goals, masks=batch.masks)
     return {
         "eval_loss": float(output.loss.detach().cpu()),
         "eval_prediction_loss": float(output.prediction_loss.cpu()),

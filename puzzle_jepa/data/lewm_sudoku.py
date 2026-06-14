@@ -24,6 +24,7 @@ class SudokuTrajectoryBatch:
     boards: torch.Tensor
     actions: torch.Tensor
     goals: torch.Tensor
+    masks: torch.Tensor
     oracle_mask: torch.Tensor
 
 
@@ -70,18 +71,18 @@ def sample_sudoku_trajectory(
     example: PuzzleExample,
     rng: np.random.Generator,
     *,
-    num_frames: int,
+    num_frames: int | None = None,
     oracle_probability: float = 0.5,
     allow_conflicts: bool = True,
 ) -> SudokuTrajectory:
-    """Sample a LeWM-style subtrajectory with no overwrites.
+    """Sample a LeWM-style trajectory with no overwrites.
 
     `boards[t]` is the current board and `actions[t]` maps `boards[t]` to
     `boards[t + 1]` for every supervised step. The final action is padding so
     shapes match LeWM's `(B, T, *)` pseudocode.
     """
 
-    if num_frames < 2:
+    if num_frames is not None and num_frames < 2:
         raise ValueError("num_frames must be at least 2.")
     if not 0.0 <= oracle_probability <= 1.0:
         raise ValueError("oracle_probability must be in [0, 1].")
@@ -90,7 +91,7 @@ def sample_sudoku_trajectory(
     puzzle = world.validate_state(example.state)
     goal = world.validate_state(example.goal)
     empty_positions = np.argwhere(puzzle == 0)
-    supervised_steps = num_frames - 1
+    supervised_steps = len(empty_positions) if num_frames is None else num_frames - 1
     if len(empty_positions) < supervised_steps:
         raise ValueError(
             f"Sudoku example has {len(empty_positions)} empty cells, fewer than {supervised_steps} supervised steps."
@@ -137,17 +138,38 @@ def collate_sudoku_trajectories(
     trajectories: list[SudokuTrajectory],
     *,
     device: str | torch.device = "cpu",
+    pad_to_frames: int | None = None,
 ) -> SudokuTrajectoryBatch:
     if not trajectories:
         raise ValueError("Cannot collate an empty trajectory list.")
-    num_frames = trajectories[0].boards.shape[0]
-    if any(item.boards.shape != (num_frames, 9, 9) for item in trajectories):
-        raise ValueError("All Sudoku trajectories must have the same number of 9x9 boards.")
-    if any(item.actions.shape != (num_frames, 3) for item in trajectories):
-        raise ValueError("All Sudoku trajectories must have action shape [num_frames, 3].")
+    lengths = [int(item.boards.shape[0]) for item in trajectories]
+    if any(item.boards.shape != (length, 9, 9) for item, length in zip(trajectories, lengths, strict=True)):
+        raise ValueError("All Sudoku trajectory boards must have shape [frames, 9, 9].")
+    if any(item.actions.shape != (length, 3) for item, length in zip(trajectories, lengths, strict=True)):
+        raise ValueError("All Sudoku trajectory actions must have shape [frames, 3].")
+    num_frames = max(lengths) if pad_to_frames is None else int(pad_to_frames)
+    if num_frames < max(lengths):
+        raise ValueError(f"pad_to_frames={num_frames} is shorter than the longest trajectory {max(lengths)}.")
+    padded_boards = []
+    padded_actions = []
+    masks = []
+    for item, length in zip(trajectories, lengths, strict=True):
+        boards = np.empty((num_frames, 9, 9), dtype=np.int64)
+        actions = np.empty((num_frames, 3), dtype=np.int64)
+        boards[:length] = item.boards
+        actions[:length] = item.actions
+        if length < num_frames:
+            boards[length:] = item.boards[-1]
+            actions[length:] = PAD_ACTION
+        mask = np.zeros((num_frames,), dtype=bool)
+        mask[:length] = True
+        padded_boards.append(boards)
+        padded_actions.append(actions)
+        masks.append(mask)
     return SudokuTrajectoryBatch(
-        boards=torch.as_tensor(np.stack([item.boards for item in trajectories]), dtype=torch.long, device=device),
-        actions=torch.as_tensor(np.stack([item.actions for item in trajectories]), dtype=torch.long, device=device),
+        boards=torch.as_tensor(np.stack(padded_boards), dtype=torch.long, device=device),
+        actions=torch.as_tensor(np.stack(padded_actions), dtype=torch.long, device=device),
         goals=torch.as_tensor(np.stack([item.goal for item in trajectories]), dtype=torch.long, device=device),
+        masks=torch.as_tensor(np.stack(masks), dtype=torch.bool, device=device),
         oracle_mask=torch.as_tensor([item.is_oracle for item in trajectories], dtype=torch.bool, device=device),
     )

@@ -195,7 +195,10 @@ def run_planner_matrix(
             if planner == "exact":
                 combos = [("symbolic_reencode", "true_hamming_oracle", 0)]
             else:
-                combos = [(transition, score, depth) for transition in transitions for score in scores for depth in depths]
+                combos = []
+                for score in scores:
+                    score_transitions = ("symbolic_reencode",) if score == "true_hamming_oracle" else transitions
+                    combos.extend((transition, score, depth) for transition in score_transitions for depth in depths)
             for transition, score, depth in combos:
                 solved = 0
                 remaining: list[int] = []
@@ -254,6 +257,9 @@ def _planner_budgets(*, fast: bool) -> dict[str, Any]:
             "local_candidates": 8,
             "local_iterations": 8,
             "mcts_simulations": 8,
+            "mcts_branch_size": 8,
+            "mcts_progressive_c": 1.5,
+            "mcts_progressive_alpha": 0.5,
         }
     return {
         "beam_width": 8,
@@ -265,6 +271,9 @@ def _planner_budgets(*, fast: bool) -> dict[str, Any]:
         "local_candidates": 64,
         "local_iterations": 128,
         "mcts_simulations": 256,
+        "mcts_branch_size": 32,
+        "mcts_progressive_c": 2.0,
+        "mcts_progressive_alpha": 0.5,
     }
 
 

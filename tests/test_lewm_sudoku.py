@@ -66,6 +66,7 @@ def _small_model(sigreg_projections=8):
         action_component_dim=4,
         action_dim=8,
         max_history=8,
+        projector_hidden_dim=64,
         sigreg_projections=sigreg_projections,
         sigreg_knots=5,
     )
@@ -92,14 +93,28 @@ def test_lewm_trajectory_samples_fill_only_sequences():
     assert trajectory.actions[-1].tolist() == [0, 0, 0]
 
 
-def test_lewm_trajectory_batch_collates_shapes():
+def test_lewm_full_trajectory_reaches_terminal_length():
+    _world, example = _example()
+    rng = np.random.default_rng(0)
+    trajectory = sample_sudoku_trajectory(example, rng, num_frames=None, oracle_probability=1.0)
+    blanks = int(np.count_nonzero(example.state == 0))
+    assert trajectory.boards.shape == (blanks + 1, 9, 9)
+    assert np.array_equal(trajectory.boards[-1], example.goal)
+
+
+def test_lewm_trajectory_batch_collates_variable_lengths_with_masks():
     _world, example = _example()
     rng = np.random.default_rng(1)
-    trajectories = [sample_sudoku_trajectory(example, rng, num_frames=4) for _ in range(3)]
+    trajectories = [
+        sample_sudoku_trajectory(example, rng, num_frames=4),
+        sample_sudoku_trajectory(example, rng, num_frames=6),
+    ]
     batch = collate_sudoku_trajectories(trajectories)
-    assert batch.boards.shape == (3, 4, 9, 9)
-    assert batch.actions.shape == (3, 4, 3)
-    assert batch.goals.shape == (3, 9, 9)
+    assert batch.boards.shape == (2, 6, 9, 9)
+    assert batch.actions.shape == (2, 6, 3)
+    assert batch.goals.shape == (2, 9, 9)
+    assert batch.masks.tolist() == [[True, True, True, True, False, False], [True] * 6]
+    assert torch.equal(batch.boards[0, 4], batch.boards[0, 3])
     assert batch.oracle_mask.dtype == torch.bool
 
 
@@ -109,6 +124,8 @@ def test_sigreg_is_stepwise_and_penalizes_degenerate_embeddings():
     degenerate = torch.zeros(4, 64, 16)
     gaussian = torch.randn(4, 64, 16)
     assert sigreg(gaussian) < sigreg(degenerate)
+    masked = sigreg(gaussian, torch.ones(4, 64, dtype=torch.bool))
+    assert torch.isfinite(masked)
     with pytest.raises(ValueError, match="time, batch, dim"):
         sigreg(torch.randn(64, 16))
 
@@ -155,7 +172,7 @@ def test_lewm_loss_backpropagates_and_goal_board_has_zero_target_distance():
     trajectories = [sample_sudoku_trajectory(example, rng, num_frames=4) for _ in range(2)]
     batch = collate_sudoku_trajectories(trajectories)
     model = _small_model()
-    output = model(batch.boards, batch.actions, batch.goals)
+    output = model(batch.boards, batch.actions, batch.goals, masks=batch.masks)
     assert torch.isfinite(output.loss)
     output.loss.backward()
     assert any(param.grad is not None for param in model.encoder.parameters())
@@ -297,6 +314,9 @@ def test_lewm_hydra_config_composes():
         cfg = compose(config_name="lewm_sudoku")
     assert cfg.model.encoder_layers == 6
     assert cfg.model.predictor_layers == 6
+    assert cfg.model.max_history == 82
+    assert cfg.model.projector_hidden_dim == 2048
     assert cfg.model.sigreg_projections == 1024
     assert cfg.model.sigreg_weight == 0.1
     assert cfg.model.stop_gradient_target is False
+    assert cfg.training.num_frames is None

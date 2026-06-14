@@ -30,12 +30,26 @@ class LeWMSIGReg(nn.Module):
         self.register_buffer("phi", window)
         self.register_buffer("weights", weights * window)
 
-    def forward(self, emb_tbd: torch.Tensor) -> torch.Tensor:
+    def forward(self, emb_tbd: torch.Tensor, mask_tb: torch.Tensor | None = None) -> torch.Tensor:
         if emb_tbd.ndim != 3:
             raise ValueError(f"SIGReg expects [time, batch, dim], got {tuple(emb_tbd.shape)}.")
-        if emb_tbd.shape[1] < 2:
-            raise ValueError("SIGReg needs batch size >= 2 for a meaningful batch statistic.")
         emb = emb_tbd.float()
+        if mask_tb is None:
+            if emb_tbd.shape[1] < 2:
+                raise ValueError("SIGReg needs batch size >= 2 for a meaningful batch statistic.")
+            return self._statistic(emb)
+        if mask_tb.shape != emb_tbd.shape[:2]:
+            raise ValueError(f"SIGReg mask must have shape {tuple(emb_tbd.shape[:2])}, got {tuple(mask_tb.shape)}.")
+        losses = []
+        for step in range(emb.shape[0]):
+            valid = emb[step, mask_tb[step]]
+            if valid.shape[0] >= 2:
+                losses.append(self._statistic(valid.unsqueeze(0)))
+        if not losses:
+            return emb.sum() * 0.0
+        return torch.stack(losses).mean()
+
+    def _statistic(self, emb: torch.Tensor) -> torch.Tensor:
         projections = torch.randn(emb.shape[-1], self.num_proj, device=emb.device, dtype=emb.dtype)
         projections = projections / projections.norm(p=2, dim=0, keepdim=True).clamp_min(1.0e-12)
         x_t = (emb @ projections).unsqueeze(-1) * self.t.to(device=emb.device, dtype=emb.dtype)
@@ -47,20 +61,23 @@ class LeWMSIGReg(nn.Module):
 
 
 class BatchNormProjector(nn.Module):
-    """One-linear-layer projector with BatchNorm, used after encoder and predictor."""
+    """LeWM-style projector: Linear -> BatchNorm -> GELU -> Linear."""
 
-    def __init__(self, input_dim: int, output_dim: int):
+    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 2048):
         super().__init__()
-        self.proj = nn.Linear(input_dim, output_dim, bias=False)
-        self.bn = nn.BatchNorm1d(output_dim)
+        self.fc1 = nn.Linear(input_dim, hidden_dim, bias=False)
+        self.bn = nn.BatchNorm1d(hidden_dim)
+        self.act = nn.GELU()
+        self.fc2 = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         original_shape = x.shape
         x_flat = x.reshape(-1, original_shape[-1])
         if self.training and x_flat.shape[0] == 1:
-            x_flat = self.proj(x_flat)
+            x_flat = self.fc1(x_flat)
         else:
-            x_flat = self.bn(self.proj(x_flat))
+            x_flat = self.bn(self.fc1(x_flat))
+        x_flat = self.fc2(self.act(x_flat))
         return x_flat.reshape(*original_shape[:-1], -1)
 
 
@@ -76,6 +93,7 @@ class SudokuBoardEncoder(nn.Module):
         num_heads: int = 8,
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
+        projector_hidden_dim: int = 2048,
     ):
         super().__init__()
         if d_model % num_heads:
@@ -99,7 +117,7 @@ class SudokuBoardEncoder(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(layer, num_layers=num_layers)
         self.norm = nn.LayerNorm(d_model)
-        self.projector = BatchNormProjector(d_model, latent_dim)
+        self.projector = BatchNormProjector(d_model, latent_dim, hidden_dim=projector_hidden_dim)
 
     def forward(self, boards: torch.Tensor) -> torch.Tensor:
         if boards.ndim != 3 or boards.shape[-2:] != (9, 9):
@@ -222,6 +240,7 @@ class LeWMPredictor(nn.Module):
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
         max_history: int = 81,
+        projector_hidden_dim: int = 2048,
     ):
         super().__init__()
         if d_model % num_heads:
@@ -237,7 +256,7 @@ class LeWMPredictor(nn.Module):
             ]
         )
         self.norm = nn.LayerNorm(d_model)
-        self.projector = BatchNormProjector(d_model, latent_dim)
+        self.projector = BatchNormProjector(d_model, latent_dim, hidden_dim=projector_hidden_dim)
 
     def forward(self, embeddings: torch.Tensor, action_embeddings: torch.Tensor) -> torch.Tensor:
         if embeddings.ndim != 3:
@@ -281,6 +300,7 @@ class LeWMSudokuModel(nn.Module):
         action_component_dim: int = 8,
         action_dim: int = 32,
         max_history: int = 81,
+        projector_hidden_dim: int = 2048,
         sigreg_knots: int = 17,
         sigreg_projections: int = 1024,
         sigreg_weight: float = 0.1,
@@ -299,6 +319,7 @@ class LeWMSudokuModel(nn.Module):
             num_heads=num_heads,
             mlp_ratio=mlp_ratio,
             dropout=dropout,
+            projector_hidden_dim=projector_hidden_dim,
         )
         self.action_encoder = SudokuActionEncoder(component_dim=action_component_dim, action_dim=action_dim)
         self.predictor = LeWMPredictor(
@@ -310,6 +331,7 @@ class LeWMSudokuModel(nn.Module):
             mlp_ratio=mlp_ratio,
             dropout=dropout,
             max_history=max_history,
+            projector_hidden_dim=projector_hidden_dim,
         )
         self.value_head = nn.Sequential(
             nn.LayerNorm(latent_dim),
@@ -334,14 +356,25 @@ class LeWMSudokuModel(nn.Module):
         action_embeddings = self.action_encoder(actions)
         return self.predictor(embeddings, action_embeddings)
 
-    def forward(self, boards: torch.Tensor, actions: torch.Tensor, goals: torch.Tensor) -> LeWMLossOutput:
+    def forward(
+        self,
+        boards: torch.Tensor,
+        actions: torch.Tensor,
+        goals: torch.Tensor,
+        masks: torch.Tensor | None = None,
+    ) -> LeWMLossOutput:
         embeddings = self.encode_sequence(boards)
         predicted = self.predict_sequence(embeddings, actions)
         target = embeddings[:, 1:]
         if self.stop_gradient_target:
             target = target.detach()
-        prediction_loss = F.mse_loss(predicted[:, :-1], target)
-        sigreg_loss = self.sigreg(embeddings.transpose(0, 1))
+        if masks is None:
+            masks = torch.ones(boards.shape[:2], dtype=torch.bool, device=boards.device)
+        if masks.shape != boards.shape[:2]:
+            raise ValueError(f"masks must have shape {tuple(boards.shape[:2])}, got {tuple(masks.shape)}.")
+        transition_mask = masks[:, :-1] & masks[:, 1:]
+        prediction_loss = _masked_mse(predicted[:, :-1], target, transition_mask)
+        sigreg_loss = self.sigreg(embeddings.transpose(0, 1), masks.transpose(0, 1))
 
         goal_embeddings = self.encode_board(goals)
         goal_distances = torch.linalg.vector_norm(
@@ -349,7 +382,7 @@ class LeWMSudokuModel(nn.Module):
             dim=-1,
         )
         predicted_goal_distances = self.value_head(embeddings).squeeze(-1)
-        value_loss = F.mse_loss(predicted_goal_distances, goal_distances)
+        value_loss = _masked_scalar_mse(predicted_goal_distances, goal_distances, masks)
         loss = prediction_loss + self.sigreg_weight * sigreg_loss + self.value_weight * value_loss
         return LeWMLossOutput(
             loss=loss,
@@ -388,3 +421,18 @@ class LeWMSudokuModel(nn.Module):
             pred = self.predict_sequence(embeddings, used_actions)[:, -1:]
             embeddings = torch.cat([embeddings, pred], dim=1)
         return embeddings
+
+
+def _masked_mse(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    per_item = F.mse_loss(pred, target, reduction="none").mean(dim=-1)
+    return _masked_mean(per_item, mask)
+
+
+def _masked_scalar_mse(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    return _masked_mean((pred - target).square(), mask)
+
+
+def _masked_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    mask_f = mask.to(dtype=values.dtype)
+    denom = mask_f.sum().clamp_min(1.0)
+    return (values * mask_f).sum() / denom

@@ -3,7 +3,7 @@ from __future__ import annotations
 import heapq
 import math
 from dataclasses import dataclass, field
-from typing import Callable, Literal
+from typing import Literal
 
 import numpy as np
 import torch
@@ -386,10 +386,7 @@ class MCTSNode:
     total_reward: float = 0.0
     children: dict[int, "MCTSNode"] = field(default_factory=dict)
     untried_actions: list[WorldAction] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        if not self.untried_actions:
-            self.untried_actions = legal_fill_actions(self.board, allow_conflicts=True)
+    action_count: int = 0
 
     @property
     def value(self) -> float:
@@ -408,24 +405,43 @@ def mcts_plan_once(
     score_mode: ScoreMode,
     rng: np.random.Generator,
     device: torch.device,
+    progressive_c: float = 2.0,
+    progressive_alpha: float = 0.5,
+    expansion_branch_size: int = 32,
 ) -> WorldAction | None:
-    root = MCTSNode(board=board.copy(), seq=[])
-    if not root.untried_actions:
+    root = _make_mcts_node(
+        model,
+        board.copy(),
+        goal,
+        seq=[],
+        parent=None,
+        parent_action=None,
+        transition_mode=transition_mode,
+        score_mode=score_mode,
+        expansion_branch_size=expansion_branch_size,
+        device=device,
+    )
+    if root.action_count == 0:
         return None
     for _ in range(max(1, simulations)):
         node = root
-        while not node.untried_actions and node.children and len(node.seq) < horizon:
+        while node.children and len(node.seq) < horizon and not _can_expand(node, progressive_c, progressive_alpha):
             node = max(node.children.values(), key=lambda child: _uct_score(child, exploration))
-        if node.untried_actions and len(node.seq) < horizon:
-            action_index = int(rng.integers(0, len(node.untried_actions)))
-            action = node.untried_actions.pop(action_index)
+        if len(node.seq) < horizon and node.untried_actions and _can_expand(node, progressive_c, progressive_alpha):
+            action = node.untried_actions.pop(0)
             next_board, valid = apply_action_sequence(node.board, [action])
             if valid:
-                child = MCTSNode(
-                    board=next_board,
+                child = _make_mcts_node(
+                    model,
+                    next_board,
+                    goal,
                     seq=[*node.seq, action],
                     parent=node,
                     parent_action=action,
+                    transition_mode=transition_mode,
+                    score_mode=score_mode,
+                    expansion_branch_size=expansion_branch_size,
+                    device=device,
                 )
                 node.children[action_id(action)] = child
                 node = child
@@ -455,6 +471,50 @@ def mcts_plan_once(
     if not root.children:
         return root.untried_actions[0] if root.untried_actions else None
     return max(root.children.values(), key=lambda child: (child.visits, child.value)).parent_action
+
+
+def _make_mcts_node(
+    model: LeWMSudokuModel | None,
+    board: np.ndarray,
+    goal: np.ndarray,
+    *,
+    seq: list[WorldAction],
+    parent: MCTSNode | None,
+    parent_action: WorldAction | None,
+    transition_mode: TransitionMode,
+    score_mode: ScoreMode,
+    expansion_branch_size: int,
+    device: torch.device,
+) -> MCTSNode:
+    actions = legal_fill_actions(board, allow_conflicts=True)
+    action_count = len(actions)
+    if actions and expansion_branch_size > 0:
+        actions = _rank_immediate_actions(
+            model,
+            board,
+            goal,
+            actions,
+            expansion_branch_size,
+            transition_mode=transition_mode,
+            score_mode=score_mode,
+            device=device,
+        )
+    return MCTSNode(
+        board=board,
+        seq=seq,
+        parent=parent,
+        parent_action=parent_action,
+        untried_actions=actions,
+        action_count=action_count,
+    )
+
+
+def _can_expand(node: MCTSNode, progressive_c: float, progressive_alpha: float) -> bool:
+    if not node.untried_actions:
+        return False
+    allowed = int(math.ceil(max(1.0, progressive_c) * max(1, node.visits) ** progressive_alpha))
+    allowed = min(max(1, allowed), node.action_count)
+    return len(node.children) < allowed
 
 
 def _uct_score(node: MCTSNode, exploration: float) -> float:
@@ -487,6 +547,9 @@ def run_mpc(
     local_temperature: float = 0.0,
     mcts_simulations: int = 256,
     mcts_exploration: float = 1.4,
+    mcts_progressive_c: float = 2.0,
+    mcts_progressive_alpha: float = 0.5,
+    mcts_branch_size: int = 32,
     rng: np.random.Generator | None = None,
     device: torch.device | None = None,
 ) -> MPCResult:
@@ -540,6 +603,9 @@ def run_mpc(
             local_temperature=local_temperature,
             mcts_simulations=mcts_simulations,
             mcts_exploration=mcts_exploration,
+            mcts_progressive_c=mcts_progressive_c,
+            mcts_progressive_alpha=mcts_progressive_alpha,
+            mcts_branch_size=mcts_branch_size,
             rng=rng,
             device=device,
         )
@@ -583,6 +649,9 @@ def _plan_once(
     local_temperature: float,
     mcts_simulations: int,
     mcts_exploration: float,
+    mcts_progressive_c: float,
+    mcts_progressive_alpha: float,
+    mcts_branch_size: int,
     rng: np.random.Generator,
     device: torch.device,
 ) -> WorldAction | None:
@@ -657,6 +726,9 @@ def _plan_once(
             horizon=horizon,
             simulations=mcts_simulations,
             exploration=mcts_exploration,
+            progressive_c=mcts_progressive_c,
+            progressive_alpha=mcts_progressive_alpha,
+            expansion_branch_size=mcts_branch_size,
             transition_mode=transition_mode,
             score_mode=score_mode,
             rng=rng,
