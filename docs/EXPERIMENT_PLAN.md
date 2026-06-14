@@ -40,8 +40,8 @@ Training sweep:
   frames reuse their own state embedding as the exact goal target.
 - Runtime guard: `scripts/slurm/run_lewm_sudoku_posthoc_eval.slurm` is submitted
   as a dependency-held fallback. It skips runs whose integrated diagnostics and
-  planner matrix completed, and otherwise runs checkpoint-based fast posthoc
-  planner-matrix eval into `posthoc_eval/`.
+  planner matrix completed, and otherwise runs checkpoint-based diagnostics plus
+  fast posthoc planner-matrix eval into `posthoc_eval/`.
 
 Evaluation matrix:
 

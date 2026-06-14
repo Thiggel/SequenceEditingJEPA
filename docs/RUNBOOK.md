@@ -63,7 +63,7 @@ The dependency-held eval fallback `3741137_[0-24%6]` runs after the whole
 training array finishes. Each task checks the matching run root; if
 `diagnostics.json` and `planner_matrix.jsonl` already exist, it exits without
 doing work. If integrated eval timed out after `checkpoint.pt` was written, it
-runs the fast planner-matrix eval into `posthoc_eval/`.
+runs the diagnostics bundle plus fast planner-matrix eval into `posthoc_eval/`.
 
 Cancelled/superseded submissions:
 
