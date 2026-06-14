@@ -36,8 +36,8 @@ Training sweep:
   from encoder/predictor BatchNorm projector statistics.
 - BatchNorm context: predictor projection is step-wise across sequence time,
   so unsupervised final/future outputs cannot change supervised prefix
-  predictions. Goal-distance targets encode trajectory states and solved goals
-  in the same training-mode BatchNorm pass.
+  predictions. State embeddings are encoded from board sequences only; solved
+  frames reuse their own state embedding as the exact goal target.
 
 Evaluation matrix:
 
@@ -52,9 +52,10 @@ Evaluation matrix:
   goal distance.
 - Horizons: `4`, `8`, `16`, `32`, `64`.
 - Latent rollout: MPC passes observed board/action history into the predictor,
-  so latent rollout uses the same absolute fill-step context as training.
-  Score-pruned branch ranking and diagnostic projection panels use the same
-  history context.
+  so latent rollout uses the same absolute fill-step context as training when
+  it fits. If observed history plus requested horizon exceeds `max_history`, the
+  scorer caps the effective lookahead rather than throwing. Score-pruned branch
+  ranking and diagnostic projection panels use the same history context.
 
 Diagnostics written automatically:
 
@@ -88,13 +89,4 @@ The first LR submission `3740707` is cancelled/superseded because it used
 8-frame training trajectories and pre-fix MCTS. Do not analyze it as the clean
 LeWM baseline.
 
-Current pre-sweep blockers:
-
-- Remove extra post-AdaLN LayerNorms inside predictor attention/MLP sublayers.
-- Prevent training-mode state embeddings from depending on the `goals` argument.
-- Make latent-rollout MPC respect `max_history` after replanning at long
-  horizons.
-- Record the concrete MCTS variant label in planner-matrix rows.
-
-Submit the replacement sweep only after those red tests pass and the user says
-`go`.
+Submit the replacement sweep only after the user says `go`.

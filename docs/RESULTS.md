@@ -4,8 +4,8 @@ Last updated: 2026-06-14
 
 ## Current Result
 
-No clean LeWorldModel reset jobs have completed yet. The current code has four
-red pre-sweep review tests and should not be submitted.
+No clean LeWorldModel reset jobs have completed yet. The latest pre-sweep review
+regressions are fixed and verified, but no replacement job has been submitted.
 
 Cancelled/superseded job `3740707_[0-24%12]` should not be used as the clean
 baseline. It trained with 8-frame trajectories while planning included horizons
@@ -39,26 +39,18 @@ Current code trains full correct/wrong fill-only trajectories with masks, uses
 LeWM-style MLP projectors, keeps padded frames out of BatchNorm projector
 statistics, uses full-history latent rollout during MPC, and reports default
 MCTS as score-pruned progressive UCT. The latest review fixes also make
-predictor projection BatchNorm step-wise, encode goal-distance targets in the
-same training-mode BatchNorm context as trajectory states, and pass history into
-branch-pruned latent rollout plus projection-panel latent-rollout diagnostics.
+predictor projection BatchNorm step-wise, remove post-AdaLN sublayer
+normalization, keep state embeddings independent of the `goals` argument, cap
+latent-rollout lookahead to the available predictor context, and pass history
+into branch-pruned latent rollout plus projection-panel latent-rollout
+diagnostics.
 Diagnostics now also include train-vs-eval terminal goal-distance checks,
 predictor full-vs-truncated BatchNorm deltas, no-history vs full-history latent
 rank divergence, branch-prune gold-action survival, latent-rollout drift
 against symbolic re-encode by horizon, and planner timing/action-eval counts.
 
-Open blockers:
-
-- AdaLN modulation is renormalized by extra LayerNorms inside the attention and
-  MLP sublayers.
-- Training-mode state embeddings depend on the `goals` argument.
-- Latent-rollout MPC can exceed `max_history` after replanning at long horizons.
-- Planner-matrix rows record `mcts` instead of `score_pruned_progressive_uct`.
-
 Verification before resubmission:
 
-- The four new review tests pass:
-  `renormalized or goal_argument or history_limit or planner_matrix_records`.
 - `pytest -q` passes.
 - Tiny train smoke writes scalar metrics plus `diagnostics/` JSONL/CSV/SVG
   artifacts.

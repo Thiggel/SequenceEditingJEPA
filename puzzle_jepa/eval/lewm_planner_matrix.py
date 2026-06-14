@@ -206,6 +206,7 @@ def run_planner_matrix(
                 steps: list[int] = []
                 action_evals: list[int] = []
                 elapsed_seconds: list[float] = []
+                concrete_planner = str(planner)
                 for example in examples[:max_examples]:
                     result = run_mpc(
                         model,
@@ -225,10 +226,11 @@ def run_planner_matrix(
                     steps.append(result.steps)
                     action_evals.append(result.action_evals)
                     elapsed_seconds.append(result.elapsed_seconds)
+                    concrete_planner = result.planner
                 elapsed_total = float(np.sum(elapsed_seconds)) if elapsed_seconds else 0.0
                 action_evals_total = int(np.sum(action_evals)) if action_evals else 0
                 record = {
-                    "planner": planner,
+                    "planner": concrete_planner,
                     "transition_mode": transition,
                     "score_mode": score,
                     "horizon": depth,

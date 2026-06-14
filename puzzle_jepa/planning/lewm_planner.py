@@ -73,6 +73,13 @@ def score_action_sequence(
 ) -> SequenceScore:
     if stats is not None:
         stats.action_evals += 1
+    actions = _cap_latent_rollout_actions(
+        model,
+        actions,
+        transition_mode=transition_mode,
+        position_offset=position_offset,
+        history_boards=history_boards,
+    )
     leaf, valid = apply_action_sequence(board, actions)
     if not valid:
         return SequenceScore(float("inf"), leaf, False)
@@ -902,6 +909,24 @@ def _planner_result_name(planner: PlannerName, mcts_branch_size: int) -> str:
     if planner != "mcts":
         return planner
     return "score_pruned_progressive_uct" if mcts_branch_size > 0 else "progressive_uct"
+
+
+def _cap_latent_rollout_actions(
+    model: LeWMSudokuModel | None,
+    actions: list[WorldAction],
+    *,
+    transition_mode: TransitionMode,
+    position_offset: int,
+    history_boards: list[np.ndarray] | None,
+) -> list[WorldAction]:
+    if model is None or transition_mode != "latent_rollout" or not actions:
+        return actions
+    max_history = int(model.predictor.pos_embedding.shape[1])
+    if history_boards is not None:
+        max_actions = max(0, max_history - len(history_boards) + 1)
+    else:
+        max_actions = max(0, max_history - int(position_offset))
+    return actions[:max_actions]
 
 
 def _history_boards_for_sequence(

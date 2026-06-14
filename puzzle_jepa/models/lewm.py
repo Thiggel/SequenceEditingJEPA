@@ -192,15 +192,13 @@ class SudokuActionEncoder(nn.Module):
 class CausalSelfAttention(nn.Module):
     def __init__(self, *, d_model: int, num_heads: int, dropout: float):
         super().__init__()
-        self.norm = nn.LayerNorm(d_model, elementwise_affine=False, eps=1.0e-6)
         self.attn = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=True)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         time = x.shape[1]
         mask = torch.ones(time, time, dtype=torch.bool, device=x.device).triu(1)
-        x_norm = self.norm(x)
-        out, _ = self.attn(x_norm, x_norm, x_norm, attn_mask=mask, need_weights=False)
+        out, _ = self.attn(x, x, x, attn_mask=mask, need_weights=False)
         return self.dropout(out)
 
 
@@ -208,7 +206,6 @@ class FeedForward(nn.Module):
     def __init__(self, *, d_model: int, mlp_ratio: float, dropout: float):
         super().__init__()
         hidden = int(d_model * mlp_ratio)
-        self.norm = nn.LayerNorm(d_model, elementwise_affine=False, eps=1.0e-6)
         self.net = nn.Sequential(
             nn.Linear(d_model, hidden),
             nn.GELU(),
@@ -218,7 +215,7 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(self.norm(x))
+        return self.net(x)
 
 
 class AdaLNCausalBlock(nn.Module):
@@ -452,15 +449,23 @@ class LeWMSudokuModel(nn.Module):
         batch, time = boards.shape[:2]
         if goals.shape != (batch, 9, 9):
             raise ValueError(f"goals must have shape {(batch, 9, 9)}, got {tuple(goals.shape)}.")
-        flat_boards = boards.reshape(batch * time, 9, 9)
-        flat_valid = masks.reshape(-1)
-        output = torch.zeros(batch * time, self.latent_dim, dtype=torch.float32, device=boards.device)
-        valid_boards = flat_boards[flat_valid]
-        combined = torch.cat([valid_boards, goals], dim=0)
-        encoded = self.encode_board(combined)
-        output[flat_valid] = encoded[: valid_boards.shape[0]]
-        goal_embeddings = encoded[valid_boards.shape[0] :]
-        return output.reshape(batch, time, -1), goal_embeddings
+        embeddings = self.encode_sequence(boards, masks)
+        with torch.no_grad():
+            goal_embeddings = self._encode_goals_without_bn_updates(goals)
+        for batch_index in range(batch):
+            solved_matches = ((boards[batch_index] == goals[batch_index]).flatten(1).all(dim=1)) & masks[batch_index]
+            if bool(solved_matches.any()):
+                match_index = int(solved_matches.nonzero(as_tuple=False)[0].item())
+                goal_embeddings[batch_index] = embeddings[batch_index, match_index].detach()
+        return embeddings, goal_embeddings
+
+    def _encode_goals_without_bn_updates(self, goals: torch.Tensor) -> torch.Tensor:
+        previous_mode = self.encoder.training
+        try:
+            self.encoder.eval()
+            return self.encode_board(goals)
+        finally:
+            self.encoder.train(previous_mode)
 
     @torch.no_grad()
     def score_value(self, embeddings: torch.Tensor) -> torch.Tensor:
