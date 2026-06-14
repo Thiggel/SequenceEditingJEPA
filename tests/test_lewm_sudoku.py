@@ -276,6 +276,19 @@ def test_lewm_loss_backpropagates_and_goal_board_has_zero_target_distance():
     assert torch.allclose(solved_output.goal_distances, torch.zeros_like(solved_output.goal_distances), atol=1.0e-5)
 
 
+def test_masked_forward_supports_bfloat16_autocast():
+    batch = _oracle_batch(batch_size=2, num_frames=4, num_blanks=3)
+    model = _small_model()
+    model.train()
+
+    with torch.amp.autocast(device_type="cpu", dtype=torch.bfloat16):
+        output = model(batch.boards, batch.actions, batch.goals, masks=batch.masks)
+
+    assert output.embeddings.dtype == torch.bfloat16
+    assert output.predicted_embeddings.dtype == torch.bfloat16
+    assert torch.isfinite(output.loss)
+
+
 def test_training_goal_distance_is_zero_for_solved_frames():
     _world, example = _example()
     model = _small_model()

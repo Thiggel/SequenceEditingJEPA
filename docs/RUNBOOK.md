@@ -18,8 +18,8 @@ Sudoku JEPA.
 - Planner algorithms: `puzzle_jepa/planning/lewm_planner.py`
 - Slurm launcher: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
 
-The live Slurm surface intentionally has one job file. Do not submit it until
-the user says `go`.
+The live Slurm surface intentionally has one job file. The fixed LR sweep was
+submitted as Slurm array `3741086_[0-24%12]` on 2026-06-14 14:24 CEST.
 Historical Grid4-Grid6 notes are legacy context only; see
 `docs/legacy/README.md` and `../sequence-editing-report/notes/legacy.md`.
 
@@ -45,10 +45,11 @@ bash -n scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
 
 ## Submit
 
-Do not submit jobs until the user explicitly says `go`.
+The fixed sweep is already submitted:
 
 ```bash
-sbatch scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
+squeue -j 3741086
+tail -f logs/lewm_sudoku_lr_3741086_0.out
 ```
 
 Cancelled/superseded submission: `3740707_[0-24%12]`. It trained with

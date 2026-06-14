@@ -76,17 +76,25 @@ class BatchNormProjector(nn.Module):
             if mask.shape != original_shape[:-1]:
                 raise ValueError(f"Projector mask must have shape {original_shape[:-1]}, got {tuple(mask.shape)}.")
             if x.ndim == 3:
-                out = torch.zeros(*original_shape[:-1], self.fc2.out_features, dtype=x.dtype, device=x.device)
+                out = None
                 for step in range(x.shape[1]):
                     valid = mask[:, step]
                     if bool(valid.any()):
-                        out[:, step].index_copy_(0, valid.nonzero(as_tuple=False).squeeze(1), self._project_flat(x[:, step][valid]))
+                        projected = self._project_flat(x[:, step][valid])
+                        if out is None:
+                            out = projected.new_zeros(*original_shape[:-1], self.fc2.out_features)
+                        out[:, step].index_copy_(0, valid.nonzero(as_tuple=False).squeeze(1), projected)
+                if out is None:
+                    out = torch.zeros(*original_shape[:-1], self.fc2.out_features, dtype=x.dtype, device=x.device)
                 return out
             x_flat = x.reshape(-1, original_shape[-1])
             valid = mask.reshape(-1)
-            out_flat = torch.zeros(x_flat.shape[0], self.fc2.out_features, dtype=x.dtype, device=x.device)
             if bool(valid.any()):
-                out_flat.index_copy_(0, valid.nonzero(as_tuple=False).squeeze(1), self._project_flat(x_flat[valid]))
+                projected = self._project_flat(x_flat[valid])
+                out_flat = projected.new_zeros(x_flat.shape[0], self.fc2.out_features)
+                out_flat.index_copy_(0, valid.nonzero(as_tuple=False).squeeze(1), projected)
+            else:
+                out_flat = torch.zeros(x_flat.shape[0], self.fc2.out_features, dtype=x.dtype, device=x.device)
             return out_flat.reshape(*original_shape[:-1], self.fc2.out_features)
         x_flat = x.reshape(-1, original_shape[-1])
         return self._project_flat(x_flat).reshape(*original_shape[:-1], -1)
@@ -381,9 +389,12 @@ class LeWMSudokuModel(nn.Module):
             if masks.shape != (batch, time):
                 raise ValueError(f"masks must have shape {(batch, time)}, got {tuple(masks.shape)}.")
             valid = masks.reshape(-1)
-            output = torch.zeros(batch * time, self.latent_dim, dtype=torch.float32, device=boards.device)
             if bool(valid.any()):
-                output[valid] = self.encode_board(boards.reshape(batch * time, 9, 9)[valid])
+                encoded = self.encode_board(boards.reshape(batch * time, 9, 9)[valid])
+                output = encoded.new_zeros(batch * time, self.latent_dim)
+                output[valid] = encoded
+            else:
+                output = torch.zeros(batch * time, self.latent_dim, dtype=torch.float32, device=boards.device)
             return output.reshape(batch, time, -1)
         flat = boards.reshape(batch * time, 9, 9)
         emb = self.encode_board(flat)
