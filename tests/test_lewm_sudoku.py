@@ -9,6 +9,7 @@ from hydra import compose, initialize_config_dir
 
 from pathlib import Path
 
+from puzzle_jepa.eval import lewm_diagnostics as lewm_diagnostics_module
 from puzzle_jepa.planning import lewm_planner as lewm_planner_module
 from puzzle_jepa.data.lewm_sudoku import (
     action_to_array,
@@ -208,6 +209,28 @@ def test_adaln_zero_initialized_and_predictor_is_causal():
     assert not torch.allclose(baseline[:, 3], changed[:, 3])
 
 
+def test_predictor_bn_excludes_unsupervised_final_prediction():
+    torch.manual_seed(7)
+    full_model = _small_model()
+    truncated_model = copy.deepcopy(full_model)
+    full_model.train()
+    truncated_model.train()
+    embeddings = torch.randn(2, 4, 32)
+    actions = torch.randint(0, 9, (2, 4, 3))
+    actions[..., 2] = torch.randint(1, 10, (2, 4))
+    mask = torch.ones(2, 4, dtype=torch.bool)
+
+    with torch.no_grad():
+        full_predictions = full_model.predict_sequence(embeddings, actions, mask=mask)[:, :-1]
+        truncated_predictions = truncated_model.predict_sequence(
+            embeddings[:, :-1],
+            actions[:, :-1],
+            mask=mask[:, :-1],
+        )
+
+    torch.testing.assert_close(full_predictions, truncated_predictions, rtol=1.0e-5, atol=1.0e-5)
+
+
 def test_lewm_loss_backpropagates_and_goal_board_has_zero_target_distance():
     _world, example = _example()
     rng = np.random.default_rng(2)
@@ -227,6 +250,27 @@ def test_lewm_loss_backpropagates_and_goal_board_has_zero_target_distance():
     goals = torch.as_tensor(np.stack([example.goal, example.goal]), dtype=torch.long)
     solved_output = model(solved, pad_actions, goals)
     assert torch.allclose(solved_output.goal_distances, torch.zeros_like(solved_output.goal_distances), atol=1.0e-5)
+
+
+def test_training_goal_distance_is_zero_for_solved_frames():
+    _world, example = _example()
+    model = _small_model()
+    model.train()
+    boards = torch.as_tensor(
+        np.stack([[example.state, example.goal], [example.state, example.goal]]),
+        dtype=torch.long,
+    )
+    actions = torch.zeros((2, 2, 3), dtype=torch.long)
+    goals = torch.as_tensor(np.stack([example.goal, example.goal]), dtype=torch.long)
+
+    output = model(boards, actions, goals)
+
+    torch.testing.assert_close(
+        output.goal_distances[:, -1],
+        torch.zeros_like(output.goal_distances[:, -1]),
+        rtol=1.0e-5,
+        atol=1.0e-5,
+    )
 
 
 def test_eval_losses_include_value_and_batch_diagnostics():
@@ -432,6 +476,41 @@ def test_local_search_replaces_the_mutated_candidate(monkeypatch):
     assert action == proposal
 
 
+def test_latent_rollout_branch_pruning_uses_history_context(monkeypatch):
+    _world, example = _example()
+    board = example.state.copy()
+    row, col = (int(x) for x in np.argwhere(board == 0)[0])
+    first_action = WorldAction(row, col, int(example.goal[row, col]))
+    board = apply_fill_action(board, first_action, allow_conflicts=True)
+    history_boards = [example.state.copy(), board.copy()]
+    history_actions = [first_action]
+
+    def fake_score_action_sequence(_model, board_arg, goal_arg, actions, **kwargs):
+        if kwargs["transition_mode"] == "latent_rollout":
+            assert kwargs.get("history_boards") is not None
+            assert kwargs.get("history_actions") is not None
+        return lewm_planner_module.SequenceScore(float(actions[0].value), np.asarray(board_arg).copy(), False)
+
+    monkeypatch.setattr(lewm_planner_module, "score_action_sequence", fake_score_action_sequence)
+
+    action = lewm_planner_module.beam_plan_once(
+        None,
+        board,
+        example.goal,
+        horizon=1,
+        beam_width=1,
+        branch_size=4,
+        transition_mode="latent_rollout",
+        score_mode="oracle_goal_distance",
+        device=torch.device("cpu"),
+        position_offset=1,
+        history_boards=history_boards,
+        history_actions=history_actions,
+    )
+
+    assert action is not None
+
+
 def test_mcts_and_mpc_work_on_one_empty_cell():
     world = SudokuWorld()
     goal = world.from_string(SUDOKU_SOLUTION)
@@ -494,6 +573,38 @@ def test_latent_rollout_from_mpc_state_matches_full_history_prediction():
         )[:, -1]
 
     torch.testing.assert_close(mpc_next, full_history_next, rtol=1.0e-5, atol=1.0e-5)
+
+
+def test_projection_panel_latent_rollout_uses_oracle_history(monkeypatch, tmp_path):
+    _world, example = _example()
+    model = _small_model()
+
+    def fake_score_action_sequence(_model, board_arg, goal_arg, actions, **kwargs):
+        if kwargs["transition_mode"] == "latent_rollout":
+            assert kwargs.get("history_boards") is not None
+            assert kwargs.get("history_actions") is not None
+        leaf = np.asarray(board_arg).copy()
+        for action in actions:
+            leaf = apply_fill_action(leaf, action, allow_conflicts=True)
+        return lewm_planner_module.SequenceScore(float(hamming_distance_for_test(leaf, goal_arg)), leaf, False)
+
+    monkeypatch.setattr(lewm_diagnostics_module, "score_action_sequence", fake_score_action_sequence)
+
+    summary = lewm_diagnostics_module.projection_panel_diagnostics(
+        model,
+        [example],
+        tmp_path,
+        device=torch.device("cpu"),
+        horizons=(1,),
+        panel_steps=2,
+        panel_actions=2,
+    )
+
+    assert summary["projection_panel_examples"] > 0
+
+
+def hamming_distance_for_test(board, goal):
+    return int(np.not_equal(board, goal).sum())
 
 
 def test_lewm_hydra_config_composes():

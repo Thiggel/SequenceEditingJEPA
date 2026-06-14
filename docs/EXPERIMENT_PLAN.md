@@ -75,3 +75,8 @@ better than the legacy compact-scorer failure mode.
 The first LR submission `3740707` is cancelled/superseded because it used
 8-frame training trajectories and pre-fix MCTS. Do not analyze it as the clean
 LeWM baseline.
+
+Current review blocker: before submitting a replacement sweep, make the four red
+LeWM regression tests pass. They cover predictor final-step BatchNorm masking,
+training-mode goal-distance target consistency, branch-pruned latent-rollout
+history context, and projection-panel latent-rollout history context.

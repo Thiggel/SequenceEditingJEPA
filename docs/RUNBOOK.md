@@ -19,7 +19,7 @@ Sudoku JEPA.
 - Slurm launcher: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
 
 The live Slurm surface intentionally has one job file. Do not submit it until
-the user says `go`.
+the current red LeWM regression tests are fixed and the user says `go`.
 Historical Grid4-Grid6 notes are legacy context only; see
 `docs/legacy/README.md` and `../sequence-editing-report/notes/legacy.md`.
 
@@ -27,7 +27,13 @@ Historical Grid4-Grid6 notes are legacy context only; see
 
 The LeWM regression tests cover masked BatchNorm padding, full-history latent
 rollout, local-search candidate replacement, planner sanity checks, and
-diagnostic file generation. They should pass before any submission.
+diagnostic file generation. The current expected status is 17 passed and 4
+intentionally failed until the latest review blockers are fixed:
+
+- `test_predictor_bn_excludes_unsupervised_final_prediction`
+- `test_training_goal_distance_is_zero_for_solved_frames`
+- `test_latent_rollout_branch_pruning_uses_history_context`
+- `test_projection_panel_latent_rollout_uses_oracle_history`
 
 ```bash
 source scripts/env.sh
@@ -44,7 +50,8 @@ bash -n scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
 
 ## Submit
 
-Do not submit jobs until the user explicitly says `go`.
+Do not submit jobs until the red LeWM tests are fixed and the user explicitly
+says `go`.
 
 ```bash
 sbatch scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
@@ -81,3 +88,9 @@ encoder/predictor BatchNorm projector statistics; latent-rollout MPC passes the
 observed board/action history into model rollout; local search updates the same
 candidate it mutates. `planner="mcts"` is reported as
 `score_pruned_progressive_uct` when `mcts_branch_size > 0`.
+
+Open review notes: predictor BatchNorm still includes the unsupervised final
+prediction position, training-mode goal-distance targets use separate BatchNorm
+contexts for states and goals, branch-pruned latent rollout does not receive
+history context, and projection-panel latent-rollout diagnostics do not receive
+oracle/history context.
