@@ -58,6 +58,9 @@ def score_action_sequence(
     transition_mode: TransitionMode,
     score_mode: ScoreMode,
     device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> SequenceScore:
     leaf, valid = apply_action_sequence(board, actions)
     if not valid:
@@ -76,14 +79,37 @@ def score_action_sequence(
             leaf_t = torch.as_tensor(leaf[None], dtype=torch.long, device=device)
             leaf_emb = model.encode_board(leaf_t)
         else:
-            start_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
-            start_emb = model.encode_board(start_t)
             action_t = torch.as_tensor(
                 np.asarray([[action_to_array(action) for action in actions]], dtype=np.int64),
                 dtype=torch.long,
                 device=device,
             )
-            leaf_emb = model.rollout_latent(start_emb, action_t)[:, -1]
+            if history_boards is not None:
+                if history_actions is None:
+                    history_actions = []
+                if len(history_boards) != len(history_actions) + 1:
+                    raise ValueError("history_boards must contain exactly one more item than history_actions.")
+                history_t = torch.as_tensor(np.stack(history_boards), dtype=torch.long, device=device)[None]
+                prefix_emb = model.encode_sequence(history_t)
+                if history_actions:
+                    prefix_actions_t = torch.as_tensor(
+                        np.asarray([[action_to_array(action) for action in history_actions]], dtype=np.int64),
+                        dtype=torch.long,
+                        device=device,
+                    )
+                else:
+                    prefix_actions_t = torch.zeros((1, 0, 3), dtype=torch.long, device=device)
+                start_emb = prefix_emb[:, -1]
+                leaf_emb = model.rollout_latent(
+                    start_emb,
+                    action_t,
+                    prefix_embeddings=prefix_emb,
+                    prefix_actions=prefix_actions_t,
+                )[:, -1]
+            else:
+                start_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
+                start_emb = model.encode_board(start_t)
+                leaf_emb = model.rollout_latent(start_emb, action_t, position_offset=position_offset)[:, -1]
         if score_mode == "oracle_goal_distance":
             cost = torch.linalg.vector_norm(leaf_emb - goal_emb, dim=-1).item()
         elif score_mode == "predicted_goal_distance":
@@ -111,6 +137,9 @@ def greedy_plan_once(
     transition_mode: TransitionMode,
     score_mode: ScoreMode,
     device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> WorldAction | None:
     actions = legal_fill_actions(board, allow_conflicts=True)
     if not actions:
@@ -125,6 +154,9 @@ def greedy_plan_once(
                 transition_mode=transition_mode,
                 score_mode=score_mode,
                 device=device,
+                position_offset=position_offset,
+                history_boards=history_boards,
+                history_actions=history_actions,
             ).cost,
             action,
         )
@@ -144,6 +176,9 @@ def beam_plan_once(
     transition_mode: TransitionMode,
     score_mode: ScoreMode,
     device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> WorldAction | None:
     beam: list[tuple[float, np.ndarray, list[WorldAction]]] = [(0.0, board.copy(), [])]
     best: tuple[float, list[WorldAction]] | None = None
@@ -161,6 +196,7 @@ def beam_plan_once(
                     transition_mode=transition_mode,
                     score_mode=score_mode,
                     device=device,
+                    position_offset=position_offset + len(seq),
                 )
             for action in actions:
                 score = score_action_sequence(
@@ -171,6 +207,9 @@ def beam_plan_once(
                     transition_mode=transition_mode,
                     score_mode=score_mode,
                     device=device,
+                    position_offset=position_offset,
+                    history_boards=history_boards,
+                    history_actions=history_actions,
                 )
                 if not math.isfinite(score.cost):
                     continue
@@ -201,6 +240,9 @@ def best_first_plan_once(
     transition_mode: TransitionMode,
     score_mode: ScoreMode,
     device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> WorldAction | None:
     counter = 0
     heap: list[tuple[float, int, np.ndarray, list[WorldAction]]] = [(0.0, counter, board.copy(), [])]
@@ -223,6 +265,9 @@ def best_first_plan_once(
             transition_mode=transition_mode,
             score_mode=score_mode,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         )
         if node_score.cost < best_cost and seq:
             best_cost = node_score.cost
@@ -240,6 +285,7 @@ def best_first_plan_once(
                 transition_mode=transition_mode,
                 score_mode=score_mode,
                 device=device,
+                position_offset=position_offset + len(seq),
             )
         for action in actions:
             next_board, valid = apply_action_sequence(node_board, [action])
@@ -254,6 +300,9 @@ def best_first_plan_once(
                 transition_mode=transition_mode,
                 score_mode=score_mode,
                 device=device,
+                position_offset=position_offset,
+                history_boards=history_boards,
+                history_actions=history_actions,
             ).cost
             counter += 1
             priority = len(next_seq) + heuristic_weight * heuristic
@@ -275,6 +324,9 @@ def categorical_cem_plan_once(
     score_mode: ScoreMode,
     rng: np.random.Generator,
     device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> WorldAction | None:
     horizon = max(1, horizon)
     probs = np.full((horizon, 729), 1.0 / 729.0, dtype=np.float64)
@@ -292,6 +344,9 @@ def categorical_cem_plan_once(
                 transition_mode=transition_mode,
                 score_mode=score_mode,
                 device=device,
+                position_offset=position_offset,
+                history_boards=history_boards,
+                history_actions=history_actions,
             )
             scored.append((score.cost, seq))
             if score.cost < best_cost and seq:
@@ -322,6 +377,9 @@ def local_search_plan_once(
     score_mode: ScoreMode,
     rng: np.random.Generator,
     device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> WorldAction | None:
     pool = [_sample_random_sequence(board, horizon, rng) for _ in range(max(1, candidates))]
     scored = [
@@ -334,6 +392,9 @@ def local_search_plan_once(
                 transition_mode=transition_mode,
                 score_mode=score_mode,
                 device=device,
+                position_offset=position_offset,
+                history_boards=history_boards,
+                history_actions=history_actions,
             ).cost,
             seq,
         )
@@ -345,7 +406,8 @@ def local_search_plan_once(
     scored.sort(key=lambda item: item[0])
     best_cost, best_seq = scored[0]
     for index in range(max(1, iterations)):
-        _, base_seq = scored[int(rng.integers(0, len(scored)))]
+        base_idx = int(rng.integers(0, len(scored)))
+        _, base_seq = scored[base_idx]
         if not base_seq:
             continue
         cut = int(rng.integers(0, len(base_seq)))
@@ -363,12 +425,14 @@ def local_search_plan_once(
             transition_mode=transition_mode,
             score_mode=score_mode,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         ).cost
-        old_idx = int(rng.integers(0, len(scored)))
-        old_score, _ = scored[old_idx]
+        old_score, _ = scored[base_idx]
         accept_worse = temperature > 0.0 and rng.random() < math.exp(-(proposal_score - old_score) / max(temperature, 1.0e-6))
         if proposal_score <= old_score or accept_worse:
-            scored[old_idx] = (proposal_score, proposal)
+            scored[base_idx] = (proposal_score, proposal)
         if proposal_score < best_cost and proposal:
             best_cost, best_seq = proposal_score, proposal
         if index % 8 == 0:
@@ -408,6 +472,9 @@ def mcts_plan_once(
     progressive_c: float = 2.0,
     progressive_alpha: float = 0.5,
     expansion_branch_size: int = 32,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> WorldAction | None:
     root = _make_mcts_node(
         model,
@@ -419,6 +486,7 @@ def mcts_plan_once(
         transition_mode=transition_mode,
         score_mode=score_mode,
         expansion_branch_size=expansion_branch_size,
+        position_offset=position_offset,
         device=device,
     )
     if root.action_count == 0:
@@ -441,6 +509,7 @@ def mcts_plan_once(
                     transition_mode=transition_mode,
                     score_mode=score_mode,
                     expansion_branch_size=expansion_branch_size,
+                    position_offset=position_offset + len(node.seq) + 1,
                     device=device,
                 )
                 node.children[action_id(action)] = child
@@ -462,6 +531,9 @@ def mcts_plan_once(
             transition_mode=transition_mode,
             score_mode=score_mode,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         ).cost
         reward = -cost
         while node is not None:
@@ -484,6 +556,7 @@ def _make_mcts_node(
     transition_mode: TransitionMode,
     score_mode: ScoreMode,
     expansion_branch_size: int,
+    position_offset: int,
     device: torch.device,
 ) -> MCTSNode:
     actions = legal_fill_actions(board, allow_conflicts=True)
@@ -497,6 +570,7 @@ def _make_mcts_node(
             expansion_branch_size,
             transition_mode=transition_mode,
             score_mode=score_mode,
+            position_offset=position_offset,
             device=device,
         )
     return MCTSNode(
@@ -560,6 +634,7 @@ def run_mpc(
     target = world.validate_state(goal)
     start_hamming = hamming_distance(current, target)
     actions_taken: list[WorldAction] = []
+    history_boards: list[np.ndarray] = [current.copy()]
     if planner == "exact":
         solved = solve_sudoku_exact(current)
         if solved is not None:
@@ -608,11 +683,15 @@ def run_mpc(
             mcts_branch_size=mcts_branch_size,
             rng=rng,
             device=device,
+            position_offset=len(actions_taken),
+            history_boards=history_boards,
+            history_actions=actions_taken,
         )
         if action is None:
             break
         current = apply_fill_action(current, action, allow_conflicts=True)
         actions_taken.append(action)
+        history_boards.append(current.copy())
     return MPCResult(
         solved=bool(np.array_equal(current, target)),
         steps=len(actions_taken),
@@ -620,7 +699,7 @@ def run_mpc(
         remaining_hamming=hamming_distance(current, target),
         actions=actions_taken,
         final_board=current,
-        planner=planner,
+        planner=_planner_result_name(planner, mcts_branch_size),
         transition_mode=transition_mode,
         score_mode=score_mode,
         horizon=horizon,
@@ -654,6 +733,9 @@ def _plan_once(
     mcts_branch_size: int,
     rng: np.random.Generator,
     device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
 ) -> WorldAction | None:
     if planner == "greedy":
         return greedy_plan_once(
@@ -663,6 +745,9 @@ def _plan_once(
             transition_mode=transition_mode,
             score_mode=score_mode,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         )
     if planner == "beam":
         return beam_plan_once(
@@ -675,6 +760,9 @@ def _plan_once(
             transition_mode=transition_mode,
             score_mode=score_mode,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         )
     if planner == "best_first":
         return best_first_plan_once(
@@ -688,6 +776,9 @@ def _plan_once(
             transition_mode=transition_mode,
             score_mode=score_mode,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         )
     if planner == "categorical_cem":
         return categorical_cem_plan_once(
@@ -703,6 +794,9 @@ def _plan_once(
             score_mode=score_mode,
             rng=rng,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         )
     if planner == "local_search":
         return local_search_plan_once(
@@ -717,6 +811,9 @@ def _plan_once(
             score_mode=score_mode,
             rng=rng,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         )
     if planner == "mcts":
         return mcts_plan_once(
@@ -733,8 +830,17 @@ def _plan_once(
             score_mode=score_mode,
             rng=rng,
             device=device,
+            position_offset=position_offset,
+            history_boards=history_boards,
+            history_actions=history_actions,
         )
     raise ValueError(f"Unknown planner {planner!r}.")
+
+
+def _planner_result_name(planner: PlannerName, mcts_branch_size: int) -> str:
+    if planner != "mcts":
+        return planner
+    return "score_pruned_progressive_uct" if mcts_branch_size > 0 else "progressive_uct"
 
 
 def _rank_immediate_actions(
@@ -746,6 +852,7 @@ def _rank_immediate_actions(
     *,
     transition_mode: TransitionMode,
     score_mode: ScoreMode,
+    position_offset: int = 0,
     device: torch.device,
 ) -> list[WorldAction]:
     scored = [
@@ -758,6 +865,7 @@ def _rank_immediate_actions(
                 transition_mode=transition_mode,
                 score_mode=score_mode,
                 device=device,
+                position_offset=position_offset,
             ).cost,
             action,
         )

@@ -11,6 +11,7 @@ import torch
 from puzzle_jepa.data.hf_puzzles import HFPuzzleColumns, iter_hf_examples
 from puzzle_jepa.data.lewm_sudoku import action_to_array, apply_fill_action, legal_fill_actions
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
+from puzzle_jepa.eval.lewm_diagnostics import DEFAULT_PROJECTION_HORIZONS, run_lewm_diagnostic_bundle
 from puzzle_jepa.models.lewm import LeWMSudokuModel
 from puzzle_jepa.planning.lewm_planner import (
     PlannerName,
@@ -288,15 +289,34 @@ def main() -> None:
     parser.add_argument("--transitions", type=str, default=",".join(TRANSITIONS))
     parser.add_argument("--scores", type=str, default=",".join(SCORES))
     parser.add_argument("--depths", type=str, default=",".join(str(item) for item in DEPTHS))
+    parser.add_argument("--latent-examples", type=int, default=128)
+    parser.add_argument("--trajectory-examples", type=int, default=32)
+    parser.add_argument("--rank-examples", type=int, default=16)
+    parser.add_argument("--panel-examples", type=int, default=3)
+    parser.add_argument("--panel-steps", type=int, default=5)
+    parser.add_argument("--panel-actions", type=int, default=6)
+    parser.add_argument("--projection-horizons", type=str, default=",".join(str(item) for item in DEFAULT_PROJECTION_HORIZONS))
+    parser.add_argument("--no-diagnostic-plots", action="store_true")
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, config = load_checkpoint(args.checkpoint, device)
     examples = load_eval_examples(config, limit=max(args.examples, 128))
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    diagnostics = {}
-    diagnostics.update(latent_statistics(model, examples, device=device))
-    diagnostics.update(oracle_distance_diagnostics(model, examples, device=device))
-    diagnostics.update(local_action_rank_diagnostics(model, examples, device=device))
+    diagnostics = run_lewm_diagnostic_bundle(
+        model,
+        examples,
+        args.output_dir,
+        device=device,
+        seed=args.seed + 500,
+        latent_examples=args.latent_examples,
+        trajectory_examples=args.trajectory_examples,
+        rank_examples=args.rank_examples,
+        panel_examples=args.panel_examples,
+        panel_steps=args.panel_steps,
+        panel_actions=args.panel_actions,
+        projection_horizons=tuple(int(item) for item in args.projection_horizons.split(",") if item),
+        write_plots=not args.no_diagnostic_plots,
+    )
     (args.output_dir / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2, sort_keys=True))
     run_planner_matrix(
         model,

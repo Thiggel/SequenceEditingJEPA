@@ -14,16 +14,20 @@ Sudoku JEPA.
 - Data sampler: `puzzle_jepa/data/lewm_sudoku.py`
 - Trainer: `puzzle_jepa/train/lewm_sudoku.py`
 - Planner/eval matrix: `puzzle_jepa/eval/lewm_planner_matrix.py`
+- Diagnostics bundle: `puzzle_jepa/eval/lewm_diagnostics.py`
 - Planner algorithms: `puzzle_jepa/planning/lewm_planner.py`
 - Slurm launcher: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
 
 The live Slurm surface intentionally has one job file. Do not submit it until
-the masked BatchNorm and local-search review blockers in
-`../sequence-editing-report/BACKLOG.md` are fixed and the user says `go`.
+the user says `go`.
 Historical Grid4-Grid6 notes are legacy context only; see
 `docs/legacy/README.md` and `../sequence-editing-report/notes/legacy.md`.
 
 ## Verify
+
+The LeWM regression tests cover masked BatchNorm padding, full-history latent
+rollout, local-search candidate replacement, planner sanity checks, and
+diagnostic file generation. They should pass before any submission.
 
 ```bash
 source scripts/env.sh
@@ -33,14 +37,14 @@ python -m py_compile \
   puzzle_jepa/data/lewm_sudoku.py \
   puzzle_jepa/planning/lewm_planner.py \
   puzzle_jepa/train/lewm_sudoku.py \
+  puzzle_jepa/eval/lewm_diagnostics.py \
   puzzle_jepa/eval/lewm_planner_matrix.py
 bash -n scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
 ```
 
 ## Submit
 
-Do not submit jobs until the review blockers are fixed and the user explicitly
-says `go`.
+Do not submit jobs until the user explicitly says `go`.
 
 ```bash
 sbatch scripts/slurm/run_lewm_sudoku_lr_sweep.slurm
@@ -64,13 +68,16 @@ $PUZZLE_JEPA_WORK_ROOT/runs/lewm_sudoku_lr_<lr>
 ```
 
 Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
-`diagnostics.json`, and `planner_matrix.jsonl`.
+`diagnostics.json`, a detailed `diagnostics/` directory, and
+`planner_matrix.jsonl`.
 
 Current config trains full fill-only Sudoku trajectories by default
 (`training.num_frames: null`) with variable-length masks. `model.max_history`
 is `82`, so planning horizons up to 64 are no longer beyond the trained
 positional range for the loaded Sudoku boards.
 
-Review note: those variable-length masks currently do not prevent padded frames
-from entering BatchNorm projector statistics, so this needs a code fix before a
-clean LR sweep.
+Fixed review notes: variable-length masks now keep padded frames out of
+encoder/predictor BatchNorm projector statistics; latent-rollout MPC passes the
+observed board/action history into model rollout; local search updates the same
+candidate it mutates. `planner="mcts"` is reported as
+`score_pruned_progressive_uct` when `mcts_branch_size > 0`.

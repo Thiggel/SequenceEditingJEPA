@@ -1,3 +1,7 @@
+import json
+
+import copy
+
 import numpy as np
 import pytest
 import torch
@@ -5,6 +9,7 @@ from hydra import compose, initialize_config_dir
 
 from pathlib import Path
 
+from puzzle_jepa.planning import lewm_planner as lewm_planner_module
 from puzzle_jepa.data.lewm_sudoku import (
     action_to_array,
     apply_fill_action,
@@ -13,6 +18,7 @@ from puzzle_jepa.data.lewm_sudoku import (
     sample_sudoku_trajectory,
 )
 from puzzle_jepa.data.worlds import SudokuWorld, WorldAction
+from puzzle_jepa.eval.lewm_diagnostics import run_lewm_diagnostic_bundle
 from puzzle_jepa.models.lewm import LeWMSIGReg, LeWMSudokuModel
 from puzzle_jepa.planning.lewm_planner import (
     beam_plan_once,
@@ -24,6 +30,7 @@ from puzzle_jepa.planning.lewm_planner import (
     run_mpc,
     solve_sudoku_exact,
 )
+from puzzle_jepa.train.lewm_sudoku import _eval_losses
 
 
 SUDOKU_PUZZLE = (
@@ -118,6 +125,41 @@ def test_lewm_trajectory_batch_collates_variable_lengths_with_masks():
     assert batch.oracle_mask.dtype == torch.bool
 
 
+def test_masked_padding_does_not_change_valid_training_embeddings():
+    _world, example = _example()
+    rng = np.random.default_rng(3)
+    trajectory = sample_sudoku_trajectory(example, rng, num_frames=3, oracle_probability=1.0)
+    short_batch = collate_sudoku_trajectories([trajectory])
+    padded_batch = collate_sudoku_trajectories([trajectory], pad_to_frames=8)
+
+    torch.manual_seed(0)
+    short_model = _small_model()
+    padded_model = copy.deepcopy(short_model)
+    short_model.train()
+    padded_model.train()
+
+    with torch.no_grad():
+        short_output = short_model(
+            short_batch.boards,
+            short_batch.actions,
+            short_batch.goals,
+            masks=short_batch.masks,
+        )
+        padded_output = padded_model(
+            padded_batch.boards,
+            padded_batch.actions,
+            padded_batch.goals,
+            masks=padded_batch.masks,
+        )
+
+    torch.testing.assert_close(
+        padded_output.embeddings[:, : short_batch.boards.shape[1]],
+        short_output.embeddings,
+        rtol=1.0e-5,
+        atol=1.0e-5,
+    )
+
+
 def test_sigreg_is_stepwise_and_penalizes_degenerate_embeddings():
     torch.manual_seed(0)
     sigreg = LeWMSIGReg(knots=5, num_proj=32)
@@ -185,6 +227,77 @@ def test_lewm_loss_backpropagates_and_goal_board_has_zero_target_distance():
     goals = torch.as_tensor(np.stack([example.goal, example.goal]), dtype=torch.long)
     solved_output = model(solved, pad_actions, goals)
     assert torch.allclose(solved_output.goal_distances, torch.zeros_like(solved_output.goal_distances), atol=1.0e-5)
+
+
+def test_eval_losses_include_value_and_batch_diagnostics():
+    _world, example = _example()
+    rng = np.random.default_rng(0)
+    model = _small_model()
+    metrics = _eval_losses(
+        model,
+        [example],
+        rng,
+        batch_size=4,
+        num_frames=4,
+        oracle_probability=0.5,
+        device=torch.device("cpu"),
+        use_amp=False,
+    )
+    for key in [
+        "eval_value_mae",
+        "eval_value_rmse",
+        "eval_value_corr",
+        "eval_prediction_mse_early",
+        "eval_prediction_mse_middle",
+        "eval_prediction_mse_late",
+        "eval_oracle_fraction",
+    ]:
+        assert key in metrics
+        assert np.isfinite(metrics[key])
+
+
+def test_lewm_diagnostic_bundle_writes_geometry_ranks_and_examples(tmp_path):
+    _world, example = _example()
+    model = _small_model()
+    summary = run_lewm_diagnostic_bundle(
+        model,
+        [example],
+        tmp_path,
+        device=torch.device("cpu"),
+        seed=0,
+        latent_examples=1,
+        trajectory_examples=1,
+        rank_examples=1,
+        panel_examples=1,
+        panel_steps=2,
+        panel_actions=4,
+        projection_horizons=(1, 2),
+        write_plots=True,
+    )
+    diagnostics_dir = tmp_path / "diagnostics"
+    assert summary["latent_sample_count"] > 0
+    assert summary["projection_panel_examples"] > 0
+    for filename in [
+        "summary.json",
+        "latent_geometry.json",
+        "latent_projection.csv",
+        "latent_projection.svg",
+        "trajectory_values.jsonl",
+        "action_rank_summary.csv",
+        "action_rank_examples.jsonl",
+        "projection_panel_examples.jsonl",
+    ]:
+        assert (diagnostics_dir / filename).exists()
+    panel = [json.loads(line) for line in (diagnostics_dir / "projection_panel_examples.jsonl").read_text().splitlines()]
+    assert panel
+    labels = {candidate["label"] for candidate in panel[0]["candidates"]}
+    assert "anchor_gold" in labels
+    assert "anchor_wrong_digit" in labels
+    first_candidate = panel[0]["candidates"][0]
+    assert "1" in first_candidate["horizons"]
+    assert "symbolic_reencode:oracle_goal_distance" in first_candidate["horizons"]["1"]["scores"]
+    rank_summary = (diagnostics_dir / "action_rank_summary.csv").read_text()
+    assert "predicted_goal_distance" in rank_summary
 
 
 def test_fill_action_helpers_never_overwrite():
@@ -267,6 +380,58 @@ def test_hamming_planners_pick_goal_consistent_actions():
         assert action.value == example.goal[action.row, action.col]
 
 
+def test_local_search_replaces_the_mutated_candidate(monkeypatch):
+    board = np.zeros((9, 9), dtype=np.int64)
+    goal = np.zeros((9, 9), dtype=np.int64)
+    first = WorldAction(0, 0, 1)
+    second = WorldAction(0, 1, 1)
+    proposal = WorldAction(0, 2, 1)
+    samples = [[first], [second], [proposal]]
+
+    def fake_sample_random_sequence(*_args, **_kwargs):
+        return samples.pop(0)
+
+    def fake_score_action_sequence(_model, board_arg, _goal, actions, **_kwargs):
+        costs = {
+            ((0, 0, 1),): 1.0,
+            ((0, 1, 1),): 2.0,
+            ((0, 2, 1),): 0.5,
+        }
+        key = tuple((action.row, action.col, action.value) for action in actions)
+        return lewm_planner_module.SequenceScore(costs[key], np.asarray(board_arg).copy(), False)
+
+    class NoIndependentReplacementRng:
+        def __init__(self):
+            self.calls = 0
+
+        def integers(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return 0
+            if self.calls == 2:
+                return 0
+            raise AssertionError("local search should update the mutated candidate, not sample a replacement slot")
+
+    monkeypatch.setattr(lewm_planner_module, "_sample_random_sequence", fake_sample_random_sequence)
+    monkeypatch.setattr(lewm_planner_module, "score_action_sequence", fake_score_action_sequence)
+    monkeypatch.setattr(lewm_planner_module, "apply_action_sequence", lambda board_arg, _actions: (board_arg.copy(), True))
+
+    action = lewm_planner_module.local_search_plan_once(
+        None,
+        board,
+        goal,
+        horizon=1,
+        candidates=2,
+        iterations=1,
+        temperature=0.0,
+        transition_mode="symbolic_reencode",
+        score_mode="true_hamming_oracle",
+        rng=NoIndependentReplacementRng(),
+        device=torch.device("cpu"),
+    )
+    assert action == proposal
+
+
 def test_mcts_and_mpc_work_on_one_empty_cell():
     world = SudokuWorld()
     goal = world.from_string(SUDOKU_SOLUTION)
@@ -306,6 +471,29 @@ def test_exact_symbolic_solver_solves_known_puzzle():
     solved = solve_sudoku_exact(example.state)
     assert solved is not None
     assert np.array_equal(solved, example.goal)
+
+
+def test_latent_rollout_from_mpc_state_matches_full_history_prediction():
+    _world, example = _example()
+    rng = np.random.default_rng(4)
+    trajectory = sample_sudoku_trajectory(example, rng, num_frames=6, oracle_probability=1.0)
+    batch = collate_sudoku_trajectories([trajectory])
+    torch.manual_seed(1)
+    model = _small_model()
+    model.eval()
+
+    with torch.no_grad():
+        embeddings = model.encode_sequence(batch.boards)
+        full_history_next = model.predict_sequence(embeddings[:, :4], batch.actions[:, :4])[:, -1]
+        mpc_start = model.encode_board(batch.boards[:, 3])
+        mpc_next = model.rollout_latent(
+            mpc_start,
+            batch.actions[:, 3:4],
+            prefix_embeddings=embeddings[:, :4],
+            prefix_actions=batch.actions[:, :3],
+        )[:, -1]
+
+    torch.testing.assert_close(mpc_next, full_history_next, rtol=1.0e-5, atol=1.0e-5)
 
 
 def test_lewm_hydra_config_composes():

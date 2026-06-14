@@ -36,4 +36,13 @@ The LR sweep must answer:
 Every run writes diagnostics and a planner matrix under its run root.
 
 Current fixed code trains full correct/wrong fill-only trajectories with masks,
-uses LeWM-style MLP projectors, and uses progressive-widening UCT-MCTS.
+uses LeWM-style MLP projectors, keeps padded frames out of BatchNorm projector
+statistics, uses full-history latent rollout during MPC, and reports default
+MCTS as score-pruned progressive UCT.
+
+Verification before resubmission:
+
+- `pytest -q` passes.
+- Tiny train smoke writes scalar metrics plus `diagnostics/` JSONL/CSV/SVG
+  artifacts.
+- Standalone planner-matrix CLI smoke runs from the smoke checkpoint.

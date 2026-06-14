@@ -32,17 +32,39 @@ Training sweep:
 - Trajectory frames: full puzzle trajectory by default (`training.num_frames:
   null`), padded per batch with masks
 - Correct/random trajectory mix: `50/50`
+- Padding: masks remove padded frames from prediction/value/SIGReg losses and
+  from encoder/predictor BatchNorm projector statistics.
 
 Evaluation matrix:
 
 - All neural planners run as MPC.
 - Inner planners: greedy one-step, beam search, best-first/weighted A*,
-  categorical CEM, sequence local search, progressive-widening UCT-MCTS.
+  categorical CEM, sequence local search, and UCT MCTS. With the default
+  `mcts_branch_size > 0`, MCTS is score-pruned progressive UCT; set
+  `mcts_branch_size=0` for unpruned progressive UCT.
 - Calibration baseline: exact symbolic Sudoku solver.
 - Transition variants: symbolic re-encode and latent rollout.
 - Score variants: true Hamming oracle, oracle latent goal distance, predicted
   goal distance.
 - Horizons: `4`, `8`, `16`, `32`, `64`.
+- Latent rollout: MPC passes observed board/action history into the predictor,
+  so latent rollout uses the same absolute fill-step context as training.
+
+Diagnostics written automatically:
+
+- Scalar losses: raw and weighted prediction/SIGReg/value losses, value MAE,
+  RMSE, correlation, predicted-vs-target distance scale, early/middle/late
+  transition MSE, and oracle-vs-random trajectory splits.
+- Latent geometry: PCA CSV/SVG, covariance/variance/effective-rank summaries,
+  random-projection normality checks, and optional t-SNE/UMAP CSVs when local
+  packages are available.
+- Trajectory diagnostics: oracle and learned value along true fill
+  trajectories, monotonicity rates, stepwise distance drops, and per-step
+  JSONL traces.
+- Action diagnostics: local action ranking across fill fractions and horizons,
+  pairwise gold-vs-wrong accuracy, top-is-gold rates, and concrete panels that
+  print gold, same-cell wrong, nearby-cell, and far-cell actions with true
+  Hamming, oracle latent distance, and learned goal-distance scores.
 
 Gate:
 

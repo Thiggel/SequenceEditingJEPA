@@ -70,15 +70,29 @@ class BatchNormProjector(nn.Module):
         self.act = nn.GELU()
         self.fc2 = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
         original_shape = x.shape
         x_flat = x.reshape(-1, original_shape[-1])
+        if mask is not None:
+            if mask.shape != original_shape[:-1]:
+                raise ValueError(f"Projector mask must have shape {original_shape[:-1]}, got {tuple(mask.shape)}.")
+            valid = mask.reshape(-1)
+            out = torch.zeros(*original_shape[:-1], self.fc2.out_features, dtype=x.dtype, device=x.device)
+            if not bool(valid.any()):
+                return out
+            x_valid = self._project_flat(x_flat[valid])
+            return out.reshape(-1, self.fc2.out_features).index_copy(0, valid.nonzero(as_tuple=False).squeeze(1), x_valid).reshape(
+                *original_shape[:-1], self.fc2.out_features
+            )
+        return self._project_flat(x_flat).reshape(*original_shape[:-1], -1)
+
+    def _project_flat(self, x_flat: torch.Tensor) -> torch.Tensor:
         if self.training and x_flat.shape[0] == 1:
             x_flat = self.fc1(x_flat)
         else:
             x_flat = self.bn(self.fc1(x_flat))
         x_flat = self.fc2(self.act(x_flat))
-        return x_flat.reshape(*original_shape[:-1], -1)
+        return x_flat
 
 
 class SudokuBoardEncoder(nn.Module):
@@ -258,20 +272,33 @@ class LeWMPredictor(nn.Module):
         self.norm = nn.LayerNorm(d_model)
         self.projector = BatchNormProjector(d_model, latent_dim, hidden_dim=projector_hidden_dim)
 
-    def forward(self, embeddings: torch.Tensor, action_embeddings: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        embeddings: torch.Tensor,
+        action_embeddings: torch.Tensor,
+        *,
+        mask: torch.Tensor | None = None,
+        position_offset: int = 0,
+    ) -> torch.Tensor:
         if embeddings.ndim != 3:
             raise ValueError(f"Predictor embeddings must be [batch, time, dim], got {tuple(embeddings.shape)}.")
         if action_embeddings.shape[:2] != embeddings.shape[:2]:
             raise ValueError("Action embeddings must share batch/time dimensions with embeddings.")
         time = embeddings.shape[1]
-        if time > self.pos_embedding.shape[1]:
-            raise ValueError(f"Sequence length {time} exceeds max_history {self.pos_embedding.shape[1]}.")
-        x = self.input_proj(embeddings) + self.pos_embedding[:, :time]
+        position_offset = int(position_offset)
+        if position_offset < 0:
+            raise ValueError("position_offset must be non-negative.")
+        if position_offset + time > self.pos_embedding.shape[1]:
+            raise ValueError(
+                f"Sequence positions [{position_offset}, {position_offset + time}) exceed max_history "
+                f"{self.pos_embedding.shape[1]}."
+            )
+        x = self.input_proj(embeddings) + self.pos_embedding[:, position_offset : position_offset + time]
         x = self.dropout(x)
         condition = self.action_proj(action_embeddings)
         for layer in self.layers:
             x = layer(x, condition)
-        return self.projector(self.norm(x))
+        return self.projector(self.norm(x), mask=mask)
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,17 +371,32 @@ class LeWMSudokuModel(nn.Module):
     def encode_board(self, boards: torch.Tensor) -> torch.Tensor:
         return self.encoder(boards)
 
-    def encode_sequence(self, boards: torch.Tensor) -> torch.Tensor:
+    def encode_sequence(self, boards: torch.Tensor, masks: torch.Tensor | None = None) -> torch.Tensor:
         if boards.ndim != 4 or boards.shape[-2:] != (9, 9):
             raise ValueError(f"Expected board sequence [batch, time, 9, 9], got {tuple(boards.shape)}.")
         batch, time = boards.shape[:2]
+        if masks is not None:
+            if masks.shape != (batch, time):
+                raise ValueError(f"masks must have shape {(batch, time)}, got {tuple(masks.shape)}.")
+            valid = masks.reshape(-1)
+            output = torch.zeros(batch * time, self.latent_dim, dtype=torch.float32, device=boards.device)
+            if bool(valid.any()):
+                output[valid] = self.encode_board(boards.reshape(batch * time, 9, 9)[valid])
+            return output.reshape(batch, time, -1)
         flat = boards.reshape(batch * time, 9, 9)
         emb = self.encode_board(flat)
         return emb.reshape(batch, time, -1)
 
-    def predict_sequence(self, embeddings: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+    def predict_sequence(
+        self,
+        embeddings: torch.Tensor,
+        actions: torch.Tensor,
+        *,
+        mask: torch.Tensor | None = None,
+        position_offset: int = 0,
+    ) -> torch.Tensor:
         action_embeddings = self.action_encoder(actions)
-        return self.predictor(embeddings, action_embeddings)
+        return self.predictor(embeddings, action_embeddings, mask=mask, position_offset=position_offset)
 
     def forward(
         self,
@@ -363,15 +405,15 @@ class LeWMSudokuModel(nn.Module):
         goals: torch.Tensor,
         masks: torch.Tensor | None = None,
     ) -> LeWMLossOutput:
-        embeddings = self.encode_sequence(boards)
-        predicted = self.predict_sequence(embeddings, actions)
-        target = embeddings[:, 1:]
-        if self.stop_gradient_target:
-            target = target.detach()
         if masks is None:
             masks = torch.ones(boards.shape[:2], dtype=torch.bool, device=boards.device)
         if masks.shape != boards.shape[:2]:
             raise ValueError(f"masks must have shape {tuple(boards.shape[:2])}, got {tuple(masks.shape)}.")
+        embeddings = self.encode_sequence(boards, masks=masks)
+        predicted = self.predict_sequence(embeddings, actions, mask=masks)
+        target = embeddings[:, 1:]
+        if self.stop_gradient_target:
+            target = target.detach()
         transition_mask = masks[:, :-1] & masks[:, 1:]
         prediction_loss = _masked_mse(predicted[:, :-1], target, transition_mask)
         sigreg_loss = self.sigreg(embeddings.transpose(0, 1), masks.transpose(0, 1))
@@ -399,7 +441,15 @@ class LeWMSudokuModel(nn.Module):
     def score_value(self, embeddings: torch.Tensor) -> torch.Tensor:
         return self.value_head(embeddings).squeeze(-1)
 
-    def rollout_latent(self, start_embedding: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+    def rollout_latent(
+        self,
+        start_embedding: torch.Tensor,
+        actions: torch.Tensor,
+        *,
+        position_offset: int = 0,
+        prefix_embeddings: torch.Tensor | None = None,
+        prefix_actions: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Roll out a batch of action sequences from a current latent state.
 
         Args:
@@ -413,12 +463,24 @@ class LeWMSudokuModel(nn.Module):
             raise ValueError("start_embedding must have shape [batch, latent_dim].")
         if actions.ndim != 3 or actions.shape[-1] != 3:
             raise ValueError("actions must have shape [batch, horizon, 3].")
-        embeddings = start_embedding[:, None]
-        used_actions = actions[:, :1]
+        if prefix_embeddings is not None:
+            if prefix_embeddings.ndim != 3 or prefix_embeddings.shape[0] != start_embedding.shape[0]:
+                raise ValueError("prefix_embeddings must have shape [batch, prefix_time, latent_dim].")
+            if not torch.allclose(prefix_embeddings[:, -1], start_embedding, atol=1.0e-5, rtol=1.0e-5):
+                raise ValueError("prefix_embeddings must end at start_embedding.")
+            if prefix_actions is None:
+                raise ValueError("prefix_actions are required when prefix_embeddings are provided.")
+            if prefix_actions.shape[:2] != (start_embedding.shape[0], prefix_embeddings.shape[1] - 1):
+                raise ValueError("prefix_actions must have shape [batch, prefix_time - 1, 3].")
+            embeddings = prefix_embeddings
+            action_prefix = prefix_actions
+            position_offset = 0
+        else:
+            embeddings = start_embedding[:, None]
+            action_prefix = actions[:, :0]
         for index in range(actions.shape[1]):
-            if index > 0:
-                used_actions = torch.cat([used_actions, actions[:, index : index + 1]], dim=1)
-            pred = self.predict_sequence(embeddings, used_actions)[:, -1:]
+            used_actions = torch.cat([action_prefix, actions[:, : index + 1]], dim=1)
+            pred = self.predict_sequence(embeddings, used_actions, position_offset=position_offset)[:, -1:]
             embeddings = torch.cat([embeddings, pred], dim=1)
         return embeddings
 

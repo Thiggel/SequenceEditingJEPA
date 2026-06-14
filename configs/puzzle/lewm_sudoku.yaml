@@ -42,7 +42,12 @@ eval:
   oracle_probability: 1.0
   latent_examples: 128
   trajectory_examples: 32
-  rank_examples: 32
+  rank_examples: 16
+  panel_examples: 3
+  panel_steps: 5
+  panel_actions: 6
+  projection_horizons: [1, 4, 8, 16, 32, 64]
+  write_diagnostic_plots: true
   run_planner_matrix: true
   fast_planner_matrix: true
   planner_examples: 4
