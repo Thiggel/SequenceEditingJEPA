@@ -327,11 +327,21 @@ def test_lewm_diagnostic_bundle_writes_geometry_ranks_and_examples(tmp_path):
         "latent_projection.csv",
         "latent_projection.svg",
         "trajectory_values.jsonl",
+        "train_eval_goal_distance.json",
+        "predictor_bn_delta.json",
         "action_rank_summary.csv",
         "action_rank_examples.jsonl",
+        "history_rank_divergence.csv",
+        "branch_prune_survival.csv",
+        "latent_rollout_symbolic_error.csv",
         "projection_panel_examples.jsonl",
     ]:
         assert (diagnostics_dir / filename).exists()
+    assert "train_mode_terminal_goal_distance_max" in summary
+    assert "predictor_bn_max_abs_delta" in summary
+    assert "history_rank_divergence_rows" in summary
+    assert "branch_prune_survival_rows" in summary
+    assert "latent_rollout_symbolic_rows" in summary
     panel = [json.loads(line) for line in (diagnostics_dir / "projection_panel_examples.jsonl").read_text().splitlines()]
     assert panel
     labels = {candidate["label"] for candidate in panel[0]["candidates"]}
@@ -543,6 +553,8 @@ def test_mcts_and_mpc_work_on_one_empty_cell():
     )
     assert result.solved
     assert result.remaining_hamming == 0
+    assert result.action_evals > 0
+    assert result.elapsed_seconds >= 0.0
 
 
 def test_exact_symbolic_solver_solves_known_puzzle():

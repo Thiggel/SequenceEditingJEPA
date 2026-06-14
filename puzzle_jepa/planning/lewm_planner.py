@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 import math
+import time
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -31,6 +32,11 @@ class SequenceScore:
     terminal: bool
 
 
+@dataclass(slots=True)
+class PlannerStats:
+    action_evals: int = 0
+
+
 @dataclass(frozen=True, slots=True)
 class MPCResult:
     solved: bool
@@ -43,6 +49,8 @@ class MPCResult:
     transition_mode: str
     score_mode: str
     horizon: int
+    action_evals: int = 0
+    elapsed_seconds: float = 0.0
 
 
 def hamming_distance(board: np.ndarray, goal: np.ndarray) -> int:
@@ -61,7 +69,10 @@ def score_action_sequence(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> SequenceScore:
+    if stats is not None:
+        stats.action_evals += 1
     leaf, valid = apply_action_sequence(board, actions)
     if not valid:
         return SequenceScore(float("inf"), leaf, False)
@@ -140,6 +151,7 @@ def greedy_plan_once(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> WorldAction | None:
     actions = legal_fill_actions(board, allow_conflicts=True)
     if not actions:
@@ -157,6 +169,7 @@ def greedy_plan_once(
                 position_offset=position_offset,
                 history_boards=history_boards,
                 history_actions=history_actions,
+                stats=stats,
             ).cost,
             action,
         )
@@ -179,6 +192,7 @@ def beam_plan_once(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> WorldAction | None:
     beam: list[tuple[float, np.ndarray, list[WorldAction]]] = [(0.0, board.copy(), [])]
     best: tuple[float, list[WorldAction]] | None = None
@@ -199,6 +213,7 @@ def beam_plan_once(
                     position_offset=position_offset + len(seq),
                     history_boards=_history_boards_for_sequence(history_boards, board, seq),
                     history_actions=_history_actions_for_sequence(history_actions, seq),
+                    stats=stats,
                 )
             for action in actions:
                 score = score_action_sequence(
@@ -212,6 +227,7 @@ def beam_plan_once(
                     position_offset=position_offset,
                     history_boards=history_boards,
                     history_actions=history_actions,
+                    stats=stats,
                 )
                 if not math.isfinite(score.cost):
                     continue
@@ -245,6 +261,7 @@ def best_first_plan_once(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> WorldAction | None:
     counter = 0
     heap: list[tuple[float, int, np.ndarray, list[WorldAction]]] = [(0.0, counter, board.copy(), [])]
@@ -270,6 +287,7 @@ def best_first_plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         )
         if node_score.cost < best_cost and seq:
             best_cost = node_score.cost
@@ -290,6 +308,7 @@ def best_first_plan_once(
                 position_offset=position_offset + len(seq),
                 history_boards=_history_boards_for_sequence(history_boards, board, seq),
                 history_actions=_history_actions_for_sequence(history_actions, seq),
+                stats=stats,
             )
         for action in actions:
             next_board, valid = apply_action_sequence(node_board, [action])
@@ -307,6 +326,7 @@ def best_first_plan_once(
                 position_offset=position_offset,
                 history_boards=history_boards,
                 history_actions=history_actions,
+                stats=stats,
             ).cost
             counter += 1
             priority = len(next_seq) + heuristic_weight * heuristic
@@ -331,6 +351,7 @@ def categorical_cem_plan_once(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> WorldAction | None:
     horizon = max(1, horizon)
     probs = np.full((horizon, 729), 1.0 / 729.0, dtype=np.float64)
@@ -351,6 +372,7 @@ def categorical_cem_plan_once(
                 position_offset=position_offset,
                 history_boards=history_boards,
                 history_actions=history_actions,
+                stats=stats,
             )
             scored.append((score.cost, seq))
             if score.cost < best_cost and seq:
@@ -384,6 +406,7 @@ def local_search_plan_once(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> WorldAction | None:
     pool = [_sample_random_sequence(board, horizon, rng) for _ in range(max(1, candidates))]
     scored = [
@@ -399,6 +422,7 @@ def local_search_plan_once(
                 position_offset=position_offset,
                 history_boards=history_boards,
                 history_actions=history_actions,
+                stats=stats,
             ).cost,
             seq,
         )
@@ -432,6 +456,7 @@ def local_search_plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         ).cost
         old_score, _ = scored[base_idx]
         accept_worse = temperature > 0.0 and rng.random() < math.exp(-(proposal_score - old_score) / max(temperature, 1.0e-6))
@@ -479,6 +504,7 @@ def mcts_plan_once(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> WorldAction | None:
     root = _make_mcts_node(
         model,
@@ -494,6 +520,7 @@ def mcts_plan_once(
         position_offset=position_offset,
         history_boards=history_boards,
         history_actions=history_actions,
+        stats=stats,
         device=device,
     )
     if root.action_count == 0:
@@ -520,6 +547,7 @@ def mcts_plan_once(
                     position_offset=position_offset + len(node.seq) + 1,
                     history_boards=history_boards,
                     history_actions=history_actions,
+                    stats=stats,
                     device=device,
                 )
                 node.children[action_id(action)] = child
@@ -544,6 +572,7 @@ def mcts_plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         ).cost
         reward = -cost
         while node is not None:
@@ -570,6 +599,7 @@ def _make_mcts_node(
     position_offset: int,
     history_boards: list[np.ndarray] | None,
     history_actions: list[WorldAction] | None,
+    stats: PlannerStats | None,
     device: torch.device,
 ) -> MCTSNode:
     actions = legal_fill_actions(board, allow_conflicts=True)
@@ -586,6 +616,7 @@ def _make_mcts_node(
             position_offset=position_offset,
             history_boards=_history_boards_for_sequence(history_boards, root_board, seq),
             history_actions=_history_actions_for_sequence(history_actions, seq),
+            stats=stats,
             device=device,
         )
     return MCTSNode(
@@ -644,6 +675,8 @@ def run_mpc(
 ) -> MPCResult:
     rng = rng or np.random.default_rng()
     device = device or torch.device("cpu")
+    start_time = time.perf_counter()
+    stats = PlannerStats()
     world = SudokuWorld()
     current = world.validate_state(board).copy()
     target = world.validate_state(goal)
@@ -654,6 +687,7 @@ def run_mpc(
         solved = solve_sudoku_exact(current)
         if solved is not None:
             current = solved
+        elapsed = time.perf_counter() - start_time
         return MPCResult(
             solved=bool(solved is not None and np.array_equal(current, target)),
             steps=0,
@@ -665,6 +699,8 @@ def run_mpc(
             transition_mode="symbolic_reencode",
             score_mode="true_hamming_oracle",
             horizon=0,
+            action_evals=0,
+            elapsed_seconds=elapsed,
         )
 
     for _ in range(max_steps):
@@ -701,6 +737,7 @@ def run_mpc(
             position_offset=len(actions_taken),
             history_boards=history_boards,
             history_actions=actions_taken,
+            stats=stats,
         )
         if action is None:
             break
@@ -718,6 +755,8 @@ def run_mpc(
         transition_mode=transition_mode,
         score_mode=score_mode,
         horizon=horizon,
+        action_evals=stats.action_evals,
+        elapsed_seconds=time.perf_counter() - start_time,
     )
 
 
@@ -751,6 +790,7 @@ def _plan_once(
     position_offset: int = 0,
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
+    stats: PlannerStats | None = None,
 ) -> WorldAction | None:
     if planner == "greedy":
         return greedy_plan_once(
@@ -763,6 +803,7 @@ def _plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         )
     if planner == "beam":
         return beam_plan_once(
@@ -778,6 +819,7 @@ def _plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         )
     if planner == "best_first":
         return best_first_plan_once(
@@ -794,6 +836,7 @@ def _plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         )
     if planner == "categorical_cem":
         return categorical_cem_plan_once(
@@ -812,6 +855,7 @@ def _plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         )
     if planner == "local_search":
         return local_search_plan_once(
@@ -829,6 +873,7 @@ def _plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         )
     if planner == "mcts":
         return mcts_plan_once(
@@ -848,6 +893,7 @@ def _plan_once(
             position_offset=position_offset,
             history_boards=history_boards,
             history_actions=history_actions,
+            stats=stats,
         )
     raise ValueError(f"Unknown planner {planner!r}.")
 
@@ -895,6 +941,7 @@ def _rank_immediate_actions(
     history_boards: list[np.ndarray] | None = None,
     history_actions: list[WorldAction] | None = None,
     device: torch.device,
+    stats: PlannerStats | None = None,
 ) -> list[WorldAction]:
     scored = [
         (
@@ -909,6 +956,7 @@ def _rank_immediate_actions(
                 position_offset=position_offset,
                 history_boards=history_boards,
                 history_actions=history_actions,
+                stats=stats,
             ).cost,
             action,
         )

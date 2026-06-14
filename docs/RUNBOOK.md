@@ -71,6 +71,10 @@ Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
 `diagnostics.json`, a detailed `diagnostics/` directory, and
 `planner_matrix.jsonl`.
 
+Planner-matrix rows include solve/remaining-Hamming metrics plus
+`action_evals_*`, `elapsed_seconds_*`, and `seconds_per_action_eval`, so slow
+or wasteful planners can be identified directly from `planner_matrix.jsonl`.
+
 Current config trains full fill-only Sudoku trajectories by default
 (`training.num_frames: null`) with variable-length masks. `model.max_history`
 is `82`, so planning horizons up to 64 are no longer beyond the trained
@@ -85,3 +89,10 @@ score-pruned branch ranking pass observed board/action history into model
 rollout; projection panels pass oracle history for latent-rollout scores; local
 search updates the same candidate it mutates. `planner="mcts"` is reported as
 `score_pruned_progressive_uct` when `mcts_branch_size > 0`.
+
+Additional diagnostics now write train-vs-eval terminal goal-distance checks,
+full-vs-truncated predictor BatchNorm deltas, no-history vs full-history latent
+rollout rank divergence, branch-prune gold-action survival, latent-rollout vs
+symbolic re-encode error by horizon, and planner timing/action-eval counts. The
+branch-prune diagnostic enumerates the full immediate action set for up to four
+examples by default to keep per-checkpoint eval practical.

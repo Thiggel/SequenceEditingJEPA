@@ -71,6 +71,12 @@ Diagnostics written automatically:
   pairwise gold-vs-wrong accuracy, top-is-gold rates, and concrete panels that
   print gold, same-cell wrong, nearby-cell, and far-cell actions with true
   Hamming, oracle latent distance, and learned goal-distance scores.
+- Implementation-failure diagnostics: train-vs-eval terminal goal-distance,
+  full-vs-truncated predictor BatchNorm deltas, no-history vs full-history
+  latent-rollout rank divergence, branch-prune gold-action survival, and
+  latent-rollout vs symbolic re-encode drift by horizon.
+- Planner cost diagnostics: every planner-matrix row records wall-clock time,
+  action-evaluation counts, and seconds per score call.
 
 Gate:
 

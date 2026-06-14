@@ -204,6 +204,8 @@ def run_planner_matrix(
                 solved = 0
                 remaining: list[int] = []
                 steps: list[int] = []
+                action_evals: list[int] = []
+                elapsed_seconds: list[float] = []
                 for example in examples[:max_examples]:
                     result = run_mpc(
                         model,
@@ -221,6 +223,10 @@ def run_planner_matrix(
                     solved += int(result.solved)
                     remaining.append(result.remaining_hamming)
                     steps.append(result.steps)
+                    action_evals.append(result.action_evals)
+                    elapsed_seconds.append(result.elapsed_seconds)
+                elapsed_total = float(np.sum(elapsed_seconds)) if elapsed_seconds else 0.0
+                action_evals_total = int(np.sum(action_evals)) if action_evals else 0
                 record = {
                     "planner": planner,
                     "transition_mode": transition,
@@ -231,6 +237,13 @@ def run_planner_matrix(
                     "solve_rate": solved / max(1, min(max_examples, len(examples))),
                     "remaining_hamming_mean": float(np.mean(remaining)) if remaining else 0.0,
                     "steps_mean": float(np.mean(steps)) if steps else 0.0,
+                    "action_evals_mean": float(np.mean(action_evals)) if action_evals else 0.0,
+                    "action_evals_total": action_evals_total,
+                    "elapsed_seconds_mean": float(np.mean(elapsed_seconds)) if elapsed_seconds else 0.0,
+                    "elapsed_seconds_total": elapsed_total,
+                    "seconds_per_action_eval": (
+                        elapsed_total / float(action_evals_total) if action_evals_total > 0 else 0.0
+                    ),
                 }
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
                 handle.flush()

@@ -41,6 +41,10 @@ MCTS as score-pruned progressive UCT. The latest review fixes also make
 predictor projection BatchNorm step-wise, encode goal-distance targets in the
 same training-mode BatchNorm context as trajectory states, and pass history into
 branch-pruned latent rollout plus projection-panel latent-rollout diagnostics.
+Diagnostics now also include train-vs-eval terminal goal-distance checks,
+predictor full-vs-truncated BatchNorm deltas, no-history vs full-history latent
+rank divergence, branch-prune gold-action survival, latent-rollout drift
+against symbolic re-encode by horizon, and planner timing/action-eval counts.
 
 Verification before resubmission:
 

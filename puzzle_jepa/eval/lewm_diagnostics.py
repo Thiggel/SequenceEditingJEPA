@@ -3,17 +3,19 @@ from __future__ import annotations
 import csv
 import json
 import math
+from contextlib import contextmanager
 from pathlib import Path
 from statistics import NormalDist
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import torch
+from torch import nn
 
 from puzzle_jepa.data.lewm_sudoku import action_to_array, apply_fill_action, legal_fill_actions
 from puzzle_jepa.data.worlds import PuzzleExample, WorldAction
 from puzzle_jepa.models.lewm import LeWMSudokuModel
-from puzzle_jepa.planning.lewm_planner import hamming_distance, score_action_sequence
+from puzzle_jepa.planning.lewm_planner import _rank_immediate_actions, hamming_distance, score_action_sequence
 
 
 DEFAULT_PROJECTION_HORIZONS = (1, 4, 8, 16, 32, 64)
@@ -90,6 +92,52 @@ def run_lewm_diagnostic_bundle(
             horizons=projection_horizons,
             panel_steps=panel_steps,
             panel_actions=panel_actions,
+        )
+    )
+    summary.update(
+        train_eval_goal_distance_diagnostics(
+            model,
+            examples[: min(trajectory_examples, 32)],
+            diagnostics_dir,
+            device=device,
+        )
+    )
+    summary.update(
+        predictor_bn_delta_diagnostics(
+            model,
+            diagnostics_dir,
+            device=device,
+            seed=seed,
+        )
+    )
+    summary.update(
+        history_rank_divergence_diagnostics(
+            model,
+            examples[:rank_examples],
+            diagnostics_dir,
+            device=device,
+            rng=rng,
+            horizons=projection_horizons,
+            fill_fractions=rank_fill_fractions,
+        )
+    )
+    summary.update(
+        branch_prune_survival_diagnostics(
+            model,
+            examples[:rank_examples],
+            diagnostics_dir,
+            device=device,
+            fill_fractions=rank_fill_fractions,
+        )
+    )
+    summary.update(
+        latent_rollout_symbolic_error_diagnostics(
+            model,
+            examples[:rank_examples],
+            diagnostics_dir,
+            device=device,
+            horizons=projection_horizons,
+            fill_fractions=rank_fill_fractions,
         )
     )
     (diagnostics_dir / "summary.json").write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True) + "\n")
@@ -435,6 +483,389 @@ def projection_panel_diagnostics(
     return {"projection_panel_examples": records_written, "projection_panel_examples_path": str(path)}
 
 
+@torch.no_grad()
+def train_eval_goal_distance_diagnostics(
+    model: LeWMSudokuModel,
+    examples: list[PuzzleExample],
+    output_dir: Path,
+    *,
+    device: torch.device,
+) -> dict[str, Any]:
+    path = output_dir / "train_eval_goal_distance.json"
+    if not examples:
+        payload = {"examples": [], "status": "skipped: no examples"}
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        return {"train_eval_goal_distance_path": str(path), "train_eval_goal_distance_examples": 0}
+
+    used_examples = examples if len(examples) >= 2 else [examples[0], examples[0]]
+    boards = torch.as_tensor(
+        np.stack([[example.state, example.goal] for example in used_examples]),
+        dtype=torch.long,
+        device=device,
+    )
+    actions = torch.zeros((len(used_examples), 2, 3), dtype=torch.long, device=device)
+    goals = torch.as_tensor(np.stack([example.goal for example in used_examples]), dtype=torch.long, device=device)
+    previous_mode = model.training
+    try:
+        with _preserved_batchnorm_buffers(model):
+            model.train()
+            train_distances = model(boards, actions, goals).goal_distances[:, -1].detach().cpu().numpy()
+        model.eval()
+        eval_distances = model(boards, actions, goals).goal_distances[:, -1].detach().cpu().numpy()
+    finally:
+        model.train(previous_mode)
+
+    rows = []
+    for index, example in enumerate(used_examples):
+        rows.append(
+            {
+                "example_index": int(index),
+                "duplicated_single_example": bool(len(examples) == 1),
+                "start_hamming": hamming_distance(example.state, example.goal),
+                "train_mode_terminal_goal_distance": float(train_distances[index]),
+                "eval_mode_terminal_goal_distance": float(eval_distances[index]),
+                "absolute_delta": float(abs(train_distances[index] - eval_distances[index])),
+            }
+        )
+    payload = {"examples": rows}
+    path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True) + "\n")
+    deltas = np.abs(train_distances - eval_distances)
+    return {
+        "train_eval_goal_distance_path": str(path),
+        "train_eval_goal_distance_examples": int(len(used_examples)),
+        "train_mode_terminal_goal_distance_mean": float(np.mean(train_distances)),
+        "train_mode_terminal_goal_distance_max": float(np.max(train_distances)),
+        "eval_mode_terminal_goal_distance_mean": float(np.mean(eval_distances)),
+        "eval_mode_terminal_goal_distance_max": float(np.max(eval_distances)),
+        "train_eval_terminal_goal_distance_delta_mean": float(np.mean(deltas)),
+        "train_eval_terminal_goal_distance_delta_max": float(np.max(deltas)),
+    }
+
+
+@torch.no_grad()
+def predictor_bn_delta_diagnostics(
+    model: LeWMSudokuModel,
+    output_dir: Path,
+    *,
+    device: torch.device,
+    seed: int,
+) -> dict[str, Any]:
+    path = output_dir / "predictor_bn_delta.json"
+    generator = torch.Generator(device=device)
+    generator.manual_seed(int(seed) + 17)
+    batch, time = 4, min(5, max(3, model.predictor.pos_embedding.shape[1]))
+    embeddings = torch.randn(batch, time, model.latent_dim, generator=generator, device=device)
+    actions = torch.zeros(batch, time, 3, dtype=torch.long, device=device)
+    actions[..., 0] = torch.randint(0, 9, (batch, time), generator=generator, device=device)
+    actions[..., 1] = torch.randint(0, 9, (batch, time), generator=generator, device=device)
+    actions[..., 2] = torch.randint(1, 10, (batch, time), generator=generator, device=device)
+    mask = torch.ones(batch, time, dtype=torch.bool, device=device)
+    previous_mode = model.training
+    try:
+        with _preserved_batchnorm_buffers(model), _temporary_zero_dropout(model):
+            model.train()
+            full = model.predict_sequence(embeddings, actions, mask=mask)[:, :-1]
+            truncated = model.predict_sequence(embeddings[:, :-1], actions[:, :-1], mask=mask[:, :-1])
+    finally:
+        model.train(previous_mode)
+    delta = (full - truncated).abs().detach().cpu().numpy()
+    payload = {
+        "batch": batch,
+        "time": time,
+        "max_abs_delta": float(delta.max()) if delta.size else 0.0,
+        "mean_abs_delta": float(delta.mean()) if delta.size else 0.0,
+        "note": "Compares supervised prefix predictions from full vs truncated predictor calls in train mode with dropout disabled.",
+    }
+    path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True) + "\n")
+    return {
+        "predictor_bn_delta_path": str(path),
+        "predictor_bn_max_abs_delta": float(payload["max_abs_delta"]),
+        "predictor_bn_mean_abs_delta": float(payload["mean_abs_delta"]),
+    }
+
+
+@torch.no_grad()
+def history_rank_divergence_diagnostics(
+    model: LeWMSudokuModel,
+    examples: list[PuzzleExample],
+    output_dir: Path,
+    *,
+    device: torch.device,
+    rng: np.random.Generator,
+    horizons: tuple[int, ...],
+    fill_fractions: tuple[float, ...],
+    max_actions: int = 64,
+) -> dict[str, Any]:
+    rows = []
+    for example_index, example in enumerate(examples):
+        boards, oracle_actions = _oracle_sequence(example)
+        blank_count = max(1, len(boards) - 1)
+        for fraction in fill_fractions:
+            step = min(blank_count - 1, int(round(float(fraction) * blank_count)))
+            board = boards[step]
+            actions = legal_fill_actions(board, allow_conflicts=True)
+            if not actions:
+                continue
+            gold_indices = {
+                index
+                for index, action in enumerate(actions)
+                if action.value == int(example.goal[action.row, action.col])
+            }
+            selected_actions, selected_gold_indices = _sample_actions_with_gold(actions, gold_indices, rng, max_actions)
+            if not selected_actions:
+                continue
+            history_boards = boards[: step + 1]
+            history_actions = oracle_actions[:step]
+            for horizon in horizons:
+                no_history_costs = []
+                full_history_costs = []
+                for action in selected_actions:
+                    sequence = _action_plus_oracle_completion(board, example.goal, action, int(horizon))
+                    try:
+                        no_history = score_action_sequence(
+                            model,
+                            board,
+                            example.goal,
+                            sequence,
+                            transition_mode="latent_rollout",
+                            score_mode="oracle_goal_distance",
+                            device=device,
+                            position_offset=step,
+                        ).cost
+                        full_history = score_action_sequence(
+                            model,
+                            board,
+                            example.goal,
+                            sequence,
+                            transition_mode="latent_rollout",
+                            score_mode="oracle_goal_distance",
+                            device=device,
+                            history_boards=history_boards,
+                            history_actions=history_actions,
+                        ).cost
+                    except ValueError as exc:
+                        if "exceed max_history" in str(exc):
+                            continue
+                        raise
+                    no_history_costs.append(no_history)
+                    full_history_costs.append(full_history)
+                if not no_history_costs:
+                    continue
+                no_history_arr = np.asarray(no_history_costs, dtype=np.float64)
+                full_history_arr = np.asarray(full_history_costs, dtype=np.float64)
+                rows.append(
+                    {
+                        "example_index": example_index,
+                        "fill_fraction": float(fraction),
+                        "step": int(step),
+                        "horizon": int(horizon),
+                        "actions": int(len(no_history_costs)),
+                        "gold_actions": int(len(selected_gold_indices)),
+                        "spearman_rank_corr": _spearman_from_costs(no_history_arr, full_history_arr),
+                        "top1_agreement": int(int(no_history_arr.argmin()) == int(full_history_arr.argmin())),
+                        "no_history_best_gold_rank": _best_positive_rank(no_history_costs, selected_gold_indices),
+                        "full_history_best_gold_rank": _best_positive_rank(full_history_costs, selected_gold_indices),
+                        "mean_abs_cost_delta": float(np.mean(np.abs(no_history_arr - full_history_arr))),
+                    }
+                )
+
+    path = output_dir / "history_rank_divergence.csv"
+    _write_dict_rows(path, rows)
+    spearman = [float(row["spearman_rank_corr"]) for row in rows]
+    top1 = [float(row["top1_agreement"]) for row in rows]
+    rank_delta = [
+        abs(float(row["no_history_best_gold_rank"]) - float(row["full_history_best_gold_rank"]))
+        for row in rows
+    ]
+    summary = {
+        "history_rank_divergence_path": str(path),
+        "history_rank_divergence_rows": len(rows),
+        "history_rank_spearman_mean": _safe_mean(spearman),
+        "history_rank_top1_agreement_mean": _safe_mean(top1),
+        "history_rank_best_gold_rank_delta_mean": _safe_mean(rank_delta),
+    }
+    (output_dir / "history_rank_divergence.json").write_text(
+        json.dumps(_jsonable(summary), indent=2, sort_keys=True) + "\n"
+    )
+    return summary
+
+
+@torch.no_grad()
+def branch_prune_survival_diagnostics(
+    model: LeWMSudokuModel,
+    examples: list[PuzzleExample],
+    output_dir: Path,
+    *,
+    device: torch.device,
+    fill_fractions: tuple[float, ...],
+    branch_sizes: tuple[int, ...] = (4, 8, 16, 32),
+    max_examples: int = 4,
+) -> dict[str, Any]:
+    rows = []
+    for example_index, example in enumerate(examples[:max_examples]):
+        boards, oracle_actions = _oracle_sequence(example)
+        blank_count = max(1, len(boards) - 1)
+        for fraction in fill_fractions:
+            step = min(blank_count - 1, int(round(float(fraction) * blank_count)))
+            board = boards[step]
+            actions = legal_fill_actions(board, allow_conflicts=True)
+            if not actions:
+                continue
+            gold_set = {
+                (action.row, action.col, action.value)
+                for action in actions
+                if action.value == int(example.goal[action.row, action.col])
+            }
+            if not gold_set:
+                continue
+            history_boards = boards[: step + 1]
+            history_actions = oracle_actions[:step]
+            for score_mode in ("oracle_goal_distance", "predicted_goal_distance"):
+                for branch_size in branch_sizes:
+                    try:
+                        selected = _rank_immediate_actions(
+                            model,
+                            board,
+                            example.goal,
+                            actions,
+                            branch_size,
+                            transition_mode="latent_rollout",
+                            score_mode=score_mode,
+                            position_offset=step,
+                            history_boards=history_boards,
+                            history_actions=history_actions,
+                            device=device,
+                        )
+                    except ValueError as exc:
+                        if "exceed max_history" in str(exc):
+                            continue
+                        raise
+                    selected_set = {(action.row, action.col, action.value) for action in selected}
+                    gold_survived = len(selected_set & gold_set)
+                    rows.append(
+                        {
+                            "example_index": example_index,
+                            "fill_fraction": float(fraction),
+                            "step": int(step),
+                            "score_mode": score_mode,
+                            "branch_size": int(branch_size),
+                            "total_actions": int(len(actions)),
+                            "gold_actions": int(len(gold_set)),
+                            "selected_actions": int(len(selected)),
+                            "gold_survived": int(gold_survived),
+                            "gold_survival": float(gold_survived > 0),
+                            "gold_selected_fraction": float(gold_survived / max(1, len(gold_set))),
+                        }
+                    )
+
+    path = output_dir / "branch_prune_survival.csv"
+    _write_dict_rows(path, rows)
+    summary: dict[str, Any] = {
+        "branch_prune_survival_path": str(path),
+        "branch_prune_survival_rows": len(rows),
+        "branch_prune_survival_examples": min(len(examples), max_examples),
+    }
+    for score_mode in ("oracle_goal_distance", "predicted_goal_distance"):
+        for branch_size in branch_sizes:
+            values = [
+                float(row["gold_survival"])
+                for row in rows
+                if row["score_mode"] == score_mode and int(row["branch_size"]) == int(branch_size)
+            ]
+            summary[f"branch_prune_{score_mode}_k{branch_size}_gold_survival"] = _safe_mean(values)
+    (output_dir / "branch_prune_survival.json").write_text(json.dumps(_jsonable(summary), indent=2, sort_keys=True) + "\n")
+    return summary
+
+
+@torch.no_grad()
+def latent_rollout_symbolic_error_diagnostics(
+    model: LeWMSudokuModel,
+    examples: list[PuzzleExample],
+    output_dir: Path,
+    *,
+    device: torch.device,
+    horizons: tuple[int, ...],
+    fill_fractions: tuple[float, ...],
+) -> dict[str, Any]:
+    rows = []
+    for example_index, example in enumerate(examples):
+        boards, oracle_actions = _oracle_sequence(example)
+        blank_count = max(1, len(boards) - 1)
+        goal_t = torch.as_tensor(example.goal[None], dtype=torch.long, device=device)
+        goal_emb = model.encode_board(goal_t)
+        for fraction in fill_fractions:
+            step = min(blank_count - 1, int(round(float(fraction) * blank_count)))
+            board = boards[step]
+            history_boards = boards[: step + 1]
+            history_actions = oracle_actions[:step]
+            available = blank_count - step
+            for horizon in horizons:
+                if available <= 0:
+                    continue
+                sequence = oracle_actions[step : step + min(int(horizon), available)]
+                if not sequence:
+                    continue
+                symbolic_board, valid = _apply_sequence_or_skip(board, sequence)
+                if not valid:
+                    continue
+                symbolic_t = torch.as_tensor(symbolic_board[None], dtype=torch.long, device=device)
+                symbolic_emb = model.encode_board(symbolic_t)
+                try:
+                    latent_emb = _latent_rollout_leaf_embedding(
+                        model,
+                        board,
+                        sequence,
+                        device=device,
+                        position_offset=step,
+                        history_boards=history_boards,
+                        history_actions=history_actions,
+                    )
+                except ValueError as exc:
+                    if "exceed max_history" in str(exc):
+                        continue
+                    raise
+                diff = (latent_emb - symbolic_emb).float()
+                latent_goal = torch.linalg.vector_norm(latent_emb - goal_emb, dim=-1).item()
+                symbolic_goal = torch.linalg.vector_norm(symbolic_emb - goal_emb, dim=-1).item()
+                rows.append(
+                    {
+                        "example_index": int(example_index),
+                        "fill_fraction": float(fraction),
+                        "step": int(step),
+                        "horizon": int(horizon),
+                        "actual_actions": int(len(sequence)),
+                        "mse": float(diff.square().mean().item()),
+                        "l2": float(torch.linalg.vector_norm(diff, dim=-1).item()),
+                        "latent_goal_distance": float(latent_goal),
+                        "symbolic_goal_distance": float(symbolic_goal),
+                        "goal_distance_abs_error": float(abs(latent_goal - symbolic_goal)),
+                        "remaining_hamming": hamming_distance(symbolic_board, example.goal),
+                    }
+                )
+
+    path = output_dir / "latent_rollout_symbolic_error.csv"
+    _write_dict_rows(path, rows)
+    summary: dict[str, Any] = {
+        "latent_rollout_symbolic_error_path": str(path),
+        "latent_rollout_symbolic_rows": len(rows),
+    }
+    for horizon in horizons:
+        horizon_rows = [row for row in rows if int(row["horizon"]) == int(horizon)]
+        summary[f"latent_rollout_symbolic_mse_h{horizon}_mean"] = _safe_mean(
+            [float(row["mse"]) for row in horizon_rows]
+        )
+        summary[f"latent_rollout_symbolic_l2_h{horizon}_mean"] = _safe_mean(
+            [float(row["l2"]) for row in horizon_rows]
+        )
+        summary[f"latent_rollout_symbolic_goal_error_h{horizon}_mean"] = _safe_mean(
+            [float(row["goal_distance_abs_error"]) for row in horizon_rows]
+        )
+    (output_dir / "latent_rollout_symbolic_error.json").write_text(
+        json.dumps(_jsonable(summary), indent=2, sort_keys=True) + "\n"
+    )
+    return summary
+
+
 def _latent_sample_boards(examples: list[PuzzleExample], rng: np.random.Generator) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
     for example_index, example in enumerate(examples):
@@ -517,6 +948,92 @@ def _score_first_actions_after_oracle_completion(
         "oracle_goal_distance": [float(item) for item in oracle_costs],
         "predicted_goal_distance": [float(item) for item in predicted_costs],
     }
+
+
+def _action_plus_oracle_completion(
+    board: np.ndarray,
+    goal: np.ndarray,
+    action: WorldAction,
+    horizon: int,
+) -> list[WorldAction]:
+    sequence = [action]
+    try:
+        leaf = apply_fill_action(board, action, allow_conflicts=True)
+    except ValueError:
+        return sequence
+    sequence.extend(_oracle_completion_actions(leaf, goal, max(0, int(horizon) - 1)))
+    return sequence
+
+
+def _sample_actions_with_gold(
+    actions: list[WorldAction],
+    gold_indices: set[int],
+    rng: np.random.Generator,
+    max_actions: int,
+) -> tuple[list[WorldAction], set[int]]:
+    if len(actions) <= max_actions:
+        return actions, set(gold_indices)
+    chosen = set(gold_indices)
+    remaining_slots = max(0, int(max_actions) - len(chosen))
+    non_gold = [index for index in range(len(actions)) if index not in chosen]
+    if remaining_slots > 0 and non_gold:
+        selected = rng.choice(non_gold, size=min(remaining_slots, len(non_gold)), replace=False)
+        chosen.update(int(index) for index in selected)
+    ordered = sorted(chosen)
+    remap = {old_index: new_index for new_index, old_index in enumerate(ordered)}
+    return [actions[index] for index in ordered], {remap[index] for index in gold_indices if index in remap}
+
+
+def _apply_sequence_or_skip(board: np.ndarray, actions: list[WorldAction]) -> tuple[np.ndarray, bool]:
+    current = board.copy()
+    for action in actions:
+        try:
+            current = apply_fill_action(current, action, allow_conflicts=True)
+        except ValueError:
+            return current, False
+    return current, True
+
+
+def _latent_rollout_leaf_embedding(
+    model: LeWMSudokuModel,
+    board: np.ndarray,
+    actions: list[WorldAction],
+    *,
+    device: torch.device,
+    position_offset: int = 0,
+    history_boards: list[np.ndarray] | None = None,
+    history_actions: list[WorldAction] | None = None,
+) -> torch.Tensor:
+    action_t = torch.as_tensor(
+        np.asarray([[action_to_array(action) for action in actions]], dtype=np.int64),
+        dtype=torch.long,
+        device=device,
+    )
+    if history_boards is not None:
+        if history_actions is None:
+            history_actions = []
+        if len(history_boards) != len(history_actions) + 1:
+            raise ValueError("history_boards must contain exactly one more item than history_actions.")
+        history_t = torch.as_tensor(np.stack(history_boards), dtype=torch.long, device=device)[None]
+        prefix_emb = model.encode_sequence(history_t)
+        prefix_actions_t = (
+            torch.as_tensor(
+                np.asarray([[action_to_array(action) for action in history_actions]], dtype=np.int64),
+                dtype=torch.long,
+                device=device,
+            )
+            if history_actions
+            else torch.zeros((1, 0, 3), dtype=torch.long, device=device)
+        )
+        return model.rollout_latent(
+            prefix_emb[:, -1],
+            action_t,
+            prefix_embeddings=prefix_emb,
+            prefix_actions=prefix_actions_t,
+        )[:, -1]
+    board_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
+    start_emb = model.encode_board(board_t)
+    return model.rollout_latent(start_emb, action_t, position_offset=position_offset)[:, -1]
 
 
 def _candidate_action_panel(board: np.ndarray, goal: np.ndarray, *, limit: int) -> list[tuple[str, WorldAction]]:
@@ -744,6 +1261,17 @@ def _write_projection_csv(
             )
 
 
+def _write_dict_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    fieldnames = sorted({key for row in rows for key in row})
+    with path.open("w", newline="") as handle:
+        if not fieldnames:
+            handle.write("")
+            return
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _top_action_records(
     actions: list[WorldAction],
     costs: list[float],
@@ -795,6 +1323,19 @@ def _pairwise_cost_accuracy(costs: list[float], positive_indices: set[int]) -> f
             wins += int(pos < neg) + 0.5 * int(pos == neg)
             total += 1
     return float(wins / max(1, total))
+
+
+def _spearman_from_costs(a: np.ndarray, b: np.ndarray) -> float:
+    if a.size < 2 or b.size < 2 or a.size != b.size:
+        return 0.0
+    return _corr(_rank_positions(a), _rank_positions(b))
+
+
+def _rank_positions(values: np.ndarray) -> np.ndarray:
+    order = np.argsort(values, kind="mergesort")
+    ranks = np.empty_like(order, dtype=np.float64)
+    ranks[order] = np.arange(1, len(values) + 1, dtype=np.float64)
+    return ranks
 
 
 def _monotone_nonincreasing_fraction(values: np.ndarray) -> float:
@@ -849,3 +1390,30 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, float) and not math.isfinite(value):
         return None
     return value
+
+
+@contextmanager
+def _preserved_batchnorm_buffers(model: LeWMSudokuModel) -> Iterator[None]:
+    buffers = {
+        name: buffer.detach().clone()
+        for name, buffer in model.named_buffers()
+        if name.endswith("running_mean") or name.endswith("running_var") or name.endswith("num_batches_tracked")
+    }
+    try:
+        yield
+    finally:
+        named_buffers = dict(model.named_buffers())
+        for name, value in buffers.items():
+            named_buffers[name].copy_(value)
+
+
+@contextmanager
+def _temporary_zero_dropout(model: LeWMSudokuModel) -> Iterator[None]:
+    modules = [(module, module.p) for module in model.modules() if isinstance(module, nn.Dropout)]
+    try:
+        for module, _ in modules:
+            module.p = 0.0
+        yield
+    finally:
+        for module, probability in modules:
+            module.p = probability
