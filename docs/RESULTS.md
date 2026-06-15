@@ -12,13 +12,14 @@ very slow in latent-distance beam rows. Tasks `12-24` remain pending behind
 `JobArrayTaskLimit`; dependency fallback `3741137_[0-24%6]` remains pending on
 `afterany:3741118`.
 
-Current health at 2026-06-15 16:18 CEST:
+Current health at 2026-06-15 17:53 CEST:
 
 - `3741118_0-11`: timed out at 24h during integrated planner eval. They wrote
   checkpoints, diagnostics, and partial planner matrices but no top-level
   `metrics.json`.
-- `3741118_12-23`: running on `rtxpro6k`, elapsed about 1.75h. These tasks
-  have already reached `step=20000` and are likely in diagnostics/planner eval.
+- `3741118_12-23`: running on `rtxpro6k`, elapsed about 3.5h. These tasks
+  have reached `step=20000`, written diagnostics, and have partial integrated
+  planner matrices with 31 rows each for LRs `4e-5` through `6e-4`.
 - `3741118_24`: pending due array concurrency cap.
 - `3741137_[0-24%6]`: older fallback pending due dependency; its guard only
   checks nonempty diagnostics/planner files, so it may skip partial matrices.
@@ -28,6 +29,8 @@ Current health at 2026-06-15 16:18 CEST:
 - No tracebacks/errors in `logs/lewm_sudoku_lr_3741118_*`; stderr only shows
   the known PyTorch nested-tensor warning plus expected Slurm timeout messages
   for tasks `0-11`.
+- `7e-4` has not started far enough to write a checkpoint yet because task
+  `24` is still pending.
 
 Preliminary first-wave read:
 

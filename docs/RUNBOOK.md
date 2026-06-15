@@ -87,11 +87,13 @@ Run roots are written under:
 $PUZZLE_JEPA_WORK_ROOT/runs/lewm_sudoku_lr_<lr>
 ```
 
-Current submission health at 2026-06-15 16:18 CEST: tasks `0-11` timed out at
+Current submission health at 2026-06-15 17:53 CEST: tasks `0-11` timed out at
 24h during integrated planner eval after writing checkpoints, diagnostics, and
 partial `planner_matrix.jsonl` files. Tasks `12-23` are running on `rtxpro6k`
-at about 1.75h elapsed and have already reached `step=20000`; task `24` is
-pending due `JobArrayTaskLimit`. Eval fallbacks `3741137_[0-24%6]` and
+at about 3.5h elapsed, have reached `step=20000`, and have written diagnostics
+plus partial integrated planner matrices with 31 rows each for LRs `4e-5`
+through `6e-4`; task `24` is pending due `JobArrayTaskLimit` and `7e-4` has
+not checkpointed yet. Eval fallbacks `3741137_[0-24%6]` and
 corrected fallback `3742630_[0-24%6]` are pending on dependency. No
 tracebacks/errors were found in `logs/lewm_sudoku_lr_3741118_*`; stderr
 contains the known PyTorch nested-tensor warning plus expected Slurm timeout
