@@ -87,14 +87,15 @@ Run roots are written under:
 $PUZZLE_JEPA_WORK_ROOT/runs/lewm_sudoku_lr_<lr>
 ```
 
-Current submission health at 2026-06-15 09:09 CEST: tasks `0-11` are still
-running on `a40` at about 18.6h elapsed, tasks `12-24` are pending due
-`JobArrayTaskLimit`, and eval fallbacks `3741137_[0-24%6]` plus corrected
-fallback `3742630_[0-24%6]` are pending on dependency. First-wave tasks reached
-`step=20000` and wrote checkpoints,
-`diagnostics.json`, and partial `planner_matrix.jsonl` files. No
-tracebacks/errors were found in `logs/lewm_sudoku_lr_3741118_*`; stderr only
-contains the known PyTorch nested-tensor warning.
+Current submission health at 2026-06-15 16:18 CEST: tasks `0-11` timed out at
+24h during integrated planner eval after writing checkpoints, diagnostics, and
+partial `planner_matrix.jsonl` files. Tasks `12-23` are running on `rtxpro6k`
+at about 1.75h elapsed and have already reached `step=20000`; task `24` is
+pending due `JobArrayTaskLimit`. Eval fallbacks `3741137_[0-24%6]` and
+corrected fallback `3742630_[0-24%6]` are pending on dependency. No
+tracebacks/errors were found in `logs/lewm_sudoku_lr_3741118_*`; stderr
+contains the known PyTorch nested-tensor warning plus expected Slurm timeout
+messages for tasks `0-11`.
 
 Interim result: LRs `2e-5` and `3e-5` currently have the best step-20k value
 metrics, with value RMSE about `0.39`/`0.34` and value correlation about
@@ -105,6 +106,8 @@ written, even with symbolic re-encode. The slow tail is latent-distance
 planning: for LR `2e-5`, beam + symbolic re-encode + oracle latent distance
 at horizon 64 took about 8,121s over four examples, and latent-rollout beam
 horizon 8 took about 6,007s.
+The first-wave integrated matrices reached only greedy plus part of beam; no
+CEM, local-search, MCTS, best-first, or exact rows were written before timeout.
 
 Fallback note: the original fallback `3741137` can incorrectly skip a partial
 planner matrix because it checks only nonempty `diagnostics.json` and
