@@ -312,27 +312,29 @@ def main() -> None:
     parser.add_argument("--panel-actions", type=int, default=6)
     parser.add_argument("--projection-horizons", type=str, default=",".join(str(item) for item in DEFAULT_PROJECTION_HORIZONS))
     parser.add_argument("--no-diagnostic-plots", action="store_true")
+    parser.add_argument("--skip-diagnostics", action="store_true")
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model, config = load_checkpoint(args.checkpoint, device)
     examples = load_eval_examples(config, limit=max(args.examples, 128))
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    diagnostics = run_lewm_diagnostic_bundle(
-        model,
-        examples,
-        args.output_dir,
-        device=device,
-        seed=args.seed + 500,
-        latent_examples=args.latent_examples,
-        trajectory_examples=args.trajectory_examples,
-        rank_examples=args.rank_examples,
-        panel_examples=args.panel_examples,
-        panel_steps=args.panel_steps,
-        panel_actions=args.panel_actions,
-        projection_horizons=tuple(int(item) for item in args.projection_horizons.split(",") if item),
-        write_plots=not args.no_diagnostic_plots,
-    )
-    (args.output_dir / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2, sort_keys=True))
+    if not args.skip_diagnostics:
+        diagnostics = run_lewm_diagnostic_bundle(
+            model,
+            examples,
+            args.output_dir,
+            device=device,
+            seed=args.seed + 500,
+            latent_examples=args.latent_examples,
+            trajectory_examples=args.trajectory_examples,
+            rank_examples=args.rank_examples,
+            panel_examples=args.panel_examples,
+            panel_steps=args.panel_steps,
+            panel_actions=args.panel_actions,
+            projection_horizons=tuple(int(item) for item in args.projection_horizons.split(",") if item),
+            write_plots=not args.no_diagnostic_plots,
+        )
+        (args.output_dir / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2, sort_keys=True))
     run_planner_matrix(
         model,
         examples,

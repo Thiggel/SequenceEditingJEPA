@@ -47,6 +47,19 @@ Preliminary first-wave read:
   no categorical CEM, local search, MCTS, best-first, or exact rows were written
   before timeout.
 
+Planner-only eval resubmission:
+
+- `3745791_[0-24%25]`: greedy
+- `3745792_[0-24%25]`: beam
+- `3745793_[0-24%25]`: best-first
+- `3745794_[0-24%25]`: categorical CEM
+- `3745795_[0-24%25]`: local search
+- `3745796_[0-24%25]`: MCTS / score-pruned progressive UCT
+- `3745797_[0-24%25]`: exact symbolic
+
+All are held on `afterany:3741118`, have 24h limits, skip diagnostics, and
+write planner rows under each LR run root in `posthoc_planners/<planner>/`.
+
 Cancelled/superseded jobs:
 
 - `3740707_[0-24%12]`: not a clean baseline. It trained with 8-frame

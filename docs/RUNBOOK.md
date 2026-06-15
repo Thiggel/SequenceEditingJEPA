@@ -115,6 +115,24 @@ planner matrix because it checks only nonempty `diagnostics.json` and
 `metrics.json` as the completion sentinel and will produce `posthoc_eval/`
 for any run whose integrated trainer eval timed out after checkpointing.
 
+Split planner-only eval arrays were submitted on 2026-06-15 with
+`--dependency=afterany:3741118`, one 24h array per planner and 25 LR tasks per
+array. These use `--skip-diagnostics` and write to
+`$PUZZLE_JEPA_WORK_ROOT/runs/lewm_sudoku_lr_<lr>/posthoc_planners/<planner>/`.
+They are intended to get CEM/MCTS/best-first/local-search rows without letting
+beam block the whole matrix:
+
+- `3745791_[0-24%25]`: greedy
+- `3745792_[0-24%25]`: beam
+- `3745793_[0-24%25]`: best-first
+- `3745794_[0-24%25]`: categorical CEM
+- `3745795_[0-24%25]`: local search
+- `3745796_[0-24%25]`: MCTS / score-pruned progressive UCT
+- `3745797_[0-24%25]`: exact symbolic
+
+The older broad fallbacks `3741137` and `3742630` are still pending; the split
+planner arrays are the preferred outputs for planner comparisons.
+
 Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
 `diagnostics.json`, a detailed `diagnostics/` directory, and
 `planner_matrix.jsonl`.

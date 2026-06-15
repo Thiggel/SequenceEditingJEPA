@@ -103,3 +103,9 @@ slow integrated planner tail. The current negative signal is that
 The next decision should wait for either the first wave to exit or hit the 24h
 limit, because the dependency fallback may produce `posthoc_eval/` outputs for
 any incomplete run roots.
+
+The integrated matrix proved too slow because beam + latent-distance rows can
+consume most of a 24h job before CEM/MCTS are reached. Planner-only arrays
+`3745791`-`3745797` split the matrix by algorithm and skip diagnostics. Use
+their `posthoc_planners/<planner>/planner_matrix.jsonl` files as the planner
+comparison source once they run.
