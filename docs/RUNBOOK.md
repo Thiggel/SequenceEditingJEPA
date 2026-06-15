@@ -135,6 +135,34 @@ beam block the whole matrix:
 The older broad fallbacks `3741137` and `3742630` are still pending; the split
 planner arrays are the preferred outputs for planner comparisons.
 
+Clarification at 2026-06-15 18:20 CEST: `3741118_12-23` are still the
+original train+integrated-eval tasks, not the split planner jobs. Their
+gradient training phase has finished (`step=20000`); they are running the
+integrated eval tail inside the same `lewm_sudoku_lr` job. The split planner
+arrays `3745791`-`3745797` remain dependency-held until the full `3741118`
+array, including pending task `24`, exits. A mistakenly submitted immediate
+set `3745927`-`3745933` was cancelled; only `3745927_0` briefly ran and wrote
+five greedy true-Hamming rows for LR `1e-6`.
+
+Update at 2026-06-15 18:42 CEST: increased `3741118` array throttle to `%25`,
+which started `3741118_24` on `rtxpro6k`. Preserved the partial integrated
+planner matrices and cancelled only the integrated eval tails `3741118_12-23`
+after they had checkpointed. Cancelled superseded dependency-held eval arrays
+`3745791`-`3745797`, `3741137`, and `3742630`. Submitted immediate split
+planner eval arrays for checkpointed LRs `0-23`, omitting greedy because it is
+already complete in the integrated matrices:
+
+- `3745940_[0-23%24]`: beam
+- `3745941_[0-23%24]`: best-first
+- `3745942_[0-23%24]`: categorical CEM
+- `3745943_[0-23%24]`: local search
+- `3745944_[0-23%24]`: MCTS / score-pruned progressive UCT
+- `3745945_[0-23%24]`: exact symbolic
+
+LR `7e-4` / task `3741118_24` has no checkpoint yet; let it train, then cancel
+its integrated eval tail after checkpointing and submit planner-family evals
+for array index `24`.
+
 Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
 `diagnostics.json`, a detailed `diagnostics/` directory, and
 `planner_matrix.jsonl`.
