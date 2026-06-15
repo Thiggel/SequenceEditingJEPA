@@ -87,11 +87,30 @@ Run roots are written under:
 $PUZZLE_JEPA_WORK_ROOT/runs/lewm_sudoku_lr_<lr>
 ```
 
-Current submission health at 2026-06-14 14:35 CEST: tasks `0-11` are running
-on `a40`, tasks `12-24` are pending due `JobArrayTaskLimit`, all show
-`1-00:00:00`, task `0` has emitted step-1 metrics, and `grep` found no
-tracebacks/errors in `logs/lewm_sudoku_lr_3741118_*`. Eval fallback
-`3741137_[0-24%6]` is pending on dependency.
+Current submission health at 2026-06-15 09:09 CEST: tasks `0-11` are still
+running on `a40` at about 18.6h elapsed, tasks `12-24` are pending due
+`JobArrayTaskLimit`, and eval fallbacks `3741137_[0-24%6]` plus corrected
+fallback `3742630_[0-24%6]` are pending on dependency. First-wave tasks reached
+`step=20000` and wrote checkpoints,
+`diagnostics.json`, and partial `planner_matrix.jsonl` files. No
+tracebacks/errors were found in `logs/lewm_sudoku_lr_3741118_*`; stderr only
+contains the known PyTorch nested-tensor warning.
+
+Interim result: LRs `2e-5` and `3e-5` currently have the best step-20k value
+metrics, with value RMSE about `0.39`/`0.34` and value correlation about
+`0.991`. The planner matrix rows written so far solve the 4-example fast set
+with `true_hamming_oracle`, but `oracle_goal_distance` and
+`predicted_goal_distance` are still `0/4` in the greedy/beam rows already
+written, even with symbolic re-encode. The slow tail is latent-distance
+planning: for LR `2e-5`, beam + symbolic re-encode + oracle latent distance
+at horizon 64 took about 8,121s over four examples, and latent-rollout beam
+horizon 8 took about 6,007s.
+
+Fallback note: the original fallback `3741137` can incorrectly skip a partial
+planner matrix because it checks only nonempty `diagnostics.json` and
+`planner_matrix.jsonl`. Corrected fallback `3742630` uses top-level
+`metrics.json` as the completion sentinel and will produce `posthoc_eval/`
+for any run whose integrated trainer eval timed out after checkpointing.
 
 Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
 `diagnostics.json`, a detailed `diagnostics/` directory, and

@@ -1,13 +1,45 @@
 # Results
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 ## Current Result
 
-No clean LeWorldModel reset jobs have completed yet. The fixed 24h LR sweep is
-now running as Slurm array `3741118_[0-24%12]`. A dependency-held posthoc eval
-fallback, `3741137_[0-24%6]`, will run after `3741118` and skip any task whose
-integrated diagnostics and planner matrix already exist.
+The first wave of the fixed LeWorldModel LR sweep has reached the final
+training step (`20000`) for tasks `0-11` and has written checkpoints,
+`diagnostics.json`, and partial fast planner matrices for LRs `1e-6` through
+`3e-5`. The tasks are still running because the integrated planner matrix is
+very slow in latent-distance beam rows. Tasks `12-24` remain pending behind
+`JobArrayTaskLimit`; dependency fallback `3741137_[0-24%6]` remains pending on
+`afterany:3741118`.
+
+Current health at 2026-06-15 09:09 CEST:
+
+- `3741118_0-11`: running on `a40`, elapsed about 18.6h of 24h.
+- `3741118_12-24`: pending due array concurrency cap.
+- `3741137_[0-24%6]`: older fallback pending due dependency; its guard only
+  checks nonempty diagnostics/planner files, so it may skip partial matrices.
+- `3742630_[0-24%6]`: corrected fallback pending due dependency; it skips only
+  when top-level `metrics.json` exists, which means the integrated trainer eval
+  returned.
+- No tracebacks/errors in `logs/lewm_sudoku_lr_3741118_*`; stderr only shows
+  the known PyTorch nested-tensor warning.
+- Example task `3741118_0` is still live on GPU, around 31.7 GB memory and
+  roughly 25% GPU utilization.
+
+Preliminary first-wave read:
+
+- Best training/value metrics among completed step-20k records are currently
+  around LR `2e-5`/`3e-5`: value RMSE about `0.39`/`0.34`, value correlation
+  about `0.991`, prediction loss about `0.042`/`0.088`.
+- Latent geometry looks healthier than the lowest LR collapse case: effective
+  rank is roughly `11-14` for `9e-6` to `3e-5`, versus about `1.2` for `1e-6`.
+- Planner rows written so far solve the 4-example fast matrix only with
+  `true_hamming_oracle`. Both `oracle_goal_distance` and
+  `predicted_goal_distance` are `0/4` in the written greedy/beam rows, even
+  with symbolic re-encode.
+- Runtime is the immediate issue: for LR `2e-5`, beam + symbolic re-encode +
+  oracle latent goal distance took about 8,121s for horizon 64 over only four
+  examples; latent-rollout beam horizon 8 already took about 6,007s.
 
 Cancelled/superseded jobs:
 

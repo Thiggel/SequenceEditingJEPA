@@ -94,3 +94,12 @@ The first LR submission `3740707` is cancelled/superseded because it used
 `3741086` is also superseded because BF16 autocast exposed a masked projection
 dtype bug. The active fixed sweep is `3741118_[0-24%12]`, with dependency-held
 posthoc eval fallback `3741137_[0-24%6]`; both have 24h limits.
+
+Interim gate read at 2026-06-15 09:09 CEST: the first 12 tasks reached
+`step=20000`, wrote diagnostics and planner rows, and are still running in the
+slow integrated planner tail. The current negative signal is that
+`oracle_goal_distance` and `predicted_goal_distance` still do not solve the
+4-example fast matrix rows written so far, while `true_hamming_oracle` does.
+The next decision should wait for either the first wave to exit or hit the 24h
+limit, because the dependency fallback may produce `posthoc_eval/` outputs for
+any incomplete run roots.

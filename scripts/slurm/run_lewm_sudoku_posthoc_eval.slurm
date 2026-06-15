@@ -29,8 +29,8 @@ LR="${LRS[$INDEX]}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/lewm_sudoku_lr_${LR}"
 CHECKPOINT="${RUN_ROOT}/checkpoint.pt"
 
-if [[ -s "${RUN_ROOT}/diagnostics.json" && -s "${RUN_ROOT}/planner_matrix.jsonl" ]]; then
-  echo "Integrated eval already exists for ${RUN_ROOT}; skipping posthoc eval."
+if [[ -s "${RUN_ROOT}/metrics.json" ]]; then
+  echo "Integrated train+eval metrics already exist for ${RUN_ROOT}; skipping posthoc eval."
   exit 0
 fi
 
