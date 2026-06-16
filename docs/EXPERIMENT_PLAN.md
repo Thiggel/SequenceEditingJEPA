@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-14
+Last updated: 2026-06-16 13:10 CEST
 
 ## LeWorldModel Reset
 
@@ -92,20 +92,24 @@ better than the legacy compact-scorer failure mode.
 The first LR submission `3740707` is cancelled/superseded because it used
 8-frame training trajectories and pre-fix MCTS. The first post-fix submission
 `3741086` is also superseded because BF16 autocast exposed a masked projection
-dtype bug. The active fixed sweep is `3741118_[0-24%12]`, with dependency-held
-posthoc eval fallback `3741137_[0-24%6]`; both have 24h limits.
-
-Interim gate read at 2026-06-15 09:09 CEST: the first 12 tasks reached
-`step=20000`, wrote diagnostics and planner rows, and are still running in the
-slow integrated planner tail. The current negative signal is that
-`oracle_goal_distance` and `predicted_goal_distance` still do not solve the
-4-example fast matrix rows written so far, while `true_hamming_oracle` does.
-The next decision should wait for either the first wave to exit or hit the 24h
-limit, because the dependency fallback may produce `posthoc_eval/` outputs for
-any incomplete run roots.
+dtype bug. The fixed sweep `3741118` checkpointed LR indices `0-23`; LR `7e-4`
+became numerically invalid and is excluded.
 
 The integrated matrix proved too slow because beam + latent-distance rows can
-consume most of a 24h job before CEM/MCTS are reached. Planner-only arrays
-`3745791`-`3745797` split the matrix by algorithm and skip diagnostics. Use
-their `posthoc_planners/<planner>/planner_matrix.jsonl` files as the planner
-comparison source once they run.
+consume most of a 24h job before CEM/MCTS are reached. Immediate planner-only
+arrays now split the matrix by algorithm and write to
+`posthoc_planners/<planner>/planner_matrix.jsonl`:
+
+- `3745940`: beam, still running/partial.
+- `3745941`: best-first, still running/partial.
+- `3745942`: categorical CEM, completed.
+- `3745943`: local search, completed.
+- `3745944`: MCTS / score-pruned progressive UCT, still running/partial.
+- `3745945`: exact symbolic, completed.
+
+Current gate read: exact symbolic solving and exact `true_hamming_oracle`
+scoring work for beam/best-first/MCTS, but `oracle_goal_distance` and
+`predicted_goal_distance` still solve `0/128` in written rows and end near
+`48` remaining cells. Categorical CEM and local search are weak under current
+settings even with true-Hamming scoring, leaving about `40.35` and `39.35`
+cells wrong. The representation/scorer gate has not passed.

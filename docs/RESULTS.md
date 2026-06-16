@@ -1,67 +1,40 @@
 # Results
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16 13:10 CEST
 
 ## Current Result
 
-The first wave of the fixed LeWorldModel LR sweep has reached the final
-training step (`20000`) for tasks `0-11` and has written checkpoints,
-`diagnostics.json`, and partial fast planner matrices for LRs `1e-6` through
-`3e-5`. The tasks are still running because the integrated planner matrix is
-very slow in latent-distance beam rows. Tasks `12-24` remain pending behind
-`JobArrayTaskLimit`; dependency fallback `3741137_[0-24%6]` remains pending on
-`afterany:3741118`.
+The fixed LeWorldModel LR sweep has produced usable checkpoints for LR indices
+`0-23`. LR `7e-4` / task `3741118_24` wrote checkpoints but became numerically
+invalid (`NaN` losses from about step `13000`) and failed diagnostic PCA/SVD, so
+exclude it from planner comparison.
 
-Current health at 2026-06-15 17:53 CEST:
+Current split planner eval state at 2026-06-16 13:10 CEST:
 
-- `3741118_0-11`: timed out at 24h during integrated planner eval. They wrote
-  checkpoints, diagnostics, and partial planner matrices but no top-level
-  `metrics.json`.
-- `3741118_12-23`: running on `rtxpro6k`, elapsed about 3.5h. These tasks
-  have reached `step=20000`, written diagnostics, and have partial integrated
-  planner matrices with 31 rows each for LRs `4e-5` through `6e-4`.
-- `3741118_24`: pending due array concurrency cap.
-- `3741137_[0-24%6]`: older fallback pending due dependency; its guard only
-  checks nonempty diagnostics/planner files, so it may skip partial matrices.
-- `3742630_[0-24%6]`: corrected fallback pending due dependency; it skips only
-  when top-level `metrics.json` exists, which means the integrated trainer eval
-  returned.
-- No tracebacks/errors in `logs/lewm_sudoku_lr_3741118_*`; stderr only shows
-  the known PyTorch nested-tensor warning plus expected Slurm timeout messages
-  for tasks `0-11`.
-- `7e-4` has not started far enough to write a checkpoint yet because task
-  `24` is still pending.
+- completed: exact symbolic (`3745945`), categorical CEM (`3745942`), local
+  search (`3745943`).
+- running/partial: beam (`3745940`), best-first (`3745941`), MCTS /
+  score-pruned progressive UCT (`3745944`).
 
-Preliminary first-wave read:
+Current aggregate read:
 
-- Best training/value metrics among completed step-20k records are currently
-  around LR `2e-5`/`3e-5`: value RMSE about `0.39`/`0.34`, value correlation
-  about `0.991`, prediction loss about `0.042`/`0.088`.
-- Latent geometry looks healthier than the lowest LR collapse case: effective
-  rank is roughly `11-14` for `9e-6` to `3e-5`, versus about `1.2` for `1e-6`.
-- Planner rows written so far solve the 4-example fast matrix only with
-  `true_hamming_oracle`. Both `oracle_goal_distance` and
-  `predicted_goal_distance` are `0/4` in the written greedy/beam rows, even
-  with symbolic re-encode.
-- Runtime is the immediate issue: for LR `2e-5`, beam + symbolic re-encode +
-  oracle latent goal distance took about 8,121s for horizon 64 over only four
-  examples; latent-rollout beam horizon 8 already took about 6,007s.
-- The first-wave integrated matrices reached only greedy plus part of beam:
-  no categorical CEM, local search, MCTS, best-first, or exact rows were written
-  before timeout.
+- exact symbolic baseline solves all boards.
+- beam, best-first, greedy, and MCTS solve all boards when scored by exact
+  `true_hamming_oracle`, which confirms the fill-only mechanics are sound.
+- `oracle_goal_distance` and `predicted_goal_distance` still solve `0/128`
+  across written beam/best-first/MCTS/CEM/local-search rows and typically end
+  near `48` remaining cells.
+- categorical CEM and local search are not strong Sudoku planners under the
+  current settings: even true-Hamming oracle scoring leaves about `40.35` and
+  `39.35` cells wrong, respectively.
+- MCTS now has enough written rows to judge the main signal: true-Hamming
+  oracle solves, but latent oracle distance and learned predicted distance
+  remain `0.0` solve rate with about `48` remaining cells.
 
-Planner-only eval resubmission:
-
-- `3745791_[0-24%25]`: greedy
-- `3745792_[0-24%25]`: beam
-- `3745793_[0-24%25]`: best-first
-- `3745794_[0-24%25]`: categorical CEM
-- `3745795_[0-24%25]`: local search
-- `3745796_[0-24%25]`: MCTS / score-pruned progressive UCT
-- `3745797_[0-24%25]`: exact symbolic
-
-All are held on `afterany:3741118`, have 24h limits, skip diagnostics, and
-write planner rows under each LR run root in `posthoc_planners/<planner>/`.
+Interpretation: the stronger discrete planners do not rescue the latent or
+learned value score. The exact score can drive beam/best-first/MCTS to a
+solution, but Euclidean solved-board latent distance and the learned scalar
+distance are still not reliable action-selection objectives for Sudoku.
 
 Cancelled/superseded jobs:
 

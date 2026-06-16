@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-14
+Last updated: 2026-06-16 13:10 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -168,8 +168,8 @@ became numerically invalid (`NaN` losses from about step 13000) and failed in
 diagnostic PCA/SVD, so do not use LR `7e-4` for planner comparison. Immediate
 split eval state for checkpointed LRs `0-23`: exact (`3745945`), categorical
 CEM (`3745942`), and local search (`3745943`) completed; beam (`3745940`),
-best-first (`3745941`), and MCTS (`3745944`) are still running/partial.
-Current completed/partial planner outputs show:
+best-first (`3745941`), and MCTS (`3745944`) are still running/partial at
+2026-06-16 13:10 CEST. Current completed/partial planner outputs show:
 
 - exact symbolic: `1.0` solve rate, remaining Hamming `0.0`.
 - beam: true-Hamming oracle rows solve `1.0`; oracle latent and predicted
@@ -180,8 +180,14 @@ Current completed/partial planner outputs show:
   completed rows; even true-Hamming oracle leaves about `39-40` cells wrong,
   so these implementations/settings are not strong enough discrete Sudoku
   planners yet.
-- MCTS is partial: true-Hamming oracle rows solve `1.0`; oracle latent and
-  predicted rows remain `0.0`.
+- MCTS / score-pruned progressive UCT has written enough rows for the main
+  read: true-Hamming oracle rows solve `1.0`; oracle latent and predicted rows
+  remain `0.0` solve rate with about `48` remaining cells.
+
+Operationally, leave the running beam/best-first/MCTS jobs alone until they
+finish or time out; their partial rows are already enough to show that learned
+and oracle latent scoring still fail, but full timing/action-eval counts are
+useful.
 
 Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
 `diagnostics.json`, a detailed `diagnostics/` directory, and
