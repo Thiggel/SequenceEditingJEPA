@@ -4,8 +4,13 @@ import numpy as np
 import pytest
 import torch
 
-from puzzle_jepa.data.grid_goal_sudoku import collate_grid_goal_sudoku_trajectories, sample_grid_goal_sudoku_trajectory
+from puzzle_jepa.data.grid_goal_sudoku import (
+    collate_grid_goal_sudoku_trajectories,
+    sample_grid_goal_sudoku_trajectory,
+    sample_random_grid_goal_sudoku_trajectory,
+)
 from puzzle_jepa.data.worlds import SudokuWorld
+from puzzle_jepa.eval.grid_goal_diagnostics import run_grid_goal_diagnostics
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
 from puzzle_jepa.train.grid_goal_sudoku import _zero_context_masks
 
@@ -111,6 +116,64 @@ def test_forward_accepts_non_9x9_active_grid_tokens():
     assert output.state_latents.shape == (1, 3, 16, 32)
 
 
+def test_progress_rank_loss_ignores_non_oracle_trajectories():
+    batch = collate_grid_goal_sudoku_trajectories(
+        [sample_grid_goal_sudoku_trajectory(_example(), np.random.default_rng(2), oracle_probability=1.0)]
+    )
+    model = _small_model()
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=torch.zeros_like(batch.oracle_mask),
+    )
+
+    assert output.progress_rank_loss.item() == pytest.approx(0.0)
+
+
+def test_action_rank_shapes_encoder_geometry_not_predictor_rollout():
+    batch = collate_grid_goal_sudoku_trajectories(
+        [sample_grid_goal_sudoku_trajectory(_example(), np.random.default_rng(3), oracle_probability=1.0)]
+    )
+    positive = batch.actions[:, 0].clone()
+    negative = positive.clone()
+    negative[:, 2] = (negative[:, 2] % 9) + 1
+
+    torch.manual_seed(0)
+    model_a = _small_model().eval()
+    model_b = _small_model().eval()
+    model_b.load_state_dict(model_a.state_dict())
+    with torch.no_grad():
+        for param in model_b.predictor.parameters():
+            param.add_(torch.randn_like(param))
+        for param in model_b.predictor_out.parameters():
+            param.add_(torch.randn_like(param))
+
+    kwargs = dict(
+        boards=batch.boards,
+        actions=batch.actions,
+        context=batch.context,
+        clue_mask=batch.clue_mask,
+        editable_mask=batch.editable_mask,
+        active_mask=batch.active_mask,
+        goals=batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+        positive_actions=positive,
+        negative_actions=negative,
+    )
+    with torch.no_grad():
+        loss_a = model_a(**kwargs).action_rank_loss
+        loss_b = model_b(**kwargs).action_rank_loss
+
+    torch.testing.assert_close(loss_a, loss_b)
+
+
 @pytest.mark.parametrize(
     "legacy_path",
     [
@@ -125,3 +188,103 @@ def test_forward_accepts_non_9x9_active_grid_tokens():
 )
 def test_legacy_cls_value_and_causal_paths_are_removed_from_active_tree(legacy_path):
     assert not Path(legacy_path).exists()
+
+
+def test_progress_rank_ignores_non_oracle_trajectories():
+    """Progress ranking is defined only along successful trajectories."""
+    rng = np.random.default_rng(2)
+    batch = collate_grid_goal_sudoku_trajectories(
+        [sample_random_grid_goal_sudoku_trajectory(_example(), rng)]
+    )
+    assert not bool(batch.oracle_mask.item())
+
+    model = _small_model().eval()
+    with torch.no_grad():
+        output = model(
+            batch.boards,
+            batch.actions,
+            batch.context,
+            batch.clue_mask,
+            batch.editable_mask,
+            batch.active_mask,
+            batch.goals,
+            masks=batch.masks,
+        )
+
+    assert output.progress_rank_loss.item() == pytest.approx(0.0, abs=1.0e-8)
+
+
+def test_action_rank_does_not_depend_on_predictor_rollout(monkeypatch):
+    """Action ranking should shape encoded successor geometry, not P_phi outputs."""
+    example = _example()
+    model = _small_model().eval()
+    board = torch.as_tensor(example.state[None, None], dtype=torch.long)
+    actions = torch.zeros((1, 1, 3), dtype=torch.long)
+    context = torch.as_tensor(example.state[None], dtype=torch.long)
+    clue_mask = torch.as_tensor((example.state != 0)[None], dtype=torch.bool)
+    editable_mask = ~clue_mask
+    active_mask = torch.ones_like(clue_mask)
+    goals = torch.as_tensor(example.goal[None], dtype=torch.long)
+    masks = torch.ones((1, 1), dtype=torch.bool)
+    empty_row, empty_col = [int(x) for x in np.argwhere(example.state == 0)[0]]
+    correct = int(example.goal[empty_row, empty_col])
+    wrong = 1 + (correct % 9)
+    positive_actions = torch.as_tensor([[empty_row, empty_col, correct]], dtype=torch.long)
+    negative_actions = torch.as_tensor([[empty_row, empty_col, wrong]], dtype=torch.long)
+
+    original_predict_next = model.predict_next
+
+    def forbid_nonempty_predictor_actions(state_latent, action, context_latents):
+        if action.numel() > 0:
+            raise AssertionError("action ranking should not call predict_next")
+        return original_predict_next(state_latent, action, context_latents)
+
+    monkeypatch.setattr(model, "predict_next", forbid_nonempty_predictor_actions)
+
+    with torch.no_grad():
+        model(
+            board,
+            actions,
+            context,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            goals,
+            masks=masks,
+            positive_actions=positive_actions,
+            negative_actions=negative_actions,
+        )
+
+
+@pytest.mark.parametrize(
+    "legacy_path",
+    [
+        "puzzle_jepa/models/recursive.py",
+        "puzzle_jepa/models/layers.py",
+    ],
+)
+def test_recursive_baseline_scaffolding_is_kept(legacy_path):
+    assert Path(legacy_path).exists()
+
+
+def test_diagnostics_include_rollout_and_goal_alignment_metrics(tmp_path):
+    model = _small_model().eval()
+    metrics = run_grid_goal_diagnostics(
+        model,
+        [_example()],
+        tmp_path,
+        device=torch.device("cpu"),
+        panel_examples=1,
+        panel_steps=1,
+        panel_actions=2,
+    )
+
+    required = {
+        "predictor_rollout_mse_h1",
+        "predictor_rollout_mse_h4",
+        "latent_rollout_action_top1",
+        "goal_prediction_token_mse",
+        "predicted_vs_oracle_goal_distance",
+        "distance_hamming_spearman",
+    }
+    assert required <= set(metrics)

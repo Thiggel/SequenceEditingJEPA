@@ -1,12 +1,12 @@
 # Results
 
-Last updated: 2026-06-16 16:44 CEST
+Last updated: 2026-06-16 17:03 CEST
 
 ## Current Result
 
 No Grid-Token Goal-JEPA jobs have been submitted yet.
 
-Implementation and review fixes are complete:
+Implementation review status:
 
 - Active Slurm jobs were cancelled before the refactor.
 - New Grid-Token Goal-JEPA model/data/train/eval/planner path is implemented.
@@ -18,10 +18,21 @@ Implementation and review fixes are complete:
   hard-coding `9x9/81`.
 - Remaining legacy CLS/value/causal modules and old grid train/eval/analysis
   paths were removed from the active tree.
+- Progress ranking now receives `oracle_mask`; by default it applies to no
+  rows, and training passes the true successful-trajectory mask.
+- Action ranking now compares distances of encoded symbolic successor boards
+  `f_theta(T(s,a),H_c)`, not predictor rollout latents.
+- Diagnostics now include predictor rollout drift by horizon, latent-rollout
+  top-positive action accuracy, predicted-goal vs oracle-goal alignment,
+  distance-vs-Hamming Spearman correlation, action margins by fill depth, and
+  terminal corruption margins by corruption size.
+- HRM/TRM scaffolding remains intentionally as future baselines.
 - Current test command:
-  `source scripts/env.sh && pytest -q` -> `18 passed`.
+  `source scripts/env.sh && pytest -q` -> `25 passed`.
 - Running `pytest -q` without `source scripts/env.sh` fails at collection
   because the default Python cannot import `torch`.
+
+Second-pass review issues are fixed. No Grid-Token jobs have been submitted.
 
 ## Legacy Result
 

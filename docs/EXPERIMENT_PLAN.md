@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-16 15:05 CEST
+Last updated: 2026-06-16 17:03 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -32,8 +32,10 @@ The full model trains:
 - covariance SIGReg over active state tokens
 - goal MSE against encoded true terminal board tokens
 - goal InfoNCE over mean-pooled goal summaries
-- progress ranking along successful trajectories
-- action ranking between target-consistent and wrong fill actions
+- progress ranking along successful trajectories only, selected by
+  `oracle_mask`
+- action ranking between encoded symbolic successors for target-consistent and
+  wrong fill actions
 - terminal corruption contrast against 1-5 digit corruptions
 
 ## Ablations
@@ -70,4 +72,8 @@ Planning matrix:
 
 Diagnostics record losses, latent geometry/effective rank, monotonicity,
 top-positive action accuracy, near-goal corruption margin, concrete action
-panels, planner solve rate, remaining Hamming, action-eval counts, and timing.
+panels, predictor rollout drift by horizon, latent-rollout action ranking,
+predicted-goal vs oracle-goal alignment, distance-vs-Hamming Spearman
+correlation, action margins by fill depth, terminal corruption margins by
+corruption size, planner solve rate, remaining Hamming, action-eval counts,
+and timing.

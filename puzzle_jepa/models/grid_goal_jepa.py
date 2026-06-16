@@ -276,6 +276,7 @@ class GridTokenGoalJEPA(nn.Module):
         goals: torch.Tensor,
         *,
         masks: torch.Tensor,
+        oracle_mask: torch.Tensor | None = None,
         positive_actions: torch.Tensor | None = None,
         negative_actions: torch.Tensor | None = None,
         corrupt_goals: torch.Tensor | None = None,
@@ -299,15 +300,19 @@ class GridTokenGoalJEPA(nn.Module):
 
         transition_mask = masks[:, :-1] & masks[:, 1:]
         dynamics_terms = []
-        predicted_next = self.predict_next(
-            state_latents[:, :-1].reshape(-1, token_count, self.d_model),
-            actions[:, :-1].reshape(-1, 3),
-            context_latents[:, None].expand(batch, frames - 1, token_count, self.d_model).reshape(
-                -1, token_count, self.d_model
-            ),
-        ).reshape(batch, frames - 1, token_count, self.d_model)
-        one_step_error = (predicted_next - state_latents[:, 1:].detach()).square().mean(dim=(-1, -2))
-        dynamics_terms.append(_masked_mean(one_step_error, transition_mask))
+        if frames > 1:
+            predicted_next = self.predict_next(
+                state_latents[:, :-1].reshape(-1, token_count, self.d_model),
+                actions[:, :-1].reshape(-1, 3),
+                context_latents[:, None].expand(batch, frames - 1, token_count, self.d_model).reshape(
+                    -1, token_count, self.d_model
+                ),
+            ).reshape(batch, frames - 1, token_count, self.d_model)
+            one_step_error = (predicted_next - state_latents[:, 1:].detach()).square().mean(dim=(-1, -2))
+            dynamics_terms.append(_masked_mean(one_step_error, transition_mask))
+        else:
+            predicted_next = state_latents[:, :0]
+            dynamics_terms.append(state_latents.sum() * 0.0)
         for horizon in self.multi_step_horizons:
             if horizon <= 1 or frames <= horizon:
                 continue
@@ -339,15 +344,22 @@ class GridTokenGoalJEPA(nn.Module):
             ),
             active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols),
         ).reshape(batch, frames)
-        progress_rank_loss = _progress_rank_loss(distances, masks, margin=self.progress_margin, temperature=self.rank_temperature)
+        oracle_rows = torch.zeros_like(masks[:, 0], dtype=torch.bool) if oracle_mask is None else oracle_mask
+        progress_masks = masks & oracle_rows[:, None]
+        progress_rank_loss = _progress_rank_loss(
+            distances, progress_masks, margin=self.progress_margin, temperature=self.rank_temperature
+        )
 
         action_rank_loss = state_latents.sum() * 0.0
         if negative_actions is not None:
             if positive_actions is None:
-                pos_latents = predicted_next[:, 0]
+                positive_actions = actions[:, 0]
             else:
-                pos_latents = self.predict_next(state_latents[:, 0], positive_actions, context_latents)
-            neg_latents = self.predict_next(state_latents[:, 0], negative_actions, context_latents)
+                positive_actions = positive_actions
+            pos_boards = _apply_set_cell_actions(boards[:, 0], positive_actions)
+            neg_boards = _apply_set_cell_actions(boards[:, 0], negative_actions)
+            pos_latents = self.encode_state(pos_boards, context_latents, clue_mask, editable_mask, active_mask)
+            neg_latents = self.encode_state(neg_boards, context_latents, clue_mask, editable_mask, active_mask)
             pos_d = self.distance(pos_latents, predicted_goal, active_mask)
             neg_d = self.distance(neg_latents, predicted_goal, active_mask)
             action_rank_loss = F.softplus((pos_d - neg_d + self.rank_margin) / self.rank_temperature).mean()
@@ -408,3 +420,16 @@ def _progress_rank_loss(distances: torch.Tensor, masks: torch.Tensor, *, margin:
     if not losses:
         return distances.sum() * 0.0
     return torch.stack(losses).mean()
+
+
+def _apply_set_cell_actions(boards: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+    if boards.ndim != 3 or actions.ndim != 2 or actions.shape[-1] != 3:
+        raise ValueError("Expected boards [batch, rows, cols] and actions [batch, 3].")
+    out = boards.clone()
+    batch, rows, cols = boards.shape
+    batch_ids = torch.arange(batch, device=boards.device)
+    row = actions[:, 0].clamp(0, rows - 1)
+    col = actions[:, 1].clamp(0, cols - 1)
+    value = actions[:, 2].clamp_min(0)
+    out[batch_ids, row, col] = value
+    return out

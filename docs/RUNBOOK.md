@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-16 16:44 CEST
+Last updated: 2026-06-16 17:03 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -34,9 +34,9 @@ bash -n scripts/slurm/run_grid_goal_sudoku_ablation.slurm
 bash -n scripts/slurm/run_grid_goal_sudoku_planner_eval.slurm
 ```
 
-Current verification after fixing review regressions:
+Current verification after fixing second-pass review issues:
 
-- `source scripts/env.sh && pytest -q`: `18 passed`
+- `source scripts/env.sh && pytest -q`: `25 passed`
 - `python -m compileall -q puzzle_jepa configs`: passed
 - Slurm launcher syntax checks: passed
 - Import check confirms 12 ablations and beam widths/depths:
@@ -49,6 +49,16 @@ cover:
 - `R1_no_context_masks` removes context value conditioning
 - model `forward` accepts non-9x9 active grid-token tensors
 - legacy CLS/value/causal paths are removed from the active source tree
+
+Second-pass regression tests in `tests/test_grid_goal_plan_regressions.py` now
+pass. They cover:
+
+- progress ranking ignores random non-solution trajectories unless
+  `oracle_mask` marks them successful
+- action ranking uses encoded symbolic successor boards, not predictor latents
+- `puzzle_jepa/models/recursive.py` and `puzzle_jepa/models/layers.py` remain
+  intentionally as future HRM/TRM baselines
+- rollout and goal-alignment diagnostics are present
 
 ## Submit When Asked
 

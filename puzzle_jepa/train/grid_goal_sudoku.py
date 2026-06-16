@@ -86,6 +86,7 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 batch.active_mask,
                 batch.goals,
                 masks=batch.masks,
+                oracle_mask=batch.oracle_mask,
                 positive_actions=positive_actions,
                 negative_actions=negative_actions,
                 corrupt_goals=corrupt_goals,
