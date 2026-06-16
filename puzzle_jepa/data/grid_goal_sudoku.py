@@ -12,17 +12,25 @@ PAD_ACTION = np.asarray([0, 0, 0], dtype=np.int64)
 
 
 @dataclass(frozen=True, slots=True)
-class SudokuTrajectory:
+class GridGoalSudokuTrajectory:
     boards: np.ndarray
     actions: np.ndarray
+    context: np.ndarray
+    clue_mask: np.ndarray
+    editable_mask: np.ndarray
+    active_mask: np.ndarray
     goal: np.ndarray
     is_oracle: bool
 
 
 @dataclass(frozen=True, slots=True)
-class SudokuTrajectoryBatch:
+class GridGoalSudokuBatch:
     boards: torch.Tensor
     actions: torch.Tensor
+    context: torch.Tensor
+    clue_mask: torch.Tensor
+    editable_mask: torch.Tensor
+    active_mask: torch.Tensor
     goals: torch.Tensor
     masks: torch.Tensor
     oracle_mask: torch.Tensor
@@ -37,119 +45,76 @@ def array_to_action(values: np.ndarray | torch.Tensor | list[int] | tuple[int, i
     return WorldAction(row=row, col=col, value=value)
 
 
-def action_id(action: WorldAction) -> int:
-    return (action.row * 9 + action.col) * 9 + (action.value - 1)
-
-
-def action_from_id(index: int) -> WorldAction:
-    index = int(index)
-    if not 0 <= index < 729:
-        raise ValueError(f"Sudoku action id must be in [0, 729), got {index}.")
-    cell, value_offset = divmod(index, 9)
-    row, col = divmod(cell, 9)
-    return WorldAction(row=row, col=col, value=value_offset + 1)
-
-
 def legal_fill_actions(board: np.ndarray, *, allow_conflicts: bool = True) -> list[WorldAction]:
-    world = SudokuWorld()
-    arr = world.validate_state(board)
-    actions: list[WorldAction] = []
-    for row, col in np.argwhere(arr == 0):
-        for value in range(1, 10):
-            action = WorldAction(int(row), int(col), value)
-            if allow_conflicts or world.is_value_allowed_after_write(arr, action.row, action.col, action.value):
-                actions.append(action)
-    return actions
+    return SudokuWorld().legal_actions(board, allow_overwrite=False, allow_conflicts=allow_conflicts)
 
 
 def apply_fill_action(board: np.ndarray, action: WorldAction, *, allow_conflicts: bool = True) -> np.ndarray:
-    world = SudokuWorld()
-    return world.apply(board, action, allow_overwrite=False, allow_conflicts=allow_conflicts)
+    return SudokuWorld().apply(board, action, allow_overwrite=False, allow_conflicts=allow_conflicts)
 
 
-def sample_sudoku_trajectory(
+def corrupt_terminal(goal: np.ndarray, rng: np.random.Generator, *, min_cells: int = 1, max_cells: int = 5) -> np.ndarray:
+    corrupted = np.asarray(goal, dtype=np.int64).copy()
+    count = int(rng.integers(min_cells, max_cells + 1))
+    indices = rng.choice(81, size=count, replace=False)
+    for flat in indices:
+        row, col = divmod(int(flat), 9)
+        current = int(corrupted[row, col])
+        choices = [value for value in range(1, 10) if value != current]
+        corrupted[row, col] = int(choices[int(rng.integers(0, len(choices)))])
+    return corrupted
+
+
+def sample_grid_goal_sudoku_trajectory(
     example: PuzzleExample,
     rng: np.random.Generator,
     *,
-    num_frames: int | None = None,
     oracle_probability: float = 0.5,
     allow_conflicts: bool = True,
-) -> SudokuTrajectory:
-    """Sample a LeWM-style trajectory with no overwrites.
-
-    `boards[t]` is the current board and `actions[t]` maps `boards[t]` to
-    `boards[t + 1]` for every supervised step. The final action is padding so
-    shapes match LeWM's `(B, T, *)` pseudocode.
-    """
-
-    if num_frames is not None and num_frames < 2:
-        raise ValueError("num_frames must be at least 2.")
+) -> GridGoalSudokuTrajectory:
     if not 0.0 <= oracle_probability <= 1.0:
         raise ValueError("oracle_probability must be in [0, 1].")
-
     world = SudokuWorld()
     puzzle = world.validate_state(example.state)
     goal = world.validate_state(example.goal)
-    empty_positions = np.argwhere(puzzle == 0)
-    supervised_steps = len(empty_positions) if num_frames is None else num_frames - 1
-    if len(empty_positions) < supervised_steps:
-        raise ValueError(
-            f"Sudoku example has {len(empty_positions)} empty cells, fewer than {supervised_steps} supervised steps."
-        )
-
+    clue_mask = puzzle != 0
+    editable_mask = ~clue_mask
+    active_mask = np.ones_like(clue_mask, dtype=bool)
+    empty_positions = np.argwhere(editable_mask)
+    order = rng.permutation(len(empty_positions))
     is_oracle = bool(rng.random() < oracle_probability)
     board = puzzle.copy()
-
-    max_prefix = len(empty_positions) - supervised_steps
-    prefix_len = int(rng.integers(0, max_prefix + 1))
-    if prefix_len:
-        prefix_indices = rng.choice(len(empty_positions), size=prefix_len, replace=False)
-        for row, col in empty_positions[prefix_indices]:
-            row_i, col_i = int(row), int(col)
-            if is_oracle:
-                value = int(goal[row_i, col_i])
-            else:
-                value = int(rng.integers(1, 10))
-            board[row_i, col_i] = value
-
     boards = [board.copy()]
     actions: list[np.ndarray] = []
-    for _ in range(supervised_steps):
-        remaining = np.argwhere(board == 0)
-        if len(remaining) == 0:
-            raise ValueError("Sampled a solved board before trajectory completion.")
-        row, col = (int(x) for x in remaining[int(rng.integers(0, len(remaining)))])
+    for index in order:
+        row, col = (int(x) for x in empty_positions[int(index)])
         value = int(goal[row, col]) if is_oracle else int(rng.integers(1, 10))
         action = WorldAction(row=row, col=col, value=value)
         board = apply_fill_action(board, action, allow_conflicts=allow_conflicts)
         actions.append(action_to_array(action))
         boards.append(board.copy())
     actions.append(PAD_ACTION.copy())
-
-    return SudokuTrajectory(
+    return GridGoalSudokuTrajectory(
         boards=np.asarray(boards, dtype=np.int64),
         actions=np.asarray(actions, dtype=np.int64),
+        context=puzzle.copy(),
+        clue_mask=clue_mask,
+        editable_mask=editable_mask,
+        active_mask=active_mask,
         goal=goal.copy(),
         is_oracle=is_oracle,
     )
 
 
-def collate_sudoku_trajectories(
-    trajectories: list[SudokuTrajectory],
+def collate_grid_goal_sudoku_trajectories(
+    trajectories: list[GridGoalSudokuTrajectory],
     *,
     device: str | torch.device = "cpu",
-    pad_to_frames: int | None = None,
-) -> SudokuTrajectoryBatch:
+) -> GridGoalSudokuBatch:
     if not trajectories:
         raise ValueError("Cannot collate an empty trajectory list.")
     lengths = [int(item.boards.shape[0]) for item in trajectories]
-    if any(item.boards.shape != (length, 9, 9) for item, length in zip(trajectories, lengths, strict=True)):
-        raise ValueError("All Sudoku trajectory boards must have shape [frames, 9, 9].")
-    if any(item.actions.shape != (length, 3) for item, length in zip(trajectories, lengths, strict=True)):
-        raise ValueError("All Sudoku trajectory actions must have shape [frames, 3].")
-    num_frames = max(lengths) if pad_to_frames is None else int(pad_to_frames)
-    if num_frames < max(lengths):
-        raise ValueError(f"pad_to_frames={num_frames} is shorter than the longest trajectory {max(lengths)}.")
+    num_frames = max(lengths)
     padded_boards = []
     padded_actions = []
     masks = []
@@ -166,9 +131,15 @@ def collate_sudoku_trajectories(
         padded_boards.append(boards)
         padded_actions.append(actions)
         masks.append(mask)
-    return SudokuTrajectoryBatch(
+    return GridGoalSudokuBatch(
         boards=torch.as_tensor(np.stack(padded_boards), dtype=torch.long, device=device),
         actions=torch.as_tensor(np.stack(padded_actions), dtype=torch.long, device=device),
+        context=torch.as_tensor(np.stack([item.context for item in trajectories]), dtype=torch.long, device=device),
+        clue_mask=torch.as_tensor(np.stack([item.clue_mask for item in trajectories]), dtype=torch.bool, device=device),
+        editable_mask=torch.as_tensor(
+            np.stack([item.editable_mask for item in trajectories]), dtype=torch.bool, device=device
+        ),
+        active_mask=torch.as_tensor(np.stack([item.active_mask for item in trajectories]), dtype=torch.bool, device=device),
         goals=torch.as_tensor(np.stack([item.goal for item in trajectories]), dtype=torch.long, device=device),
         masks=torch.as_tensor(np.stack(masks), dtype=torch.bool, device=device),
         oracle_mask=torch.as_tensor([item.is_oracle for item in trajectories], dtype=torch.bool, device=device),

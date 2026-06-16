@@ -1,115 +1,73 @@
 # Experiment Plan
 
-Last updated: 2026-06-16 13:10 CEST
+Last updated: 2026-06-16 15:05 CEST
 
-## LeWorldModel Reset
+## Grid-Token Goal-JEPA
 
-Implement and evaluate one faithful LeWorldModel-style Sudoku JEPA.
+The current plan replaces the CLS/vector-state LeWM architecture with a
+full-grid token latent and no scalar value head.
 
-Architecture:
+Modules:
 
-- Encoder: 6-layer bidirectional transformer over the current 9x9 board only.
-  Input tokens are digit embeddings summed with row, column, and 3x3-box
-  embeddings. A CLS token is projected through a BatchNorm projector to the
-  latent state.
-- Predictor: 6-layer causal autoregressive transformer over encoded board
-  states. Actions are `(row, col, digit)` embeddings with small component
-  embeddings, projected to an AdaLN-zero condition at each predictor block.
-- Loss: masked next-embedding MSE plus step-wise SIGReg. SIGReg uses 1024
-  random projections, 17 Epps-Pulley knots over `[0, 3]`, and weight `0.1`.
-- Value head: MLP on the current latent state, trained to regress the Euclidean
-  distance from current latent to the solved-board latent.
-- Game model: fill empty cells only. No overwrites, no clue mask input, no
-  initial-board input.
-- Projectors: LeWM-style `Linear -> BatchNorm -> GELU -> Linear` projectors
-  after the encoder CLS output and predictor output.
+- Context encoder `C_omega(c)`: bidirectional transformer over Sudoku givens
+  plus clue/editable/active masks.
+- State encoder `f_theta(s, H_c)`: bidirectional self-attention over current
+  board tokens plus cross-attention to cached context tokens.
+- Markov predictor `P_phi(H_t, a_t, H_c)`: bidirectional transformer over one
+  action token plus the current latent board tokens, with cross-attention to
+  context. It sees only the current board latent, not a causal history.
+- Goal predictor `q_eta(H_c)`: output-query decoder that predicts terminal
+  board-token latents from context.
+- Planner score: tokenwise normalized Euclidean distance
+  `D(f_theta(s,H_c), q_eta(H_c))`.
 
-Training sweep:
+There is no CLS token, value head, validity head, reachability head, or
+dead-end head.
 
-- Slurm: `scripts/slurm/run_lewm_sudoku_lr_sweep.slurm`
-- Learning rates: `1e-6..9e-6`, `1e-5..9e-5`, `1e-4..7e-4`
-- Batch size: `128`
-- Trajectory frames: full puzzle trajectory by default (`training.num_frames:
-  null`), padded per batch with masks
-- Correct/random trajectory mix: `50/50`
-- Padding: masks remove padded frames from prediction/value/SIGReg losses and
-  from encoder/predictor BatchNorm projector statistics.
-- BatchNorm context: predictor projection is step-wise across sequence time,
-  so unsupervised final/future outputs cannot change supervised prefix
-  predictions. State embeddings are encoded from board sequences only; solved
-  frames reuse their own state embedding as the exact goal target.
-- Runtime guard: `scripts/slurm/run_lewm_sudoku_posthoc_eval.slurm` is submitted
-  as a dependency-held fallback. It skips runs whose integrated diagnostics and
-  planner matrix completed, and otherwise runs checkpoint-based diagnostics plus
-  fast posthoc planner-matrix eval into `posthoc_eval/`.
+## Losses
 
-Evaluation matrix:
+The full model trains:
 
-- All neural planners run as MPC.
-- Inner planners: greedy one-step, beam search, best-first/weighted A*,
-  categorical CEM, sequence local search, and UCT MCTS. With the default
-  `mcts_branch_size > 0`, MCTS is score-pruned progressive UCT; set
-  `mcts_branch_size=0` for unpruned progressive UCT.
-- Calibration baseline: exact symbolic Sudoku solver.
-- Transition variants: symbolic re-encode and latent rollout.
-- Score variants: true Hamming oracle, oracle latent goal distance, predicted
-  goal distance.
-- Horizons: `4`, `8`, `16`, `32`, `64`.
-- Latent rollout: MPC passes observed board/action history into the predictor,
-  so latent rollout uses the same absolute fill-step context as training when
-  it fits. If observed history plus requested horizon exceeds `max_history`, the
-  scorer caps the effective lookahead rather than throwing. Score-pruned branch
-  ranking and diagnostic projection panels use the same history context.
+- multi-step dynamics MSE with self-rollout horizons `1,4,8,16`
+- covariance SIGReg over active state tokens
+- goal MSE against encoded true terminal board tokens
+- goal InfoNCE over mean-pooled goal summaries
+- progress ranking along successful trajectories
+- action ranking between target-consistent and wrong fill actions
+- terminal corruption contrast against 1-5 digit corruptions
 
-Diagnostics written automatically:
+## Ablations
 
-- Scalar losses: raw and weighted prediction/SIGReg/value losses, value MAE,
-  RMSE, correlation, predicted-vs-target distance scale, early/middle/late
-  transition MSE, and oracle-vs-random trajectory splits.
-- Latent geometry: PCA CSV/SVG, covariance/variance/effective-rank summaries,
-  random-projection normality checks, and optional t-SNE/UMAP CSVs when local
-  packages are available.
-- Trajectory diagnostics: oracle and learned value along true fill
-  trajectories, monotonicity rates, stepwise distance drops, and per-step
-  JSONL traces.
-- Action diagnostics: local action ranking across fill fractions and horizons,
-  pairwise gold-vs-wrong accuracy, top-is-gold rates, and concrete panels that
-  print gold, same-cell wrong, nearby-cell, and far-cell actions with true
-  Hamming, oracle latent distance, and learned goal-distance scores.
-- Implementation-failure diagnostics: train-vs-eval terminal goal-distance,
-  full-vs-truncated predictor BatchNorm deltas, no-history vs full-history
-  latent-rollout rank divergence, branch-prune gold-action survival, and
-  latent-rollout vs symbolic re-encode drift by horizon.
-- Planner cost diagnostics: every planner-matrix row records wall-clock time,
-  action-evaluation counts, and seconds per score call.
+Run one LR (`1e-4`) and one seed per ablation:
 
-Gate:
+| Run | Change |
+| --- | --- |
+| `M0_full` | Full Grid-Token Goal-JEPA |
+| `R1_no_context_masks` | Remove explicit clue/editable context masks |
+| `R2_mean_pooled_distance` | Replace tokenwise distance with mean-pooled distance |
+| `R3_k1_only` | One-step dynamics only |
+| `R3_k4` | Multi-step horizons `1,4` |
+| `R3_k8` | Multi-step horizons `1,4,8` |
+| `R3_k16` | Multi-step horizons `1,4,8,16` |
+| `R4_no_goal_nce` | Remove goal InfoNCE |
+| `R5_no_progress_rank` | Remove progress ranking |
+| `R6_no_action_rank` | Remove action ranking |
+| `R7_no_terminal_corrupt` | Remove terminal corruption contrast |
+| `R8_no_sigreg` | Remove SIGReg |
 
-Pass only if at least one learned or oracle latent planner produces exact
-solves under fill-only actions, and diagnostics show local action ranking is
-better than the legacy compact-scorer failure mode.
+## Evaluation
 
-The first LR submission `3740707` is cancelled/superseded because it used
-8-frame training trajectories and pre-fix MCTS. The first post-fix submission
-`3741086` is also superseded because BF16 autocast exposed a masked projection
-dtype bug. The fixed sweep `3741118` checkpointed LR indices `0-23`; LR `7e-4`
-became numerically invalid and is excluded.
+Each checkpoint should run a separate dependency-held eval job.
 
-The integrated matrix proved too slow because beam + latent-distance rows can
-consume most of a 24h job before CEM/MCTS are reached. Immediate planner-only
-arrays now split the matrix by algorithm and write to
-`posthoc_planners/<planner>/planner_matrix.jsonl`:
+Planning matrix:
 
-- `3745940`: beam, still running/partial.
-- `3745941`: best-first, still running/partial.
-- `3745942`: categorical CEM, completed.
-- `3745943`: local search, completed.
-- `3745944`: MCTS / score-pruned progressive UCT, still running/partial.
-- `3745945`: exact symbolic, completed.
+- MPC outer loop
+- Beam search inner optimizer
+- Beam widths `1,4,16,64`
+- Beam depths `8,16,32,64`
+- Scores: oracle goal distance and predicted goal distance
+- Transitions: symbolic re-encode and latent rollout
 
-Current gate read: exact symbolic solving and exact `true_hamming_oracle`
-scoring work for beam/best-first/MCTS, but `oracle_goal_distance` and
-`predicted_goal_distance` still solve `0/128` in written rows and end near
-`48` remaining cells. Categorical CEM and local search are weak under current
-settings even with true-Hamming scoring, leaving about `40.35` and `39.35`
-cells wrong. The representation/scorer gate has not passed.
+Diagnostics record losses, latent geometry/effective rank, monotonicity,
+top-positive action accuracy, near-goal corruption margin, concrete action
+panels, planner solve rate, remaining Hamming, action-eval counts, and timing.

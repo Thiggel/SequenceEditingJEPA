@@ -1,15 +1,13 @@
 """Puzzle-world reasoning models for maze, sudoku, and JEPA planning."""
 
 from puzzle_jepa.data import MazeWorld, PuzzleExample, SudokuWorld, WorldAction
-from puzzle_jepa.models import ActionConditionedWorldModel, HRMReasoner, PTRMSampler, TRMReasoner
+from puzzle_jepa.models import GridGoalJEPAOutput, GridTokenGoalJEPA
 
 __all__ = [
-    "ActionConditionedWorldModel",
-    "HRMReasoner",
+    "GridGoalJEPAOutput",
+    "GridTokenGoalJEPA",
     "MazeWorld",
-    "PTRMSampler",
     "PuzzleExample",
     "SudokuWorld",
-    "TRMReasoner",
     "WorldAction",
 ]

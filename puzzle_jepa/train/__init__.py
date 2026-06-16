@@ -1,3 +1,3 @@
-from puzzle_jepa.train.smoke import run_smoke_experiment
+"""Training entry points for active Grid-Token Goal-JEPA experiments."""
 
-__all__ = ["run_smoke_experiment"]
+__all__: list[str] = []

@@ -1,0 +1,49 @@
+seed: 3001
+ablation: M0_full
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/grid_goal_sudoku
+task:
+  name: sudoku
+  repo_id: sapientinc/sudoku-extreme
+  train_split: train[:50000]
+  eval_split: test[:1024]
+  train_limit: null
+  eval_limit: null
+  puzzle_column: question
+  solution_column: answer
+model:
+  d_model: 256
+  distance_dim: 128
+  context_layers: 4
+  state_layers: 6
+  predictor_layers: 4
+  goal_layers: 6
+  num_heads: 8
+  mlp_ratio: 4.0
+  dropout: 0.1
+  sigreg_weight: 0.1
+  goal_nce_weight: 0.1
+  progress_rank_weight: 1.0
+  action_rank_weight: 1.0
+  terminal_corrupt_weight: 1.0
+  progress_margin: 0.1
+  rank_margin: 0.1
+  rank_temperature: 0.1
+  multi_step_horizons: [1, 4, 8, 16]
+  distance_mode: tokenwise
+training:
+  max_steps: 20000
+  batch_size: 64
+  oracle_probability: 0.5
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-3
+  grad_clip: 1.0
+  bf16: true
+  eval_every_steps: 1000
+  save_every_steps: 5000
+eval:
+  diagnostic_examples: 32
+  panel_examples: 3
+  panel_steps: 5
+  panel_actions: 6
+  planner_examples: 16
+  max_plan_steps: 81

@@ -1,0 +1,224 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import hydra
+import numpy as np
+import torch
+from omegaconf import DictConfig, OmegaConf
+from torch.optim import AdamW
+
+from puzzle_jepa.data.grid_goal_sudoku import (
+    collate_grid_goal_sudoku_trajectories,
+    corrupt_terminal,
+    sample_grid_goal_sudoku_trajectory,
+)
+from puzzle_jepa.data.hf_puzzles import HFPuzzleColumns, iter_hf_examples
+from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld
+from puzzle_jepa.eval.grid_goal_diagnostics import run_grid_goal_diagnostics
+from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
+
+
+ABLATIONS: dict[str, dict[str, Any]] = {
+    "M0_full": {},
+    "R1_no_context_masks": {"use_context_masks": False},
+    "R2_mean_pooled_distance": {"distance_mode": "mean_pooled"},
+    "R3_k1_only": {"multi_step_horizons": [1]},
+    "R3_k4": {"multi_step_horizons": [1, 4]},
+    "R3_k8": {"multi_step_horizons": [1, 4, 8]},
+    "R3_k16": {"multi_step_horizons": [1, 4, 8, 16]},
+    "R4_no_goal_nce": {"goal_nce_weight": 0.0},
+    "R5_no_progress_rank": {"progress_rank_weight": 0.0},
+    "R6_no_action_rank": {"action_rank_weight": 0.0},
+    "R7_no_terminal_corrupt": {"terminal_corrupt_weight": 0.0},
+    "R8_no_sigreg": {"sigreg_weight": 0.0},
+}
+
+
+def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
+    seed = int(config.get("seed", 0))
+    rng = np.random.default_rng(seed)
+    torch.manual_seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    output_dir = Path(str(config["output_dir"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    ablation = str(config.get("ablation", "M0_full"))
+    config = _apply_ablation(config, ablation)
+    (output_dir / "config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
+
+    train_examples = _load_examples(dict(config["task"]), split_key="train_split")
+    eval_examples = _load_examples(dict(config["task"]), split_key="eval_split")
+    model = GridTokenGoalJEPA(**dict(config["model"])).to(device)
+    optimizer = AdamW(model.parameters(), lr=float(config["training"]["learning_rate"]), weight_decay=float(config["training"].get("weight_decay", 1.0e-3)))
+    max_steps = int(config["training"]["max_steps"])
+    batch_size = int(config["training"].get("batch_size", 64))
+    eval_every = int(config["training"].get("eval_every_steps", 1000))
+    save_every = int(config["training"].get("save_every_steps", 5000))
+    oracle_probability = float(config["training"].get("oracle_probability", 0.5))
+    grad_clip = float(config["training"].get("grad_clip", 1.0))
+    use_amp = bool(config["training"].get("bf16", True)) and device.type == "cuda"
+    metrics_path = output_dir / "metrics.jsonl"
+    latest: dict[str, Any] = {}
+
+    for step in range(1, max_steps + 1):
+        model.train()
+        batch = _sample_batch(train_examples, rng, batch_size=batch_size, oracle_probability=oracle_probability, device=device)
+        negative_actions = _sample_negative_actions(batch.boards[:, 0], batch.goals, rng, device=device)
+        corrupt_goals = torch.as_tensor(
+            np.stack([corrupt_terminal(goal.cpu().numpy(), rng) for goal in batch.goals]),
+            dtype=torch.long,
+            device=device,
+        )
+        if not bool(config.get("use_context_masks", True)):
+            batch = _zero_context_masks(batch)
+        optimizer.zero_grad(set_to_none=True)
+        with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+            output = model(
+                batch.boards,
+                batch.actions,
+                batch.context,
+                batch.clue_mask,
+                batch.editable_mask,
+                batch.active_mask,
+                batch.goals,
+                masks=batch.masks,
+                negative_actions=negative_actions,
+                corrupt_goals=corrupt_goals,
+            )
+        output.loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
+        if step == 1 or step % eval_every == 0 or step == max_steps:
+            latest = {
+                "step": step,
+                "ablation": ablation,
+                "train_loss": float(output.loss.detach().cpu()),
+                "train_dynamics_loss": float(output.dynamics_loss.cpu()),
+                "train_sigreg_loss": float(output.sigreg_loss.cpu()),
+                "train_goal_mse_loss": float(output.goal_mse_loss.cpu()),
+                "train_goal_nce_loss": float(output.goal_nce_loss.cpu()),
+                "train_progress_rank_loss": float(output.progress_rank_loss.cpu()),
+                "train_action_rank_loss": float(output.action_rank_loss.cpu()),
+                "train_terminal_corrupt_loss": float(output.terminal_corrupt_loss.cpu()),
+                "learning_rate": float(config["training"]["learning_rate"]),
+                "batch_size": batch_size,
+                "param_count": _param_count(model),
+            }
+            with metrics_path.open("a") as handle:
+                handle.write(json.dumps(latest, sort_keys=True) + "\n")
+            print(json.dumps(latest, sort_keys=True), flush=True)
+        if step % save_every == 0 or step == max_steps:
+            _save_checkpoint(output_dir / f"checkpoint-{step}.pt", model, optimizer, step, latest, config)
+            _save_checkpoint(output_dir / "checkpoint.pt", model, optimizer, step, latest, config)
+
+    diagnostics = run_grid_goal_diagnostics(
+        model,
+        eval_examples[: int(config["eval"].get("diagnostic_examples", 32))],
+        output_dir,
+        device=device,
+        seed=seed + 500,
+        panel_examples=int(config["eval"].get("panel_examples", 3)),
+        panel_steps=int(config["eval"].get("panel_steps", 5)),
+        panel_actions=int(config["eval"].get("panel_actions", 6)),
+    )
+    latest.update(diagnostics)
+    (output_dir / "metrics.json").write_text(json.dumps(latest, indent=2, sort_keys=True))
+    return latest
+
+
+def _apply_ablation(config: dict[str, Any], ablation: str) -> dict[str, Any]:
+    if ablation not in ABLATIONS:
+        raise ValueError(f"Unknown ablation {ablation!r}; choices are {sorted(ABLATIONS)}.")
+    config = json.loads(json.dumps(config))
+    config["ablation"] = ablation
+    for key, value in ABLATIONS[ablation].items():
+        if key in {"use_context_masks", "distance_mode"}:
+            if key == "distance_mode":
+                config["model"][key] = value
+            else:
+                config[key] = value
+        else:
+            config["model"][key] = value
+    return config
+
+
+def _load_examples(task_cfg: dict[str, Any], *, split_key: str) -> list[PuzzleExample]:
+    world = SudokuWorld()
+    columns = HFPuzzleColumns(
+        puzzle=str(task_cfg.get("puzzle_column", "question")),
+        solution=str(task_cfg.get("solution_column", "answer")),
+    )
+    limit_key = "train_limit" if split_key == "train_split" else "eval_limit"
+    limit = task_cfg.get(limit_key)
+    return list(iter_hf_examples(str(task_cfg["repo_id"]), str(task_cfg[split_key]), world, columns, None if limit is None else int(limit)))
+
+
+def _sample_batch(
+    examples: list[PuzzleExample],
+    rng: np.random.Generator,
+    *,
+    batch_size: int,
+    oracle_probability: float,
+    device: torch.device,
+):
+    trajectories = [
+        sample_grid_goal_sudoku_trajectory(
+            examples[int(rng.integers(0, len(examples)))],
+            rng,
+            oracle_probability=oracle_probability,
+            allow_conflicts=True,
+        )
+        for _ in range(batch_size)
+    ]
+    return collate_grid_goal_sudoku_trajectories(trajectories, device=device)
+
+
+def _sample_negative_actions(boards: torch.Tensor, goals: torch.Tensor, rng: np.random.Generator, *, device: torch.device) -> torch.Tensor:
+    rows = []
+    for board, goal in zip(boards.cpu().numpy(), goals.cpu().numpy(), strict=True):
+        empty = np.argwhere(board == 0)
+        if len(empty) == 0:
+            rows.append([0, 0, 0])
+            continue
+        row, col = (int(x) for x in empty[int(rng.integers(0, len(empty)))])
+        correct = int(goal[row, col])
+        wrong = int(rng.integers(1, 10))
+        if wrong == correct:
+            wrong = 1 + (wrong % 9)
+        rows.append([row, col, wrong])
+    return torch.as_tensor(rows, dtype=torch.long, device=device)
+
+
+def _zero_context_masks(batch):
+    return type(batch)(
+        boards=batch.boards,
+        actions=batch.actions,
+        context=batch.context,
+        clue_mask=torch.zeros_like(batch.clue_mask),
+        editable_mask=torch.ones_like(batch.editable_mask),
+        active_mask=batch.active_mask,
+        goals=batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+    )
+
+
+def _save_checkpoint(path: Path, model: GridTokenGoalJEPA, optimizer: torch.optim.Optimizer, step: int, metrics: dict[str, Any], config: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(), "step": step, "metrics": metrics, "config": config}, path)
+
+
+def _param_count(model: torch.nn.Module) -> int:
+    return int(sum(param.numel() for param in model.parameters()))
+
+
+@hydra.main(version_base=None, config_path="../../configs/puzzle", config_name="grid_goal_sudoku")
+def main(cfg: DictConfig) -> None:
+    print(json.dumps(run_grid_goal_sudoku(OmegaConf.to_container(cfg, resolve=True)), sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
