@@ -163,6 +163,26 @@ LR `7e-4` / task `3741118_24` has no checkpoint yet; let it train, then cancel
 its integrated eval tail after checkpointing and submit planner-family evals
 for array index `24`.
 
+Update at 2026-06-16 status check: `3741118_24` wrote checkpoint files but
+became numerically invalid (`NaN` losses from about step 13000) and failed in
+diagnostic PCA/SVD, so do not use LR `7e-4` for planner comparison. Immediate
+split eval state for checkpointed LRs `0-23`: exact (`3745945`), categorical
+CEM (`3745942`), and local search (`3745943`) completed; beam (`3745940`),
+best-first (`3745941`), and MCTS (`3745944`) are still running/partial.
+Current completed/partial planner outputs show:
+
+- exact symbolic: `1.0` solve rate, remaining Hamming `0.0`.
+- beam: true-Hamming oracle rows solve `1.0`; oracle latent and predicted
+  goal-distance rows remain `0.0` solve rate with about `48` remaining cells.
+- best-first: true-Hamming oracle rows solve `1.0`; oracle latent/predicted
+  rows remain `0.0` solve rate with about `48-49` remaining cells.
+- categorical CEM and local search: `0.0` solve rate for all score modes in
+  completed rows; even true-Hamming oracle leaves about `39-40` cells wrong,
+  so these implementations/settings are not strong enough discrete Sudoku
+  planners yet.
+- MCTS is partial: true-Hamming oracle rows solve `1.0`; oracle latent and
+  predicted rows remain `0.0`.
+
 Each run writes `config.json`, `metrics.jsonl`, `checkpoint.pt`,
 `diagnostics.json`, a detailed `diagnostics/` directory, and
 `planner_matrix.jsonl`.
