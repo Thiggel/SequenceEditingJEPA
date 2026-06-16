@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-16 17:27 CEST
+Last updated: 2026-06-16 17:45 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -36,8 +36,11 @@ The full model trains:
   `oracle_mask`
 - action ranking between encoded symbolic successors for target-consistent and
   wrong fill actions
-- temporal straightening along successful trajectories
+- temporal straightening over valid three-frame trajectory triplets
 - terminal corruption contrast against 1-5 digit corruptions
+
+Temporal straightening computes curvature from adjacent latent velocities over
+the full active grid-token latent and is independent of the predicted goal.
 
 ## Ablations
 

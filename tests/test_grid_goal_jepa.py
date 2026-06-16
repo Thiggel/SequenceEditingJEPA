@@ -7,7 +7,7 @@ from puzzle_jepa.data.grid_goal_sudoku import (
     sample_grid_goal_sudoku_trajectory,
 )
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
-from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
+from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _temporal_straightening_loss
 from puzzle_jepa.planning.grid_goal_planner import run_beam_mpc
 
 
@@ -180,3 +180,72 @@ def test_beam_mpc_runs_with_oracle_goal_distance():
 def test_invalid_distance_mode_is_rejected():
     with pytest.raises(ValueError, match="distance_mode"):
         _small_model(distance_mode="bad")
+
+
+def test_temporal_straightening_needs_three_valid_frames():
+    states = torch.tensor([[[[0.0, 0.0]], [[1.0, 0.0]]]])
+    goal = torch.tensor([[[0.0, 1.0]]])
+    masks = torch.ones((1, 2), dtype=torch.bool)
+    active_mask = torch.ones((1, 1), dtype=torch.bool)
+
+    loss = _temporal_straightening_loss(states, goal, masks=masks, active_mask=active_mask)
+
+    assert loss.item() == pytest.approx(0.0, abs=1.0e-8)
+
+
+def test_temporal_straightening_uses_only_fully_valid_triplets():
+    states = torch.tensor([[[[0.0, 0.0]], [[1.0, 0.0]], [[2.0, 0.0]]]])
+    goal = torch.tensor([[[0.0, 1.0]]])
+    masks = torch.tensor([[True, True, False]])
+    active_mask = torch.ones((1, 1), dtype=torch.bool)
+
+    loss = _temporal_straightening_loss(states, goal, masks=masks, active_mask=active_mask)
+
+    assert loss.item() == pytest.approx(0.0, abs=1.0e-8)
+
+
+def test_temporal_straightening_is_goal_independent_curvature():
+    states = torch.tensor([[[[0.0, 0.0]], [[1.0, 0.0]], [[2.0, 0.0]]]])
+    aligned_goal = torch.tensor([[[3.0, 0.0]]])
+    off_axis_goal = torch.tensor([[[0.0, 3.0]]])
+    masks = torch.ones((1, 3), dtype=torch.bool)
+    active_mask = torch.ones((1, 1), dtype=torch.bool)
+
+    aligned_loss = _temporal_straightening_loss(states, aligned_goal, masks=masks, active_mask=active_mask)
+    off_axis_loss = _temporal_straightening_loss(states, off_axis_goal, masks=masks, active_mask=active_mask)
+
+    torch.testing.assert_close(aligned_loss, off_axis_loss)
+    assert aligned_loss.item() == pytest.approx(0.0, abs=1.0e-8)
+
+
+def test_temporal_straightening_penalizes_adjacent_velocity_turns():
+    straight = torch.tensor([[[[0.0, 0.0]], [[1.0, 0.0]], [[2.0, 0.0]]]])
+    curved = torch.tensor([[[[0.0, 0.0]], [[1.0, 0.0]], [[1.0, 1.0]]]])
+    goal = torch.tensor([[[3.0, 0.0]]])
+    masks = torch.ones((1, 3), dtype=torch.bool)
+    active_mask = torch.ones((1, 1), dtype=torch.bool)
+
+    straight_loss = _temporal_straightening_loss(straight, goal, masks=masks, active_mask=active_mask)
+    curved_loss = _temporal_straightening_loss(curved, goal, masks=masks, active_mask=active_mask)
+
+    assert straight_loss.item() == pytest.approx(0.0, abs=1.0e-8)
+    assert curved_loss > straight_loss
+
+
+def test_temporal_straightening_uses_full_grid_latent_not_mean_summary():
+    states = torch.tensor(
+        [
+            [
+                [[0.0, 0.0], [0.0, 0.0]],
+                [[1.0, 0.0], [0.0, 1.0]],
+                [[1.0, 1.0], [1.0, 1.0]],
+            ]
+        ]
+    )
+    goal = states[:, -1]
+    masks = torch.ones((1, 3), dtype=torch.bool)
+    active_mask = torch.ones((1, 2), dtype=torch.bool)
+
+    loss = _temporal_straightening_loss(states, goal, masks=masks, active_mask=active_mask)
+
+    assert loss.item() == pytest.approx(1.0, abs=1.0e-8)

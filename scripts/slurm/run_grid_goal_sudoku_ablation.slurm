@@ -45,4 +45,9 @@ python -m puzzle_jepa.train.grid_goal_sudoku \
   "seed=${SEED}" \
   "ablation=${ABLATION}" \
   "output_dir=${RUN_ROOT}" \
-  "training.learning_rate=1.0e-4"
+  "training.max_steps=${TRAIN_MAX_STEPS:-20000}" \
+  "training.batch_size=${BATCH_SIZE:-64}" \
+  "training.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS:-4}" \
+  "training.eval_every_steps=${EVAL_EVERY_STEPS:-1000}" \
+  "training.save_every_steps=${SAVE_EVERY_STEPS:-5000}" \
+  "training.learning_rate=${LEARNING_RATE:-1.0e-4}"

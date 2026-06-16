@@ -356,7 +356,7 @@ class GridTokenGoalJEPA(nn.Module):
         temporal_straightening_loss = _temporal_straightening_loss(
             state_latents,
             predicted_goal,
-            masks=progress_masks,
+            masks=masks,
             active_mask=active_flat,
         )
 
@@ -442,21 +442,29 @@ def _temporal_straightening_loss(
     masks: torch.Tensor,
     active_mask: torch.Tensor,
 ) -> torch.Tensor:
-    if state_latents.shape[1] < 2:
+    del goal_latents
+    if state_latents.shape[1] < 3:
         return state_latents.sum() * 0.0
-    summaries = _masked_summary(
-        state_latents.reshape(-1, state_latents.shape[-2], state_latents.shape[-1]),
-        active_mask[:, None].expand(state_latents.shape[0], state_latents.shape[1], -1).reshape(
-            -1, active_mask.shape[-1]
-        ),
-    ).reshape(state_latents.shape[0], state_latents.shape[1], state_latents.shape[-1])
-    goal_summary = _masked_summary(goal_latents, active_mask)
-    step_vec = summaries[:, 1:] - summaries[:, :-1]
-    goal_vec = goal_summary[:, None, :] - summaries[:, :-1]
-    valid = masks[:, 1:] & masks[:, :-1]
+    if active_mask.ndim == 3:
+        active_mask = active_mask.reshape(active_mask.shape[0], -1)
+    if active_mask.shape != state_latents.shape[:1] + state_latents.shape[2:3]:
+        raise ValueError(
+            f"Temporal straightening active mask must have shape "
+            f"{tuple(state_latents.shape[:1] + state_latents.shape[2:3])}, got {tuple(active_mask.shape)}."
+        )
+    if masks.shape != state_latents.shape[:2]:
+        raise ValueError(f"Temporal straightening masks must have shape {tuple(state_latents.shape[:2])}, got {tuple(masks.shape)}.")
+    valid = masks[:, :-2] & masks[:, 1:-1] & masks[:, 2:]
     if not bool(valid.any()):
         return state_latents.sum() * 0.0
-    cosine = F.cosine_similarity(step_vec, goal_vec, dim=-1, eps=1.0e-6)
+    velocity_a = state_latents[:, 1:-1] - state_latents[:, :-2]
+    velocity_b = state_latents[:, 2:] - state_latents[:, 1:-1]
+    weights = active_mask[:, None, :, None].to(dtype=state_latents.dtype)
+    velocity_a = velocity_a * weights
+    velocity_b = velocity_b * weights
+    numerator = (velocity_a * velocity_b).sum(dim=(-1, -2))
+    denom = velocity_a.square().sum(dim=(-1, -2)).sqrt() * velocity_b.square().sum(dim=(-1, -2)).sqrt()
+    cosine = numerator / denom.clamp_min(1.0e-6)
     return _masked_mean(1.0 - cosine, valid)
 
 
