@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
-#SBATCH --array=0-11%12
+#SBATCH --array=0-12%13
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
 
@@ -26,6 +26,7 @@ ABLATIONS=(
   R6_no_action_rank
   R7_no_terminal_corrupt
   R8_no_sigreg
+  R9_no_temporal_straightening
 )
 
 INDEX="${SLURM_ARRAY_TASK_ID:-0}"

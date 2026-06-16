@@ -284,6 +284,7 @@ def test_training_action_rank_state_is_not_hard_wired_to_initial_board(monkeypat
                 goal_nce_loss=zero,
                 progress_rank_loss=zero,
                 action_rank_loss=zero,
+                temporal_straightening_loss=zero,
                 terminal_corrupt_loss=zero,
             )
 

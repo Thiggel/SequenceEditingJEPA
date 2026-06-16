@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-16 17:16 CEST
+Last updated: 2026-06-16 17:27 CEST
 
 ## Current Result
 
@@ -29,6 +29,12 @@ Implementation review status:
 - HRM/TRM scaffolding remains intentionally as future baselines.
 - Action-rank training now samples rank states from valid trajectory frames,
   not only the initial puzzle state.
+- Added temporal straightening as a default geometry loss with ablation
+  `R9_no_temporal_straightening`.
+- Added linear warmup plus cosine decay: peak LR `1e-4`, warmup `1000`,
+  final LR `1e-5`.
+- Training now uses microbatch `64`, gradient accumulation `4`, effective
+  batch size `256`.
 - Current test command:
   `source scripts/env.sh && pytest -q` -> `26 passed`.
 - Running `pytest -q` without `source scripts/env.sh` fails at collection

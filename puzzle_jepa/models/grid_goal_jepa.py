@@ -21,6 +21,7 @@ class GridGoalJEPAOutput:
     goal_nce_loss: torch.Tensor
     progress_rank_loss: torch.Tensor
     action_rank_loss: torch.Tensor
+    temporal_straightening_loss: torch.Tensor
     terminal_corrupt_loss: torch.Tensor
     state_latents: torch.Tensor
     predicted_next_latents: torch.Tensor
@@ -179,6 +180,7 @@ class GridTokenGoalJEPA(nn.Module):
         goal_nce_weight: float = 0.1,
         progress_rank_weight: float = 1.0,
         action_rank_weight: float = 1.0,
+        temporal_straightening_weight: float = 0.1,
         terminal_corrupt_weight: float = 1.0,
         progress_margin: float = 0.1,
         rank_margin: float = 0.1,
@@ -208,6 +210,7 @@ class GridTokenGoalJEPA(nn.Module):
         self.goal_nce_weight = float(goal_nce_weight)
         self.progress_rank_weight = float(progress_rank_weight)
         self.action_rank_weight = float(action_rank_weight)
+        self.temporal_straightening_weight = float(temporal_straightening_weight)
         self.terminal_corrupt_weight = float(terminal_corrupt_weight)
         self.progress_margin = float(progress_margin)
         self.rank_margin = float(rank_margin)
@@ -350,6 +353,12 @@ class GridTokenGoalJEPA(nn.Module):
         progress_rank_loss = _progress_rank_loss(
             distances, progress_masks, margin=self.progress_margin, temperature=self.rank_temperature
         )
+        temporal_straightening_loss = _temporal_straightening_loss(
+            state_latents,
+            predicted_goal,
+            masks=progress_masks,
+            active_mask=active_flat,
+        )
 
         action_rank_loss = state_latents.sum() * 0.0
         if negative_actions is not None:
@@ -381,6 +390,7 @@ class GridTokenGoalJEPA(nn.Module):
             + self.goal_nce_weight * goal_nce_loss
             + self.progress_rank_weight * progress_rank_loss
             + self.action_rank_weight * action_rank_loss
+            + self.temporal_straightening_weight * temporal_straightening_loss
             + self.terminal_corrupt_weight * terminal_corrupt_loss
         )
         return GridGoalJEPAOutput(
@@ -391,6 +401,7 @@ class GridTokenGoalJEPA(nn.Module):
             goal_nce_loss=goal_nce_loss.detach(),
             progress_rank_loss=progress_rank_loss.detach(),
             action_rank_loss=action_rank_loss.detach(),
+            temporal_straightening_loss=temporal_straightening_loss.detach(),
             terminal_corrupt_loss=terminal_corrupt_loss.detach(),
             state_latents=state_latents,
             predicted_next_latents=predicted_next,
@@ -422,6 +433,31 @@ def _progress_rank_loss(distances: torch.Tensor, masks: torch.Tensor, *, margin:
     if not losses:
         return distances.sum() * 0.0
     return torch.stack(losses).mean()
+
+
+def _temporal_straightening_loss(
+    state_latents: torch.Tensor,
+    goal_latents: torch.Tensor,
+    *,
+    masks: torch.Tensor,
+    active_mask: torch.Tensor,
+) -> torch.Tensor:
+    if state_latents.shape[1] < 2:
+        return state_latents.sum() * 0.0
+    summaries = _masked_summary(
+        state_latents.reshape(-1, state_latents.shape[-2], state_latents.shape[-1]),
+        active_mask[:, None].expand(state_latents.shape[0], state_latents.shape[1], -1).reshape(
+            -1, active_mask.shape[-1]
+        ),
+    ).reshape(state_latents.shape[0], state_latents.shape[1], state_latents.shape[-1])
+    goal_summary = _masked_summary(goal_latents, active_mask)
+    step_vec = summaries[:, 1:] - summaries[:, :-1]
+    goal_vec = goal_summary[:, None, :] - summaries[:, :-1]
+    valid = masks[:, 1:] & masks[:, :-1]
+    if not bool(valid.any()):
+        return state_latents.sum() * 0.0
+    cosine = F.cosine_similarity(step_vec, goal_vec, dim=-1, eps=1.0e-6)
+    return _masked_mean(1.0 - cosine, valid)
 
 
 def _apply_set_cell_actions(boards: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:

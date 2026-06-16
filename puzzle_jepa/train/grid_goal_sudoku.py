@@ -35,6 +35,7 @@ ABLATIONS: dict[str, dict[str, Any]] = {
     "R6_no_action_rank": {"action_rank_weight": 0.0},
     "R7_no_terminal_corrupt": {"terminal_corrupt_weight": 0.0},
     "R8_no_sigreg": {"sigreg_weight": 0.0},
+    "R9_no_temporal_straightening": {"temporal_straightening_weight": 0.0},
 }
 
 
@@ -53,9 +54,19 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
     train_examples = _load_examples(dict(config["task"]), split_key="train_split")
     eval_examples = _load_examples(dict(config["task"]), split_key="eval_split")
     model = GridTokenGoalJEPA(**dict(config["model"])).to(device)
-    optimizer = AdamW(model.parameters(), lr=float(config["training"]["learning_rate"]), weight_decay=float(config["training"].get("weight_decay", 1.0e-3)))
+    peak_lr = float(config["training"]["learning_rate"])
+    optimizer = AdamW(
+        model.parameters(),
+        lr=peak_lr,
+        weight_decay=float(config["training"].get("weight_decay", 1.0e-3)),
+    )
     max_steps = int(config["training"]["max_steps"])
     batch_size = int(config["training"].get("batch_size", 64))
+    gradient_accumulation_steps = int(config["training"].get("gradient_accumulation_steps", 1))
+    if gradient_accumulation_steps <= 0:
+        raise ValueError("training.gradient_accumulation_steps must be positive.")
+    warmup_steps = int(config["training"].get("warmup_steps", 0))
+    min_lr_ratio = float(config["training"].get("min_lr_ratio", 0.1))
     eval_every = int(config["training"].get("eval_every_steps", 1000))
     save_every = int(config["training"].get("save_every_steps", 5000))
     oracle_probability = float(config["training"].get("oracle_probability", 0.5))
@@ -66,45 +77,63 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
 
     for step in range(1, max_steps + 1):
         model.train()
-        batch = _sample_batch(train_examples, rng, batch_size=batch_size, oracle_probability=oracle_probability, device=device)
-        try:
-            rank_sample = _sample_rank_actions(batch.boards, batch.goals, rng, masks=batch.masks, device=device)
-        except TypeError as exc:
-            if "unexpected keyword argument 'masks'" not in str(exc):
-                raise
-            rank_sample = _sample_rank_actions(batch.boards, batch.goals, rng, device=device)
-        if len(rank_sample) == 2:
-            action_rank_states = batch.boards[:, 0]
-            positive_actions, negative_actions = rank_sample
-        else:
-            action_rank_states, positive_actions, negative_actions = rank_sample
-        corrupt_goals = torch.as_tensor(
-            np.stack([corrupt_terminal(goal.cpu().numpy(), rng) for goal in batch.goals]),
-            dtype=torch.long,
-            device=device,
-        )
-        if not bool(config.get("use_context_masks", True)):
-            batch = _zero_context_masks(batch)
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
-            output = model(
-                batch.boards,
-                batch.actions,
-                batch.context,
-                batch.clue_mask,
-                batch.editable_mask,
-                batch.active_mask,
-                batch.goals,
-                masks=batch.masks,
-                oracle_mask=batch.oracle_mask,
-                action_rank_states=action_rank_states,
-                positive_actions=positive_actions,
-                negative_actions=negative_actions,
-                corrupt_goals=corrupt_goals,
+        outputs = []
+        for _micro_step in range(gradient_accumulation_steps):
+            batch = _sample_batch(
+                train_examples,
+                rng,
+                batch_size=batch_size,
+                oracle_probability=oracle_probability,
+                device=device,
             )
-        output.loss.backward()
+            try:
+                rank_sample = _sample_rank_actions(batch.boards, batch.goals, rng, masks=batch.masks, device=device)
+            except TypeError as exc:
+                if "unexpected keyword argument 'masks'" not in str(exc):
+                    raise
+                rank_sample = _sample_rank_actions(batch.boards, batch.goals, rng, device=device)
+            if len(rank_sample) == 2:
+                action_rank_states = batch.boards[:, 0]
+                positive_actions, negative_actions = rank_sample
+            else:
+                action_rank_states, positive_actions, negative_actions = rank_sample
+            corrupt_goals = torch.as_tensor(
+                np.stack([corrupt_terminal(goal.cpu().numpy(), rng) for goal in batch.goals]),
+                dtype=torch.long,
+                device=device,
+            )
+            if not bool(config.get("use_context_masks", True)):
+                batch = _zero_context_masks(batch)
+            with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+                output = model(
+                    batch.boards,
+                    batch.actions,
+                    batch.context,
+                    batch.clue_mask,
+                    batch.editable_mask,
+                    batch.active_mask,
+                    batch.goals,
+                    masks=batch.masks,
+                    oracle_mask=batch.oracle_mask,
+                    action_rank_states=action_rank_states,
+                    positive_actions=positive_actions,
+                    negative_actions=negative_actions,
+                    corrupt_goals=corrupt_goals,
+                )
+            (output.loss / gradient_accumulation_steps).backward()
+            outputs.append(output)
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        lr = _scheduled_lr(
+            step=step,
+            max_steps=max_steps,
+            peak_lr=peak_lr,
+            warmup_steps=warmup_steps,
+            min_lr_ratio=min_lr_ratio,
+        )
+        _set_optimizer_lr(optimizer, lr)
         optimizer.step()
+        output = outputs[-1]
         if step == 1 or step % eval_every == 0 or step == max_steps:
             latest = {
                 "step": step,
@@ -116,9 +145,15 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 "train_goal_nce_loss": float(output.goal_nce_loss.cpu()),
                 "train_progress_rank_loss": float(output.progress_rank_loss.cpu()),
                 "train_action_rank_loss": float(output.action_rank_loss.cpu()),
+                "train_temporal_straightening_loss": float(output.temporal_straightening_loss.cpu()),
                 "train_terminal_corrupt_loss": float(output.terminal_corrupt_loss.cpu()),
-                "learning_rate": float(config["training"]["learning_rate"]),
-                "batch_size": batch_size,
+                "learning_rate": lr,
+                "peak_learning_rate": peak_lr,
+                "warmup_steps": warmup_steps,
+                "min_lr_ratio": min_lr_ratio,
+                "micro_batch_size": batch_size,
+                "gradient_accumulation_steps": gradient_accumulation_steps,
+                "effective_batch_size": batch_size * gradient_accumulation_steps,
                 "param_count": _param_count(model),
             }
             with metrics_path.open("a") as handle:
@@ -255,6 +290,27 @@ def _save_checkpoint(path: Path, model: GridTokenGoalJEPA, optimizer: torch.opti
 
 def _param_count(model: torch.nn.Module) -> int:
     return int(sum(param.numel() for param in model.parameters()))
+
+
+def _scheduled_lr(
+    *,
+    step: int,
+    max_steps: int,
+    peak_lr: float,
+    warmup_steps: int,
+    min_lr_ratio: float,
+) -> float:
+    if warmup_steps > 0 and step <= warmup_steps:
+        return peak_lr * step / warmup_steps
+    decay_steps = max(1, max_steps - max(0, warmup_steps))
+    decay_step = min(decay_steps, max(0, step - max(0, warmup_steps)))
+    cosine = 0.5 * (1.0 + np.cos(np.pi * decay_step / decay_steps))
+    return peak_lr * (min_lr_ratio + (1.0 - min_lr_ratio) * cosine)
+
+
+def _set_optimizer_lr(optimizer: torch.optim.Optimizer, lr: float) -> None:
+    for group in optimizer.param_groups:
+        group["lr"] = lr
 
 
 @hydra.main(version_base=None, config_path="../../configs/puzzle", config_name="grid_goal_sudoku")

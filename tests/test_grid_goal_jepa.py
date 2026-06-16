@@ -137,6 +137,7 @@ def test_forward_computes_all_requested_losses():
     assert output.predicted_next_latents.shape[2:] == (81, 32)
     assert output.progress_rank_loss.ndim == 0
     assert output.action_rank_loss.ndim == 0
+    assert output.temporal_straightening_loss.ndim == 0
     assert output.terminal_corrupt_loss.ndim == 0
 
 

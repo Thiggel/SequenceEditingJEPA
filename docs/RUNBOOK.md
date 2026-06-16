@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-16 17:16 CEST
+Last updated: 2026-06-16 17:27 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -39,7 +39,7 @@ Current verification after fixing final action-rank state sampling:
 - `source scripts/env.sh && pytest -q`: `26 passed`
 - `python -m compileall -q puzzle_jepa configs`: passed
 - Slurm launcher syntax checks: passed
-- Import check confirms 12 ablations and beam widths/depths:
+- Import check confirms 13 ablations and beam widths/depths:
   widths `1,4,16,64`; depths `8,16,32,64`
 
 Regression tests in `tests/test_grid_goal_plan_regressions.py` now pass. They
@@ -100,7 +100,20 @@ $PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_sudoku_<ablation>/planner_eval/
 `M0_full`, `R1_no_context_masks`, `R2_mean_pooled_distance`, `R3_k1_only`,
 `R3_k4`, `R3_k8`, `R3_k16`, `R4_no_goal_nce`,
 `R5_no_progress_rank`, `R6_no_action_rank`,
-`R7_no_terminal_corrupt`, `R8_no_sigreg`.
+`R7_no_terminal_corrupt`, `R8_no_sigreg`,
+`R9_no_temporal_straightening`.
+
+Training defaults:
+
+- optimizer steps: `20000`
+- microbatch size: `64`
+- gradient accumulation: `4`
+- effective batch size: `256` full trajectories per optimizer step
+- peak LR: `1e-4`
+- warmup: `1000` steps
+- schedule: linear warmup then cosine decay
+- final LR: `1e-5`
+- temporal straightening weight: `0.1`
 
 Planner eval axes:
 

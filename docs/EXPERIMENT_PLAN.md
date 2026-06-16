@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-16 17:03 CEST
+Last updated: 2026-06-16 17:27 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -36,11 +36,13 @@ The full model trains:
   `oracle_mask`
 - action ranking between encoded symbolic successors for target-consistent and
   wrong fill actions
+- temporal straightening along successful trajectories
 - terminal corruption contrast against 1-5 digit corruptions
 
 ## Ablations
 
-Run one LR (`1e-4`) and one seed per ablation:
+Run one peak LR (`1e-4`) and one seed per ablation. Use linear warmup for
+`1000` optimizer steps, then cosine decay to `1e-5`.
 
 | Run | Change |
 | --- | --- |
@@ -56,6 +58,14 @@ Run one LR (`1e-4`) and one seed per ablation:
 | `R6_no_action_rank` | Remove action ranking |
 | `R7_no_terminal_corrupt` | Remove terminal corruption contrast |
 | `R8_no_sigreg` | Remove SIGReg |
+| `R9_no_temporal_straightening` | Remove temporal straightening |
+
+Training budget:
+
+- optimizer steps: `20000`
+- microbatch size: `64`
+- gradient accumulation: `4`
+- effective batch size: `256` full trajectories per optimizer step
 
 ## Evaluation
 
