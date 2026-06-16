@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -254,6 +255,79 @@ def test_action_rank_does_not_depend_on_predictor_rollout(monkeypatch):
             positive_actions=positive_actions,
             negative_actions=negative_actions,
         )
+
+
+def test_training_action_rank_state_is_not_hard_wired_to_initial_board(monkeypatch, tmp_path):
+    """Action ranking should train branch discrimination at trajectory states, not only s_0."""
+    import puzzle_jepa.train.grid_goal_sudoku as train_mod
+
+    rng = np.random.default_rng(4)
+    example = _example()
+    batch = collate_grid_goal_sudoku_trajectories(
+        [sample_grid_goal_sudoku_trajectory(example, rng, oracle_probability=1.0)]
+    )
+    captured_rank_boards = []
+
+    class DummyModel(torch.nn.Module):
+        def __init__(self, **_kwargs):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.zeros(()))
+
+        def forward(self, *args, **kwargs):
+            loss = self.weight.square()
+            zero = loss.detach()
+            return SimpleNamespace(
+                loss=loss,
+                dynamics_loss=zero,
+                sigreg_loss=zero,
+                goal_mse_loss=zero,
+                goal_nce_loss=zero,
+                progress_rank_loss=zero,
+                action_rank_loss=zero,
+                terminal_corrupt_loss=zero,
+            )
+
+    def fake_sample_batch(*_args, **_kwargs):
+        return batch
+
+    def fake_sample_rank_actions(boards, goals, rng, *, device):
+        del goals, rng
+        captured_rank_boards.append(boards.detach().cpu().clone())
+        action = batch.actions[:, 0].to(device)
+        negative = action.clone()
+        negative[:, 2] = (negative[:, 2] % 9) + 1
+        return action, negative
+
+    monkeypatch.setattr(train_mod, "GridTokenGoalJEPA", DummyModel)
+    monkeypatch.setattr(train_mod, "_load_examples", lambda *_args, **_kwargs: [example])
+    monkeypatch.setattr(train_mod, "_sample_batch", fake_sample_batch)
+    monkeypatch.setattr(train_mod, "_sample_rank_actions", fake_sample_rank_actions)
+    monkeypatch.setattr(train_mod, "run_grid_goal_diagnostics", lambda *_args, **_kwargs: {})
+
+    train_mod.run_grid_goal_sudoku(
+        {
+            "seed": 0,
+            "ablation": "M0_full",
+            "output_dir": str(tmp_path),
+            "task": {"repo_id": "unused", "train_split": "train", "eval_split": "test"},
+            "model": {},
+            "training": {
+                "max_steps": 1,
+                "batch_size": 1,
+                "oracle_probability": 1.0,
+                "learning_rate": 1.0e-4,
+                "eval_every_steps": 1,
+                "save_every_steps": 999,
+                "bf16": False,
+            },
+            "eval": {"diagnostic_examples": 1},
+        }
+    )
+
+    assert captured_rank_boards
+    initial_boards = batch.boards[:, 0].cpu()
+    rank_boards = captured_rank_boards[0]
+    assert rank_boards.ndim == 4 or not torch.equal(rank_boards, initial_boards)
 
 
 @pytest.mark.parametrize(

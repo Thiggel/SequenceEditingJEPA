@@ -277,6 +277,7 @@ class GridTokenGoalJEPA(nn.Module):
         *,
         masks: torch.Tensor,
         oracle_mask: torch.Tensor | None = None,
+        action_rank_states: torch.Tensor | None = None,
         positive_actions: torch.Tensor | None = None,
         negative_actions: torch.Tensor | None = None,
         corrupt_goals: torch.Tensor | None = None,
@@ -352,12 +353,13 @@ class GridTokenGoalJEPA(nn.Module):
 
         action_rank_loss = state_latents.sum() * 0.0
         if negative_actions is not None:
+            rank_states = boards[:, 0] if action_rank_states is None else action_rank_states
             if positive_actions is None:
                 positive_actions = actions[:, 0]
             else:
                 positive_actions = positive_actions
-            pos_boards = _apply_set_cell_actions(boards[:, 0], positive_actions)
-            neg_boards = _apply_set_cell_actions(boards[:, 0], negative_actions)
+            pos_boards = _apply_set_cell_actions(rank_states, positive_actions)
+            neg_boards = _apply_set_cell_actions(rank_states, negative_actions)
             pos_latents = self.encode_state(pos_boards, context_latents, clue_mask, editable_mask, active_mask)
             neg_latents = self.encode_state(neg_boards, context_latents, clue_mask, editable_mask, active_mask)
             pos_d = self.distance(pos_latents, predicted_goal, active_mask)

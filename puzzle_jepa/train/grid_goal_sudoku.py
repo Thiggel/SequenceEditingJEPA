@@ -67,7 +67,17 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
     for step in range(1, max_steps + 1):
         model.train()
         batch = _sample_batch(train_examples, rng, batch_size=batch_size, oracle_probability=oracle_probability, device=device)
-        positive_actions, negative_actions = _sample_rank_actions(batch.boards[:, 0], batch.goals, rng, device=device)
+        try:
+            rank_sample = _sample_rank_actions(batch.boards, batch.goals, rng, masks=batch.masks, device=device)
+        except TypeError as exc:
+            if "unexpected keyword argument 'masks'" not in str(exc):
+                raise
+            rank_sample = _sample_rank_actions(batch.boards, batch.goals, rng, device=device)
+        if len(rank_sample) == 2:
+            action_rank_states = batch.boards[:, 0]
+            positive_actions, negative_actions = rank_sample
+        else:
+            action_rank_states, positive_actions, negative_actions = rank_sample
         corrupt_goals = torch.as_tensor(
             np.stack([corrupt_terminal(goal.cpu().numpy(), rng) for goal in batch.goals]),
             dtype=torch.long,
@@ -87,6 +97,7 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 batch.goals,
                 masks=batch.masks,
                 oracle_mask=batch.oracle_mask,
+                action_rank_states=action_rank_states,
                 positive_actions=positive_actions,
                 negative_actions=negative_actions,
                 corrupt_goals=corrupt_goals,
@@ -178,11 +189,32 @@ def _sample_batch(
 
 
 def _sample_rank_actions(
-    boards: torch.Tensor, goals: torch.Tensor, rng: np.random.Generator, *, device: torch.device
-) -> tuple[torch.Tensor, torch.Tensor]:
+    boards: torch.Tensor,
+    goals: torch.Tensor,
+    rng: np.random.Generator,
+    *,
+    masks: torch.Tensor | None = None,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if boards.ndim == 3:
+        rank_boards = boards
+    elif boards.ndim == 4:
+        selected = []
+        masks_cpu = None if masks is None else masks.cpu().numpy()
+        for batch_index, sequence in enumerate(boards.cpu().numpy()):
+            valid_steps = np.arange(sequence.shape[0])
+            if masks_cpu is not None:
+                valid_steps = valid_steps[masks_cpu[batch_index]]
+            candidates = [int(step) for step in valid_steps if np.any(sequence[int(step)] == 0)]
+            if not candidates:
+                candidates = [int(valid_steps[0])] if len(valid_steps) else [0]
+            selected.append(sequence[candidates[int(rng.integers(0, len(candidates)))]])
+        rank_boards = torch.as_tensor(np.stack(selected), dtype=boards.dtype, device=device)
+    else:
+        raise ValueError(f"Expected boards [batch, rows, cols] or [batch, frames, rows, cols], got {tuple(boards.shape)}.")
     positives = []
     negatives = []
-    for board, goal in zip(boards.cpu().numpy(), goals.cpu().numpy(), strict=True):
+    for board, goal in zip(rank_boards.cpu().numpy(), goals.cpu().numpy(), strict=True):
         empty = np.argwhere(board == 0)
         if len(empty) == 0:
             positives.append([0, 0, 0])
@@ -196,6 +228,7 @@ def _sample_rank_actions(
         positives.append([row, col, correct])
         negatives.append([row, col, wrong])
     return (
+        rank_boards,
         torch.as_tensor(positives, dtype=torch.long, device=device),
         torch.as_tensor(negatives, dtype=torch.long, device=device),
     )

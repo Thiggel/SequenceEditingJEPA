@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-16 17:03 CEST
+Last updated: 2026-06-16 17:16 CEST
 
 ## Current Result
 
@@ -27,12 +27,18 @@ Implementation review status:
   distance-vs-Hamming Spearman correlation, action margins by fill depth, and
   terminal corruption margins by corruption size.
 - HRM/TRM scaffolding remains intentionally as future baselines.
+- Action-rank training now samples rank states from valid trajectory frames,
+  not only the initial puzzle state.
 - Current test command:
-  `source scripts/env.sh && pytest -q` -> `25 passed`.
+  `source scripts/env.sh && pytest -q` -> `26 passed`.
 - Running `pytest -q` without `source scripts/env.sh` fails at collection
   because the default Python cannot import `torch`.
 
-Second-pass review issues are fixed. No Grid-Token jobs have been submitted.
+Final-review objective issues are fixed. No Grid-Token jobs have been
+submitted.
+
+Planner runtime risk remains: the largest beam matrix settings expand many
+unbatched successor scores and may exceed the 24h eval limit.
 
 ## Legacy Result
 

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-16 17:03 CEST
+Last updated: 2026-06-16 17:16 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -34,9 +34,9 @@ bash -n scripts/slurm/run_grid_goal_sudoku_ablation.slurm
 bash -n scripts/slurm/run_grid_goal_sudoku_planner_eval.slurm
 ```
 
-Current verification after fixing second-pass review issues:
+Current verification after fixing final action-rank state sampling:
 
-- `source scripts/env.sh && pytest -q`: `25 passed`
+- `source scripts/env.sh && pytest -q`: `26 passed`
 - `python -m compileall -q puzzle_jepa configs`: passed
 - Slurm launcher syntax checks: passed
 - Import check confirms 12 ablations and beam widths/depths:
@@ -60,9 +60,21 @@ pass. They cover:
   intentionally as future HRM/TRM baselines
 - rollout and goal-alignment diagnostics are present
 
+Final-review regression test now passes:
+
+- training samples action-rank boards from valid trajectory states, not only
+  `batch.boards[:, 0]`.
+
+Operational risk:
+
+- the largest planner matrix settings (`beam_width=64`, `beam_depth=64`) expand
+  many unbatched successor scores and are likely to be very slow without
+  batching or a branch policy.
+
 ## Submit When Asked
 
-Do not submit until the user says `go`.
+Do not submit until the user says `go`. The largest planner settings remain a
+runtime risk unless batched/pruned or explicitly accepted.
 
 Recommended submission:
 
