@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-16 15:05 CEST
+Last updated: 2026-06-16 16:44 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -21,7 +21,8 @@ Goal-JEPA** for Sudoku.
   `scripts/slurm/run_grid_goal_sudoku_planner_eval.slurm`
 
 All previous LeWM/CLS/value-head jobs were cancelled or completed before this
-reset. No new Grid-Token jobs have been submitted yet.
+reset. Review-time `squeue -u "$USER"` showed no active Slurm jobs. No new
+Grid-Token jobs have been submitted yet.
 
 ## Verify
 
@@ -33,12 +34,21 @@ bash -n scripts/slurm/run_grid_goal_sudoku_ablation.slurm
 bash -n scripts/slurm/run_grid_goal_sudoku_planner_eval.slurm
 ```
 
-Current verification after the refactor:
+Current verification after fixing review regressions:
 
-- `pytest -q`: `8 passed`
+- `source scripts/env.sh && pytest -q`: `18 passed`
 - `python -m compileall -q puzzle_jepa configs`: passed
+- Slurm launcher syntax checks: passed
 - Import check confirms 12 ablations and beam widths/depths:
   widths `1,4,16,64`; depths `8,16,32,64`
+
+Regression tests in `tests/test_grid_goal_plan_regressions.py` now pass. They
+cover:
+
+- action-rank positives are target-consistent solution actions
+- `R1_no_context_masks` removes context value conditioning
+- model `forward` accepts non-9x9 active grid-token tensors
+- legacy CLS/value/causal paths are removed from the active source tree
 
 ## Submit When Asked
 

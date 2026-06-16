@@ -13,6 +13,7 @@ from torch.optim import AdamW
 from puzzle_jepa.data.grid_goal_sudoku import (
     collate_grid_goal_sudoku_trajectories,
     corrupt_terminal,
+    sample_random_grid_goal_sudoku_trajectory,
     sample_grid_goal_sudoku_trajectory,
 )
 from puzzle_jepa.data.hf_puzzles import HFPuzzleColumns, iter_hf_examples
@@ -66,7 +67,7 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
     for step in range(1, max_steps + 1):
         model.train()
         batch = _sample_batch(train_examples, rng, batch_size=batch_size, oracle_probability=oracle_probability, device=device)
-        negative_actions = _sample_negative_actions(batch.boards[:, 0], batch.goals, rng, device=device)
+        positive_actions, negative_actions = _sample_rank_actions(batch.boards[:, 0], batch.goals, rng, device=device)
         corrupt_goals = torch.as_tensor(
             np.stack([corrupt_terminal(goal.cpu().numpy(), rng) for goal in batch.goals]),
             dtype=torch.long,
@@ -85,6 +86,7 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 batch.active_mask,
                 batch.goals,
                 masks=batch.masks,
+                positive_actions=positive_actions,
                 negative_actions=negative_actions,
                 corrupt_goals=corrupt_goals,
             )
@@ -164,39 +166,45 @@ def _sample_batch(
     oracle_probability: float,
     device: torch.device,
 ):
-    trajectories = [
-        sample_grid_goal_sudoku_trajectory(
-            examples[int(rng.integers(0, len(examples)))],
-            rng,
-            oracle_probability=oracle_probability,
-            allow_conflicts=True,
-        )
-        for _ in range(batch_size)
-    ]
+    trajectories = []
+    for _ in range(batch_size):
+        example = examples[int(rng.integers(0, len(examples)))]
+        if rng.random() < oracle_probability:
+            trajectories.append(sample_grid_goal_sudoku_trajectory(example, rng, allow_conflicts=True))
+        else:
+            trajectories.append(sample_random_grid_goal_sudoku_trajectory(example, rng, allow_conflicts=True))
     return collate_grid_goal_sudoku_trajectories(trajectories, device=device)
 
 
-def _sample_negative_actions(boards: torch.Tensor, goals: torch.Tensor, rng: np.random.Generator, *, device: torch.device) -> torch.Tensor:
-    rows = []
+def _sample_rank_actions(
+    boards: torch.Tensor, goals: torch.Tensor, rng: np.random.Generator, *, device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor]:
+    positives = []
+    negatives = []
     for board, goal in zip(boards.cpu().numpy(), goals.cpu().numpy(), strict=True):
         empty = np.argwhere(board == 0)
         if len(empty) == 0:
-            rows.append([0, 0, 0])
+            positives.append([0, 0, 0])
+            negatives.append([0, 0, 0])
             continue
         row, col = (int(x) for x in empty[int(rng.integers(0, len(empty)))])
         correct = int(goal[row, col])
         wrong = int(rng.integers(1, 10))
         if wrong == correct:
             wrong = 1 + (wrong % 9)
-        rows.append([row, col, wrong])
-    return torch.as_tensor(rows, dtype=torch.long, device=device)
+        positives.append([row, col, correct])
+        negatives.append([row, col, wrong])
+    return (
+        torch.as_tensor(positives, dtype=torch.long, device=device),
+        torch.as_tensor(negatives, dtype=torch.long, device=device),
+    )
 
 
 def _zero_context_masks(batch):
     return type(batch)(
         boards=batch.boards,
         actions=batch.actions,
-        context=batch.context,
+        context=torch.zeros_like(batch.context),
         clue_mask=torch.zeros_like(batch.clue_mask),
         editable_mask=torch.ones_like(batch.editable_mask),
         active_mask=batch.active_mask,

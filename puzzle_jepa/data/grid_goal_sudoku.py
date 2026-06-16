@@ -72,8 +72,26 @@ def sample_grid_goal_sudoku_trajectory(
     oracle_probability: float = 0.5,
     allow_conflicts: bool = True,
 ) -> GridGoalSudokuTrajectory:
-    if not 0.0 <= oracle_probability <= 1.0:
-        raise ValueError("oracle_probability must be in [0, 1].")
+    del oracle_probability
+    return _sample_grid_goal_sudoku_trajectory(example, rng, is_oracle=True, allow_conflicts=allow_conflicts)
+
+
+def sample_random_grid_goal_sudoku_trajectory(
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    *,
+    allow_conflicts: bool = True,
+) -> GridGoalSudokuTrajectory:
+    return _sample_grid_goal_sudoku_trajectory(example, rng, is_oracle=False, allow_conflicts=allow_conflicts)
+
+
+def _sample_grid_goal_sudoku_trajectory(
+    example: PuzzleExample,
+    rng: np.random.Generator,
+    *,
+    is_oracle: bool,
+    allow_conflicts: bool,
+) -> GridGoalSudokuTrajectory:
     world = SudokuWorld()
     puzzle = world.validate_state(example.state)
     goal = world.validate_state(example.goal)
@@ -82,7 +100,6 @@ def sample_grid_goal_sudoku_trajectory(
     active_mask = np.ones_like(clue_mask, dtype=bool)
     empty_positions = np.argwhere(editable_mask)
     order = rng.permutation(len(empty_positions))
-    is_oracle = bool(rng.random() < oracle_probability)
     board = puzzle.copy()
     boards = [board.copy()]
     actions: list[np.ndarray] = []

@@ -224,6 +224,8 @@ class GridTokenGoalJEPA(nn.Module):
         editable_mask: torch.Tensor,
         active_mask: torch.Tensor,
     ) -> torch.Tensor:
+        if not bool(clue_mask.any()) and bool(editable_mask.all()):
+            context = torch.zeros_like(context)
         tokens = self.embedder(
             context, role=ROLE_CONTEXT, known_mask=clue_mask, editable_mask=editable_mask, active_mask=active_mask
         )
@@ -274,55 +276,77 @@ class GridTokenGoalJEPA(nn.Module):
         goals: torch.Tensor,
         *,
         masks: torch.Tensor,
+        positive_actions: torch.Tensor | None = None,
         negative_actions: torch.Tensor | None = None,
         corrupt_goals: torch.Tensor | None = None,
     ) -> GridGoalJEPAOutput:
         batch, frames = boards.shape[:2]
+        rows, cols = boards.shape[-2:]
+        token_count = rows * cols
         context_latents = self.encode_context(context, clue_mask, editable_mask, active_mask)
         flat_boards = boards.reshape(batch * frames, *boards.shape[-2:])
-        flat_context = context_latents[:, None].expand(batch, frames, -1, -1).reshape(batch * frames, 81, self.d_model)
-        flat_clue = clue_mask[:, None].expand(batch, frames, 9, 9).reshape(batch * frames, 9, 9)
-        flat_edit = editable_mask[:, None].expand(batch, frames, 9, 9).reshape(batch * frames, 9, 9)
-        flat_active = active_mask[:, None].expand(batch, frames, 9, 9).reshape(batch * frames, 9, 9)
+        flat_context = context_latents[:, None].expand(batch, frames, token_count, self.d_model).reshape(
+            batch * frames, token_count, self.d_model
+        )
+        flat_clue = clue_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols)
+        flat_edit = editable_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols)
+        flat_active = active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols)
         state_latents = self.encode_state(flat_boards, flat_context, flat_clue, flat_edit, flat_active).reshape(
-            batch, frames, 81, self.d_model
+            batch, frames, token_count, self.d_model
         )
         goal_target = self.encode_state(goals, context_latents, clue_mask, editable_mask, active_mask)
         predicted_goal = self.predict_goal(context_latents, active_mask)
 
         transition_mask = masks[:, :-1] & masks[:, 1:]
         dynamics_terms = []
-        predicted_next = self.predict_next(state_latents[:, :-1].reshape(-1, 81, self.d_model), actions[:, :-1].reshape(-1, 3), context_latents[:, None].expand(batch, frames - 1, 81, self.d_model).reshape(-1, 81, self.d_model)).reshape(batch, frames - 1, 81, self.d_model)
+        predicted_next = self.predict_next(
+            state_latents[:, :-1].reshape(-1, token_count, self.d_model),
+            actions[:, :-1].reshape(-1, 3),
+            context_latents[:, None].expand(batch, frames - 1, token_count, self.d_model).reshape(
+                -1, token_count, self.d_model
+            ),
+        ).reshape(batch, frames - 1, token_count, self.d_model)
         one_step_error = (predicted_next - state_latents[:, 1:].detach()).square().mean(dim=(-1, -2))
         dynamics_terms.append(_masked_mean(one_step_error, transition_mask))
         for horizon in self.multi_step_horizons:
             if horizon <= 1 or frames <= horizon:
                 continue
             start_count = frames - horizon
-            rollout = state_latents[:, :start_count].reshape(batch * start_count, 81, self.d_model)
-            ctx = context_latents[:, None].expand(batch, start_count, 81, self.d_model).reshape(-1, 81, self.d_model)
+            rollout = state_latents[:, :start_count].reshape(batch * start_count, token_count, self.d_model)
+            ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
+                -1, token_count, self.d_model
+            )
             for offset in range(horizon):
                 act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
                 rollout = self.predict_next(rollout, act, ctx)
             target = state_latents[:, horizon : horizon + start_count].detach()
             valid = masks[:, :start_count] & masks[:, horizon : horizon + start_count]
-            error = (rollout.reshape(batch, start_count, 81, self.d_model) - target).square().mean(dim=(-1, -2))
+            error = (rollout.reshape(batch, start_count, token_count, self.d_model) - target).square().mean(dim=(-1, -2))
             dynamics_terms.append(_masked_mean(error, valid) / (horizon**0.5))
         dynamics_loss = torch.stack(dynamics_terms).sum()
 
-        active_flat = active_mask.reshape(batch, 81)
+        active_flat = active_mask.reshape(batch, token_count)
         goal_mse_loss = ((predicted_goal - goal_target.detach()).square().mean(dim=-1) * active_flat.float()).sum() / active_flat.float().sum().clamp_min(1.0)
         pred_summary = _masked_summary(predicted_goal, active_flat)
         target_summary = _masked_summary(goal_target.detach(), active_flat)
         logits = F.normalize(pred_summary, dim=-1) @ F.normalize(target_summary, dim=-1).T / 0.1
         goal_nce_loss = F.cross_entropy(logits, torch.arange(batch, device=boards.device))
 
-        distances = self.distance(state_latents.reshape(batch * frames, 81, self.d_model), predicted_goal[:, None].expand(batch, frames, 81, self.d_model).reshape(batch * frames, 81, self.d_model), active_mask[:, None].expand(batch, frames, 9, 9).reshape(batch * frames, 9, 9)).reshape(batch, frames)
+        distances = self.distance(
+            state_latents.reshape(batch * frames, token_count, self.d_model),
+            predicted_goal[:, None].expand(batch, frames, token_count, self.d_model).reshape(
+                batch * frames, token_count, self.d_model
+            ),
+            active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols),
+        ).reshape(batch, frames)
         progress_rank_loss = _progress_rank_loss(distances, masks, margin=self.progress_margin, temperature=self.rank_temperature)
 
         action_rank_loss = state_latents.sum() * 0.0
         if negative_actions is not None:
-            pos_latents = predicted_next[:, 0]
+            if positive_actions is None:
+                pos_latents = predicted_next[:, 0]
+            else:
+                pos_latents = self.predict_next(state_latents[:, 0], positive_actions, context_latents)
             neg_latents = self.predict_next(state_latents[:, 0], negative_actions, context_latents)
             pos_d = self.distance(pos_latents, predicted_goal, active_mask)
             neg_d = self.distance(neg_latents, predicted_goal, active_mask)
@@ -335,7 +359,7 @@ class GridTokenGoalJEPA(nn.Module):
             bad_d = self.distance(corrupt_latents, predicted_goal, active_mask)
             terminal_corrupt_loss = F.softplus((good_d - bad_d + self.rank_margin) / self.rank_temperature).mean()
 
-        sigreg_loss = covariance_sigreg(state_latents, masks[:, :, None].expand(batch, frames, 81))
+        sigreg_loss = covariance_sigreg(state_latents, masks[:, :, None].expand(batch, frames, token_count))
         loss = (
             dynamics_loss
             + self.sigreg_weight * sigreg_loss
