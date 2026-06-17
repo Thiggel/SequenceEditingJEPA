@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-17 08:48 CEST
+Last updated: 2026-06-17 08:54 CEST
 
 ## Current Result
 
@@ -14,6 +14,10 @@ failure was not a planning failure: PyTorch 2.6+ defaulted
 local training checkpoint payload. The eval loader now uses
 `weights_only=False` for these trusted local checkpoints, and a regression test
 covers this exact metadata case.
+
+Planner eval rerun `3749458` is now running on `rtxpro6k`. All 13 array tasks
+started, and `M0_full` has already emitted diagnostics, so the checkpoint
+loader fix is verified in Slurm. No planner matrix rows are complete yet.
 
 Implementation review status:
 
