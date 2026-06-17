@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-17 16:07 CEST
+Last updated: 2026-06-17 19:28 CEST
 
 ## Current Result
 
@@ -29,6 +29,14 @@ jobs `3750392`-`3750395` on `M0_full`, `R4_no_goal_nce`,
 symbolic re-encode only, beam widths `4,16`, depths `8,16,32,64`, and compares
 the current normalized oracle distance with raw unprojected oracle Euclidean
 distance.
+
+Interim at 19:28 CEST: full matrix `3749458` is still running after about
+10h35m and every ablation has completed 5/64 rows, reaching
+symbolic-reencode/oracle-goal/beam-width-4/depth-8. Solve rate is still `0.0`
+across completed full-matrix rows. Probe jobs `3750392`-`3750395` are all
+running and have completed their first row, normalized oracle distance at
+beam-width 4/depth 8, also with solve rate `0.0`. Raw oracle Euclidean rows
+have not been reached yet.
 
 Implementation review status:
 
