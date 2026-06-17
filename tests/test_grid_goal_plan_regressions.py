@@ -12,6 +12,7 @@ from puzzle_jepa.data.grid_goal_sudoku import (
 )
 from puzzle_jepa.data.worlds import SudokuWorld
 from puzzle_jepa.eval.grid_goal_diagnostics import run_grid_goal_diagnostics
+from puzzle_jepa.eval.grid_goal_planner_matrix import load_checkpoint
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
 from puzzle_jepa.train.grid_goal_sudoku import _zero_context_masks
 
@@ -58,6 +59,22 @@ def _small_model(**kwargs) -> GridTokenGoalJEPA:
     )
     defaults.update(kwargs)
     return GridTokenGoalJEPA(**defaults)
+
+
+def _small_model_config(**kwargs):
+    defaults = dict(
+        d_model=32,
+        distance_dim=16,
+        context_layers=1,
+        state_layers=1,
+        predictor_layers=1,
+        goal_layers=1,
+        num_heads=4,
+        dropout=0.0,
+        multi_step_horizons=(1, 4),
+    )
+    defaults.update(kwargs)
+    return defaults
 
 
 def test_action_rank_positives_are_target_consistent():
@@ -363,3 +380,22 @@ def test_diagnostics_include_rollout_and_goal_alignment_metrics(tmp_path):
         "distance_hamming_spearman",
     }
     assert required <= set(metrics)
+
+
+def test_planner_checkpoint_loader_accepts_training_metadata_numpy_scalars(tmp_path):
+    model_config = _small_model_config()
+    model = GridTokenGoalJEPA(**model_config)
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "config": {"model": model_config, "task": {}, "seed": 0},
+            "metrics": {"loss": np.float64(1.0)},
+        },
+        checkpoint_path,
+    )
+
+    loaded_model, loaded_config = load_checkpoint(checkpoint_path, torch.device("cpu"))
+
+    assert isinstance(loaded_model, GridTokenGoalJEPA)
+    assert loaded_config["model"] == model_config

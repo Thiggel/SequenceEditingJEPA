@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-16 17:45 CEST
+Last updated: 2026-06-17 08:48 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -63,16 +63,18 @@ Run one peak LR (`1e-4`) and one seed per ablation. Use linear warmup for
 | `R8_no_sigreg` | Remove SIGReg |
 | `R9_no_temporal_straightening` | Remove temporal straightening |
 
-Training budget:
+Training budget used for submitted suite:
 
-- optimizer steps: `20000`
-- microbatch size: `64`
-- gradient accumulation: `4`
-- effective batch size: `256` full trajectories per optimizer step
+- optimizer steps: `60000`
+- microbatch size: `8`
+- gradient accumulation: `1`
+- effective batch size: `8` full trajectories per optimizer step
 
 ## Evaluation
 
-Each checkpoint should run a separate dependency-held eval job.
+Each completed checkpoint should run a separate eval job. The first
+dependency-held eval array failed before planning on a checkpoint loader issue;
+rerun eval from the completed checkpoints after the loader fix.
 
 Planning matrix:
 

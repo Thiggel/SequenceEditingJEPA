@@ -1,10 +1,19 @@
 # Results
 
-Last updated: 2026-06-16 18:22 CEST
+Last updated: 2026-06-17 08:48 CEST
 
 ## Current Result
 
-No Grid-Token Goal-JEPA jobs have been submitted yet.
+All 13 Grid-Token Goal-JEPA training ablations completed successfully at
+60,000 optimizer steps on RTX Pro 6000.
+
+The first dependency-held planner eval array `3748790` started after training
+and all tasks failed immediately with exit `1` during checkpoint loading. The
+failure was not a planning failure: PyTorch 2.6+ defaulted
+`torch.load(..., weights_only=True)` and rejected numpy scalar metadata in the
+local training checkpoint payload. The eval loader now uses
+`weights_only=False` for these trusted local checkpoints, and a regression test
+covers this exact metadata case.
 
 Implementation review status:
 
@@ -37,15 +46,13 @@ Implementation review status:
   predicted goal.
 - Added linear warmup plus cosine decay: peak LR `1e-4`, warmup `1000`,
   final LR `1e-5`.
-- Training now uses microbatch `64`, gradient accumulation `4`, effective
-  batch size `256`.
-- Current verification: `source scripts/env.sh && pytest -q` -> `31 passed`.
+- The submitted suite used full-trajectory batch `8`, no gradient
+  accumulation, and 60k optimizer steps.
+- Current verification: `source scripts/env.sh && pytest -q` -> `32 passed`.
 - Additional verification: `source scripts/env.sh && python -m compileall -q
-  puzzle_jepa configs` and Slurm launcher syntax checks passed.
+  puzzle_jepa configs tests` passed.
 - Running `pytest -q` without `source scripts/env.sh` fails at collection
   because the default Python cannot import `torch`.
-
-No Grid-Token jobs have been submitted. Submit only after the user says `go`.
 
 Planner runtime risk remains: the largest beam matrix settings expand many
 unbatched successor scores and may exceed the 24h eval limit.
@@ -76,12 +83,12 @@ Current fit boundary appears to be between 10 and 12 full trajectories on one
 RTX Pro 6000.
 Batch 8 early throughput is roughly 100 optimizer steps/minute.
 
-Full experiment suite is now submitted on RTX Pro 6000:
+Full experiment suite training result:
 
 - Training array `3748789`: 13 ablations, 60k optimizer steps, batch 8, no
-  grad accumulation
-- Dependency-held planner eval array `3748790`: pending on successful
-  completion of all training array tasks
+  grad accumulation, all completed.
+- Dependency-held planner eval array `3748790`: failed immediately on the
+  checkpoint-loader issue described above; no planning results yet.
 
 ## Legacy Result
 

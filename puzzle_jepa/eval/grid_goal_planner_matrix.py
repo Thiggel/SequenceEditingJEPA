@@ -22,7 +22,7 @@ TRANSITIONS = ("symbolic_reencode", "latent_rollout")
 
 
 def load_checkpoint(path: Path, device: torch.device) -> tuple[GridTokenGoalJEPA, dict[str, Any]]:
-    payload = torch.load(path, map_location=device)
+    payload = torch.load(path, map_location=device, weights_only=False)
     config = dict(payload["config"])
     model = GridTokenGoalJEPA(**dict(config["model"])).to(device)
     model.load_state_dict(payload["model"])
