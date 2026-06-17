@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-17 08:54 CEST
+Last updated: 2026-06-17 11:09 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -71,9 +71,10 @@ Full suite state:
 - Planner eval rerun: `3749458`, `rtxpro6k`, array `0-12%13`, running on
   nodes `a2041` and `a2843`; logs are
   `logs/grid_goal_plan_3749458_<task>.out/.err`.
-- Early rerun check: task `3749458_0` emitted `M0_full` diagnostics, so the
-  checkpoint loader fix works under Slurm. Planner matrix rows are still
-  running.
+- Interim rerun check at 11:09 CEST: all 13 tasks are still running after
+  about 2h15m; all ablations emitted diagnostics; early planner rows are
+  complete only for the smallest symbolic-reencode/oracle-goal beam settings,
+  with solve rate `0.0` so far.
 
 ## Verify
 

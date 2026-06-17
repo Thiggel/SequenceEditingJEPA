@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-17 08:54 CEST
+Last updated: 2026-06-17 11:09 CEST
 
 ## Current Result
 
@@ -16,8 +16,11 @@ local training checkpoint payload. The eval loader now uses
 covers this exact metadata case.
 
 Planner eval rerun `3749458` is now running on `rtxpro6k`. All 13 array tasks
-started, and `M0_full` has already emitted diagnostics, so the checkpoint
-loader fix is verified in Slurm. No planner matrix rows are complete yet.
+started, and all ablations have emitted diagnostics, so the checkpoint loader
+fix is verified in Slurm. Early planner rows are complete for the first
+symbolic-reencode/oracle-goal/beam-width-1 settings only; solve rate is `0.0`
+so far. The full planner matrix remains at risk of hitting the 24h wall because
+rows are taking roughly 3-5 minutes each at the smallest beam width.
 
 Implementation review status:
 
