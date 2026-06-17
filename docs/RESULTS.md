@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-17 15:02 CEST
+Last updated: 2026-06-17 16:07 CEST
 
 ## Current Result
 
@@ -22,6 +22,13 @@ fix is verified in Slurm. After about 6h10m, every ablation has completed
 `16`, and `32`. Solve rate is `0.0` so far. The full planner matrix is likely
 to hit the 24h wall, but completed rows are flushed to JSONL and will be
 preserved.
+
+Submitted a small follow-up probe for larger beams and raw oracle distance:
+jobs `3750392`-`3750395` on `M0_full`, `R4_no_goal_nce`,
+`R1_no_context_masks`, and `R6_no_action_rank`. The probe uses 8 boards,
+symbolic re-encode only, beam widths `4,16`, depths `8,16,32,64`, and compares
+the current normalized oracle distance with raw unprojected oracle Euclidean
+distance.
 
 Implementation review status:
 

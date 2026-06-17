@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-17 15:02 CEST
+Last updated: 2026-06-17 16:07 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -76,6 +76,15 @@ Full suite state:
   3/64 planner rows: symbolic-reencode/oracle-goal/beam-width-1 at depths `8`,
   `16`, and `32`. Solve rate is `0.0` so far. Completed rows are flushed to
   JSONL and will be preserved if the full matrix hits the 24h wall.
+- Small raw-distance probe submitted at 16:07 CEST:
+  - checkpoints: `M0_full`, `R4_no_goal_nce`, `R1_no_context_masks`,
+    `R6_no_action_rank`
+  - jobs: `3750392`, `3750393`, `3750394`, `3750395`
+  - settings: 8 examples, symbolic re-encode only, beam widths `4,16`, beam
+    depths `8,16,32,64`, scores `oracle_goal_distance` and
+    `oracle_goal_raw_euclidean_distance`
+  - outputs:
+    `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_sudoku_<ablation>/planner_probe_bw4_16_raw_oracle_8ex/`
 
 ## Verify
 
