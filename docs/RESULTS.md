@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-17 11:09 CEST
+Last updated: 2026-06-17 15:02 CEST
 
 ## Current Result
 
@@ -17,10 +17,11 @@ covers this exact metadata case.
 
 Planner eval rerun `3749458` is now running on `rtxpro6k`. All 13 array tasks
 started, and all ablations have emitted diagnostics, so the checkpoint loader
-fix is verified in Slurm. Early planner rows are complete for the first
-symbolic-reencode/oracle-goal/beam-width-1 settings only; solve rate is `0.0`
-so far. The full planner matrix remains at risk of hitting the 24h wall because
-rows are taking roughly 3-5 minutes each at the smallest beam width.
+fix is verified in Slurm. After about 6h10m, every ablation has completed
+3/64 planner rows: symbolic-reencode/oracle-goal/beam-width-1 at depths `8`,
+`16`, and `32`. Solve rate is `0.0` so far. The full planner matrix is likely
+to hit the 24h wall, but completed rows are flushed to JSONL and will be
+preserved.
 
 Implementation review status:
 

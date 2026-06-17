@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-17 11:09 CEST
+Last updated: 2026-06-17 15:02 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -71,10 +71,11 @@ Full suite state:
 - Planner eval rerun: `3749458`, `rtxpro6k`, array `0-12%13`, running on
   nodes `a2041` and `a2843`; logs are
   `logs/grid_goal_plan_3749458_<task>.out/.err`.
-- Interim rerun check at 11:09 CEST: all 13 tasks are still running after
-  about 2h15m; all ablations emitted diagnostics; early planner rows are
-  complete only for the smallest symbolic-reencode/oracle-goal beam settings,
-  with solve rate `0.0` so far.
+- Interim rerun check at 15:02 CEST: all 13 tasks are still running after
+  about 6h10m; all ablations emitted diagnostics; every ablation has completed
+  3/64 planner rows: symbolic-reencode/oracle-goal/beam-width-1 at depths `8`,
+  `16`, and `32`. Solve rate is `0.0` so far. Completed rows are flushed to
+  JSONL and will be preserved if the full matrix hits the 24h wall.
 
 ## Verify
 
