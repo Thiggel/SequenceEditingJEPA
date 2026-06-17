@@ -8,7 +8,7 @@ from puzzle_jepa.data.grid_goal_sudoku import (
 )
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _temporal_straightening_loss
-from puzzle_jepa.planning.grid_goal_planner import run_beam_mpc
+from puzzle_jepa.planning.grid_goal_planner import run_beam_mpc, raw_tokenwise_euclidean_distance
 
 
 SUDOKU_PUZZLE = (
@@ -175,6 +175,40 @@ def test_beam_mpc_runs_with_oracle_goal_distance():
     assert result.beam_width == 2
     assert result.beam_depth == 2
     assert result.action_evals > 0
+
+
+def test_beam_mpc_runs_with_raw_oracle_euclidean_goal_distance():
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model()
+    result = run_beam_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_goal_raw_euclidean_distance",
+        transition_mode="symbolic_reencode",
+        beam_width=2,
+        beam_depth=2,
+        max_steps=2,
+        device=torch.device("cpu"),
+    )
+    assert result.steps <= 2
+    assert result.beam_width == 2
+    assert result.beam_depth == 2
+    assert result.action_evals > 0
+
+
+def test_raw_tokenwise_euclidean_distance_uses_unprojected_latents():
+    a = torch.tensor([[[0.0, 0.0], [3.0, 4.0]]])
+    b = torch.zeros_like(a)
+    mask = torch.tensor([[True, False]])
+
+    distance = raw_tokenwise_euclidean_distance(a, b, mask)
+
+    assert distance.item() == pytest.approx(0.0)
 
 
 def test_invalid_distance_mode_is_rejected():
