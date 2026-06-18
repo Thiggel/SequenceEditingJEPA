@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-18 08:48 CEST
+Last updated: 2026-06-18 08:51 CEST
 
 ## Current Result
 
@@ -46,6 +46,12 @@ mode, all pending initially on `rtxpro6k`: `3751931`-`3751938`. Settings are
 and 24h time limit. Output roots are
 `planner_probe_metric_norm_bw4_16_8ex/` and
 `planner_probe_metric_raw_bw4_16_8ex/` under each selected checkpoint run.
+
+Additional fast raw-only probes submitted to get quicker raw-distance signal:
+`3751943` (`M0_full`), `3751944` (`R4_no_goal_nce`), and `3751945`
+(`R7_no_terminal_corrupt`). Settings are 4 examples, symbolic re-encode only,
+raw oracle Euclidean distance only, beam widths `4,16`, and depths `8,16`.
+They were initially pending behind the running per-metric probes.
 
 Implementation review status:
 
