@@ -8,7 +8,14 @@ from puzzle_jepa.data.grid_goal_sudoku import (
 )
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _temporal_straightening_loss
-from puzzle_jepa.planning.grid_goal_planner import run_beam_mpc, raw_tokenwise_euclidean_distance
+from puzzle_jepa.planning.grid_goal_planner import (
+    changed_cell_raw_euclidean_distance,
+    projected_tokenwise_euclidean_distance,
+    raw_tokenwise_cosine_distance,
+    raw_tokenwise_euclidean_distance,
+    raw_tokenwise_squared_euclidean_distance,
+    run_beam_mpc,
+)
 
 
 SUDOKU_PUZZLE = (
@@ -201,6 +208,41 @@ def test_beam_mpc_runs_with_raw_oracle_euclidean_goal_distance():
     assert result.action_evals > 0
 
 
+@pytest.mark.parametrize(
+    "score_mode",
+    [
+        "oracle_goal_raw_squared_euclidean_distance",
+        "oracle_goal_raw_cosine_distance",
+        "oracle_goal_raw_hybrid_distance",
+        "oracle_goal_raw_euclidean_progress",
+        "oracle_goal_changed_cell_raw_euclidean_distance",
+        "oracle_goal_projected_euclidean_distance",
+    ],
+)
+def test_beam_mpc_runs_with_oracle_metric_probe_scores(score_mode):
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model()
+    result = run_beam_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode=score_mode,
+        transition_mode="symbolic_reencode",
+        beam_width=2,
+        beam_depth=2,
+        max_steps=2,
+        device=torch.device("cpu"),
+    )
+    assert result.steps <= 2
+    assert result.beam_width == 2
+    assert result.beam_depth == 2
+    assert result.action_evals > 0
+
+
 def test_raw_tokenwise_euclidean_distance_uses_unprojected_latents():
     a = torch.tensor([[[0.0, 0.0], [3.0, 4.0]]])
     b = torch.zeros_like(a)
@@ -209,6 +251,22 @@ def test_raw_tokenwise_euclidean_distance_uses_unprojected_latents():
     distance = raw_tokenwise_euclidean_distance(a, b, mask)
 
     assert distance.item() == pytest.approx(0.0)
+
+
+def test_metric_probe_distance_variants_are_task_agnostic_token_metrics():
+    a = torch.tensor([[[0.0, 0.0], [3.0, 4.0]]])
+    b = torch.zeros_like(a)
+    mask = torch.tensor([[False, True]])
+    projector = torch.nn.Linear(2, 2, bias=False)
+    with torch.no_grad():
+        projector.weight.copy_(torch.eye(2))
+    action = WorldAction(0, 1, 7)
+
+    assert raw_tokenwise_euclidean_distance(a, b, mask).item() == pytest.approx(5.0)
+    assert raw_tokenwise_squared_euclidean_distance(a, b, mask).item() == pytest.approx(25.0)
+    assert raw_tokenwise_cosine_distance(a, b, mask).item() == pytest.approx(1.0)
+    assert projected_tokenwise_euclidean_distance(a, b, mask, projector).item() == pytest.approx(5.0)
+    assert changed_cell_raw_euclidean_distance(a, b, action).item() == pytest.approx(5.0)
 
 
 def test_invalid_distance_mode_is_rejected():

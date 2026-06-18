@@ -12,7 +12,17 @@ from puzzle_jepa.data.worlds import WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
 
 
-ScoreMode = Literal["oracle_goal_distance", "predicted_goal_distance", "oracle_goal_raw_euclidean_distance"]
+ScoreMode = Literal[
+    "oracle_goal_distance",
+    "predicted_goal_distance",
+    "oracle_goal_raw_euclidean_distance",
+    "oracle_goal_raw_squared_euclidean_distance",
+    "oracle_goal_raw_cosine_distance",
+    "oracle_goal_raw_hybrid_distance",
+    "oracle_goal_raw_euclidean_progress",
+    "oracle_goal_changed_cell_raw_euclidean_distance",
+    "oracle_goal_projected_euclidean_distance",
+]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
 
 
@@ -144,6 +154,22 @@ def beam_plan_once(
                         score_mode=score_mode,
                         device=device,
                     )
+                    if score_mode == "oracle_goal_raw_euclidean_progress":
+                        node_score, _ = score_board(
+                            model,
+                            node_board,
+                            context_latents,
+                            predicted_goal,
+                            oracle_goal,
+                            clue_mask,
+                            editable_mask,
+                            active_mask,
+                            score_mode="oracle_goal_raw_euclidean_distance",
+                            device=device,
+                        )
+                        score = score - node_score
+                    elif score_mode == "oracle_goal_changed_cell_raw_euclidean_distance":
+                        score = float(changed_cell_raw_euclidean_distance(next_latent, oracle_goal, action).item())
                 else:
                     if latent is None:
                         _, latent = score_board(
@@ -157,15 +183,18 @@ def beam_plan_once(
                             active_mask,
                             score_mode=score_mode,
                             device=device,
-                        )
+                    )
                     action_t = torch.as_tensor([[action.row, action.col, action.value]], dtype=torch.long, device=device)
                     next_latent = model.predict_next(latent, action_t, context_latents)
-                    goal_latent = oracle_goal if score_mode != "predicted_goal_distance" else predicted_goal
                     mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
-                    if score_mode == "oracle_goal_raw_euclidean_distance":
-                        score = float(raw_tokenwise_euclidean_distance(next_latent, goal_latent, mask_t).item())
+                    if score_mode == "oracle_goal_raw_euclidean_progress":
+                        next_score = raw_tokenwise_euclidean_distance(next_latent, oracle_goal, mask_t)
+                        node_score = raw_tokenwise_euclidean_distance(latent, oracle_goal, mask_t)
+                        score = float((next_score - node_score).item())
+                    elif score_mode == "oracle_goal_changed_cell_raw_euclidean_distance":
+                        score = float(changed_cell_raw_euclidean_distance(next_latent, oracle_goal, action).item())
                     else:
-                        score = float(model.distance(next_latent, goal_latent, mask_t).item())
+                        score = float(latent_distance(model, next_latent, predicted_goal, oracle_goal, mask_t, score_mode).item())
                 action_evals += 1
                 candidates.append((score, leaf, next_seq, next_latent))
                 if best is None or score < best[0]:
@@ -200,10 +229,34 @@ def score_board(
     edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
     active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
     latent = model.encode_state(board_t, context_latents, clue_t, edit_t, active_t)
-    if score_mode == "oracle_goal_raw_euclidean_distance":
-        return float(raw_tokenwise_euclidean_distance(latent, oracle_goal, active_t).item()), latent
-    goal_latent = oracle_goal if score_mode == "oracle_goal_distance" else predicted_goal
-    return float(model.distance(latent, goal_latent, active_t).item()), latent
+    return float(latent_distance(model, latent, predicted_goal, oracle_goal, active_t, score_mode).item()), latent
+
+
+def latent_distance(
+    model: GridTokenGoalJEPA,
+    latent: torch.Tensor,
+    predicted_goal: torch.Tensor,
+    oracle_goal: torch.Tensor,
+    mask: torch.Tensor,
+    score_mode: str,
+) -> torch.Tensor:
+    if score_mode == "predicted_goal_distance":
+        return model.distance(latent, predicted_goal, mask)
+    if score_mode == "oracle_goal_distance":
+        return model.distance(latent, oracle_goal, mask)
+    if score_mode in {"oracle_goal_raw_euclidean_distance", "oracle_goal_raw_euclidean_progress"}:
+        return raw_tokenwise_euclidean_distance(latent, oracle_goal, mask)
+    if score_mode == "oracle_goal_raw_squared_euclidean_distance":
+        return raw_tokenwise_squared_euclidean_distance(latent, oracle_goal, mask)
+    if score_mode == "oracle_goal_raw_cosine_distance":
+        return raw_tokenwise_cosine_distance(latent, oracle_goal, mask)
+    if score_mode == "oracle_goal_raw_hybrid_distance":
+        return raw_tokenwise_euclidean_distance(latent, oracle_goal, mask) + raw_tokenwise_cosine_distance(latent, oracle_goal, mask)
+    if score_mode == "oracle_goal_projected_euclidean_distance":
+        return projected_tokenwise_euclidean_distance(latent, oracle_goal, mask, model.distance_projector)
+    if score_mode == "oracle_goal_changed_cell_raw_euclidean_distance":
+        return raw_tokenwise_euclidean_distance(latent, oracle_goal, mask)
+    raise ValueError(f"Unknown score_mode: {score_mode}")
 
 
 def raw_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -216,6 +269,51 @@ def raw_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: tor
     per_token = (a.float() - b.float()).square().sum(dim=-1).sqrt()
     weights = mask.float()
     return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
+
+
+def raw_tokenwise_squared_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    if a.shape != b.shape:
+        raise ValueError(f"Raw squared distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], -1)
+    if mask.shape != a.shape[:-1]:
+        raise ValueError(f"Raw squared distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
+    per_token = (a.float() - b.float()).square().sum(dim=-1)
+    weights = mask.float()
+    return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
+
+
+def raw_tokenwise_cosine_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    if a.shape != b.shape:
+        raise ValueError(f"Raw cosine distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], -1)
+    if mask.shape != a.shape[:-1]:
+        raise ValueError(f"Raw cosine distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
+    per_token = 1.0 - torch.nn.functional.cosine_similarity(a.float(), b.float(), dim=-1, eps=1.0e-6)
+    weights = mask.float()
+    return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
+
+
+def projected_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor, projector: torch.nn.Module) -> torch.Tensor:
+    if a.shape != b.shape:
+        raise ValueError(f"Projected distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], -1)
+    if mask.shape != a.shape[:-1]:
+        raise ValueError(f"Projected distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
+    per_token = (projector(a.float()) - projector(b.float())).square().sum(dim=-1).sqrt()
+    weights = mask.float()
+    return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
+
+
+def changed_cell_raw_euclidean_distance(a: torch.Tensor, b: torch.Tensor, action: WorldAction) -> torch.Tensor:
+    if a.shape != b.shape:
+        raise ValueError(f"Changed-cell distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    idx = int(action.row) * 9 + int(action.col)
+    if idx < 0 or idx >= a.shape[-2]:
+        raise ValueError(f"Action cell index {idx} is outside token count {a.shape[-2]}.")
+    return (a[..., idx, :].float() - b[..., idx, :].float()).square().sum(dim=-1).sqrt()
 
 
 @torch.no_grad()
