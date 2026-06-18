@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-18 14:28 CEST
+Last updated: 2026-06-18 16:57 CEST
 
 ## Current Result
 
@@ -68,6 +68,15 @@ raw cosine, raw L2+cosine hybrid, raw L2 progress/delta, changed-cell raw L2,
 and projected unnormalized Euclidean. Settings are 4 examples, symbolic
 re-encode only, beam width `8`, depths `16,32`, and 12h time limit. Jobs
 `3753366`-`3753383` all started immediately.
+
+Interim at 16:57 CEST: per-metric jobs `3751931`-`3751938` are still running;
+fast raw-only jobs `3751943`-`3751945` timed out after preserving 3/4 rows. In
+the metric sweep, `R1_no_context_masks` is the first checkpoint with clear
+nonzero solve signal: raw squared Euclidean reached `0.25` solve rate on 4
+boards at beam width 8/depth 16, and raw L2 progress/delta reached `0.25` at
+depths 16 and 32. `M0_full` remains `0.0`; `R4_no_goal_nce` remains `0.0` but
+raw squared/progress rows have much lower remaining Hamming than the normalized
+metric.
 
 Implementation review status:
 
