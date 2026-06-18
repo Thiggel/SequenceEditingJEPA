@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-18 08:51 CEST
+Last updated: 2026-06-18 14:15 CEST
 
 ## Current Result
 
@@ -52,6 +52,14 @@ Additional fast raw-only probes submitted to get quicker raw-distance signal:
 (`R7_no_terminal_corrupt`). Settings are 4 examples, symbolic re-encode only,
 raw oracle Euclidean distance only, beam widths `4,16`, and depths `8,16`.
 They were initially pending behind the running per-metric probes.
+
+Interim at 14:15 CEST: full matrix `3749458` timed out after 24h with 7/64
+rows per ablation preserved and no solves. Per-metric probes `3751931`-`3751938`
+are still running after about 5h26m. Raw Euclidean rows are now available:
+`R1_no_context_masks` raw reached solve rate `0.125` on 8 boards at beam-width
+4/depths `8` and `16`; normalized R1 remained `0.0`. Raw Euclidean also greatly
+reduced remaining Hamming for `R4_no_goal_nce` and `R6_no_action_rank`, though
+solve rate is still `0.0` there so far.
 
 Implementation review status:
 
