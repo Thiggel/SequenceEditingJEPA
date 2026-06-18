@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-18 08:44 CEST
+Last updated: 2026-06-18 08:48 CEST
 
 ## Current Result
 
@@ -39,6 +39,13 @@ Probe jobs `3750392`-`3750395` hit their 12h time limits. Each preserved 3/16
 rows: normalized oracle distance at beam-width 4/depths `8`, `16`, and `32`,
 all with solve rate `0.0`. They did not reach raw oracle Euclidean rows because
 the normalized rows ran first and were slow.
+
+Submitted more parallel per-metric probes, one job per checkpoint and score
+mode, all pending initially on `rtxpro6k`: `3751931`-`3751938`. Settings are
+8 examples, symbolic re-encode only, beam widths `4,16`, depths `8,16,32,64`,
+and 24h time limit. Output roots are
+`planner_probe_metric_norm_bw4_16_8ex/` and
+`planner_probe_metric_raw_bw4_16_8ex/` under each selected checkpoint run.
 
 Implementation review status:
 
