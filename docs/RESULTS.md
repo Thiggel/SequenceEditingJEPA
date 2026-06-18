@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-18 14:15 CEST
+Last updated: 2026-06-18 14:28 CEST
 
 ## Current Result
 
@@ -60,6 +60,14 @@ are still running after about 5h26m. Raw Euclidean rows are now available:
 4/depths `8` and `16`; normalized R1 remained `0.0`. Raw Euclidean also greatly
 reduced remaining Hamming for `R4_no_goal_nce` and `R6_no_action_rank`, though
 solve rate is still `0.0` there so far.
+
+Added six eval-only task-agnostic oracle score modes and submitted an 18-job
+metric sweep at 14:28 CEST. The sweep covers `M0_full`,
+`R1_no_context_masks`, and `R4_no_goal_nce`; metrics are raw squared Euclidean,
+raw cosine, raw L2+cosine hybrid, raw L2 progress/delta, changed-cell raw L2,
+and projected unnormalized Euclidean. Settings are 4 examples, symbolic
+re-encode only, beam width `8`, depths `16,32`, and 12h time limit. Jobs
+`3753366`-`3753383` all started immediately.
 
 Implementation review status:
 
