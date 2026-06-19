@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-19 13:45 CEST
+Last updated: 2026-06-19 14:05 CEST
 
 ## Current Result
 
@@ -115,6 +115,12 @@ original jobs failed with transient Hugging Face cache/file-lock stale-handle
 errors and were resubmitted as `3757178`-`3757180`, now running on `rtxpro6k`.
 Partial scan: 101 output files, 272 planner rows, 16 complete outputs, no
 solves yet (`max solve_rate=0.0`).
+
+Final latent-rollout sweep result: retries `3757178`-`3757180` completed
+successfully. All 104 output files and all 624 planner rows are complete. Total
+solves: `0`; max solve rate: `0.0`. Best mean remaining Hamming was
+`R7_no_terminal_corrupt` changed-cell raw Euclidean with oracle goal at depth
+`4`: `47.9`.
 
 Implementation review status:
 
