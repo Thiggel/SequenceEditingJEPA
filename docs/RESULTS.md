@@ -1,8 +1,26 @@
 # Results
 
-Last updated: 2026-06-19 14:35 CEST
+Last updated: 2026-06-19 19:30 CEST
 
 ## Current Result
+
+Action-conditioning/stability first-wave suite submitted:
+
+- Training array `3760074`: 96 jobs, `0-95%32`, partitions `rtxpro6k,a100`,
+  24h limit.
+- Dependency-held eval array `3760099`: 96 jobs, `0-95%32`,
+  `afterok:3760074`, partitions `rtxpro6k,a100`, 6h limit.
+- Initial check: 24 training tasks running on RTX Pro 6000 nodes; eval pending
+  on dependency.
+
+The suite crosses two base recipes (`R4_no_goal_nce`,
+`R7_no_terminal_corrupt`), eight action-conditioning variants, three stability
+variants (`SIGReg`, `EMA+SIGReg`, `EMA+VICReg`), and uniform vs
+affected-token-weighted dynamics loss. Eval is latent rollout only with beam
+width `16`, depths `4,16,32`, 10 boards, and oracle/predicted goal versions of
+normalized, raw Euclidean, and changed-cell raw Euclidean distances.
+
+## Previous Result
 
 All 13 Grid-Token Goal-JEPA training ablations completed successfully at
 60,000 optimizer steps on RTX Pro 6000.

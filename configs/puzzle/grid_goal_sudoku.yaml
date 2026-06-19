@@ -31,6 +31,13 @@ model:
   rank_temperature: 0.1
   multi_step_horizons: [1, 4, 8, 16]
   distance_mode: tokenwise
+  action_conditioning: action_token
+  predict_delta: false
+  dynamics_weighting: uniform
+  affected_dynamics_weight: 32.0
+  regularizer: sigreg
+  use_ema_target_encoder: false
+  ema_decay: 0.995
 training:
   max_steps: 20000
   batch_size: 64

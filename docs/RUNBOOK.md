@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-17 16:07 CEST
+Last updated: 2026-06-19 19:30 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -24,6 +24,22 @@ All previous LeWM/CLS/value-head jobs were cancelled or completed before this
 reset.
 
 ## Slurm Snapshot
+
+Active action-conditioning/stability suite:
+
+- Training array: `3760074`, `grid_goal_act_train`, `0-95%32`,
+  partitions `rtxpro6k,a100`, 24h limit.
+- Eval array: `3760099`, `grid_goal_act_eval`, `0-95%32`,
+  dependency `afterok:3760074`, partitions `rtxpro6k,a100`, 6h limit.
+- Monitor:
+  ```bash
+  squeue -j 3760074,3760099
+  ```
+- Output root:
+  `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_action_suite/grid_goal_action_<base>_<action>_<stability>_<dynamics>/`.
+- Scripts:
+  `scripts/slurm/run_grid_goal_action_suite_train.slurm` and
+  `scripts/slurm/run_grid_goal_action_suite_eval.slurm`.
 
 RTX Pro 6000 batch probes for `M0_full` were submitted and all failed quickly
 with CUDA OOM:

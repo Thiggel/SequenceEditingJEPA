@@ -133,6 +133,7 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
         )
         _set_optimizer_lr(optimizer, lr)
         optimizer.step()
+        model.update_ema_target_encoder()
         output = outputs[-1]
         if step == 1 or step % eval_every == 0 or step == max_steps:
             latest = {

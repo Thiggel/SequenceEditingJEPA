@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-17 08:48 CEST
+Last updated: 2026-06-19 19:30 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -43,6 +43,27 @@ Temporal straightening computes curvature from adjacent latent velocities over
 the full active grid-token latent and is independent of the predicted goal.
 
 ## Ablations
+
+## Action-Conditioning First Wave
+
+Submitted as training array `3760074` and dependency-held eval array
+`3760099`.
+
+Grid:
+
+- base recipes: `R4_no_goal_nce`, `R7_no_terminal_corrupt`
+- action variants: `A0_action_token`, `A1_affected_marker`,
+  `A2_local_action_feature`, `A3_action_cross_attention`, `A4_adaln_action`,
+  `A5_action_token_delta`, `A6_affected_marker_delta`,
+  `A7_local_action_feature_delta`
+- stability variants: `S0_sigreg`, `S3_ema_sigreg`, `S4_ema_vicreg`
+- dynamics weighting: `D0_uniform`, `D1_affected`
+
+Eval for this wave uses latent rollout only, beam width `16`, depths
+`4,16,32`, 10 boards, and normalized/raw/changed-cell metrics against oracle
+and predicted goal latents.
+
+## Original Ablations
 
 Run one peak LR (`1e-4`) and one seed per ablation. Use linear warmup for
 `1000` optimizer steps, then cosine decay to `1e-5`.

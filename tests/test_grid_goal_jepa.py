@@ -7,7 +7,7 @@ from puzzle_jepa.data.grid_goal_sudoku import (
     sample_grid_goal_sudoku_trajectory,
 )
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
-from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _temporal_straightening_loss
+from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights, _temporal_straightening_loss
 from puzzle_jepa.planning.grid_goal_planner import (
     changed_cell_raw_euclidean_distance,
     changed_cell_raw_euclidean_distances,
@@ -119,6 +119,79 @@ def test_markov_predictor_accepts_current_board_latent_and_one_action_token():
     changed_action[:, 2] = (changed_action[:, 2] % 9) + 1
     changed_pred = model.predict_next(state, changed_action, context)
     assert not torch.allclose(pred, changed_pred)
+
+
+@pytest.mark.parametrize(
+    "action_conditioning",
+    ["action_token", "affected_marker", "local_action_feature", "action_cross_attention", "adaln_action"],
+)
+def test_action_conditioning_variants_predict_board_latents(action_conditioning):
+    batch = _small_batch()
+    model = _small_model(action_conditioning=action_conditioning)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    pred = model.predict_next(state, batch.actions[:, 0], context)
+
+    assert pred.shape == state.shape
+    assert torch.isfinite(pred).all()
+
+
+def test_delta_predictor_returns_residual_over_current_latent():
+    batch = _small_batch()
+    base = _small_model(predict_delta=False)
+    delta = _small_model(predict_delta=True)
+    delta.load_state_dict(base.state_dict(), strict=False)
+    context = base.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = base.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    base_pred = base.predict_next(state, batch.actions[:, 0], context)
+    delta_pred = delta.predict_next(state, batch.actions[:, 0], context)
+
+    torch.testing.assert_close(delta_pred, state + base_pred)
+
+
+def test_affected_dynamics_weights_emphasize_action_cells():
+    actions = torch.tensor([[[0, 1, 5], [2, 2, 6], [0, 1, 7]]])
+
+    weights = _affected_token_weights(actions, token_count=9, rows=3, cols=3, affected_weight=11.0, horizon=2)
+
+    assert weights.shape == (1, 2, 9)
+    assert weights[0, 0, 1].item() == pytest.approx(11.0)
+    assert weights[0, 0, 8].item() == pytest.approx(11.0)
+    assert weights[0, 1, 8].item() == pytest.approx(11.0)
+    assert weights[0, 1, 1].item() == pytest.approx(11.0)
+    assert weights[0, 0, 0].item() == pytest.approx(1.0)
+
+
+def test_forward_runs_with_affected_weighting_vicreg_and_ema_target_encoder():
+    batch = _small_batch()
+    model = _small_model(
+        action_conditioning="affected_marker",
+        dynamics_weighting="affected",
+        regularizer="vicreg",
+        use_ema_target_encoder=True,
+    )
+    before = next(model.target_state_encoder.parameters()).detach().clone()
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+    output.loss.backward()
+    with torch.no_grad():
+        next(model.state_encoder.parameters()).add_(0.01)
+    model.update_ema_target_encoder(decay=0.5)
+    after = next(model.target_state_encoder.parameters()).detach()
+
+    assert torch.isfinite(output.loss)
+    assert not torch.allclose(before, after)
 
 
 def test_forward_computes_all_requested_losses():
