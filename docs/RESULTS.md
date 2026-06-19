@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-19 09:45 CEST
+Last updated: 2026-06-19 11:15 CEST
 
 ## Current Result
 
@@ -94,6 +94,13 @@ board encodes per beam layer, and latent-rollout planning batches predictor
 expansions per beam layer. The strong changed-cell rows above are encoder
 geometry/symbolic-transition diagnostics, not learned latent world-model solve
 results. Verification: `source scripts/env.sh && pytest -q` -> `53 passed`.
+
+Latent-rollout timing probe `3755858` completed on RTX Pro 6000. It used
+`R4_no_goal_nce`, one board, one score
+`oracle_goal_changed_cell_raw_euclidean_distance`, beam widths `4,16,32`, beam
+depths `4,8,16,32`, and skipped diagnostics. Total wall time was `18m09s`.
+Per-board row times ranged from `9.15s` at width 4/depth 4 to `275.75s` at
+width 32/depth 32; all 12 width-depth rows summed to `994.98s`.
 
 Implementation review status:
 
