@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-19 14:05 CEST
+Last updated: 2026-06-19 14:35 CEST
 
 ## Current Result
 
@@ -121,6 +121,15 @@ successfully. All 104 output files and all 624 planner rows are complete. Total
 solves: `0`; max solve rate: `0.0`. Best mean remaining Hamming was
 `R7_no_terminal_corrupt` changed-cell raw Euclidean with oracle goal at depth
 `4`: `47.9`.
+
+Postmortem probes show the failure is action-discriminative prediction, not
+just average drift. `R7_no_terminal_corrupt` has very low h32 rollout drift
+(`~0.00064`) but still cannot plan. `R4_no_goal_nce` symbolic changed-cell
+ranking picked target-consistent actions on all probed states, while predictor
+top-action agreement with symbolic ranking was `0%`. Git history shows older
+Grid3 configs used `action_injection: local_value`, directly adding the action
+value embedding to the selected target-cell token; current Grid-Token Goal-JEPA
+uses only a separate action token.
 
 Implementation review status:
 
