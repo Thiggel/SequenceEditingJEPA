@@ -16,12 +16,19 @@ ScoreMode = Literal[
     "oracle_goal_distance",
     "predicted_goal_distance",
     "oracle_goal_raw_euclidean_distance",
+    "predicted_goal_raw_euclidean_distance",
     "oracle_goal_raw_squared_euclidean_distance",
+    "predicted_goal_raw_squared_euclidean_distance",
     "oracle_goal_raw_cosine_distance",
+    "predicted_goal_raw_cosine_distance",
     "oracle_goal_raw_hybrid_distance",
+    "predicted_goal_raw_hybrid_distance",
     "oracle_goal_raw_euclidean_progress",
+    "predicted_goal_raw_euclidean_progress",
     "oracle_goal_changed_cell_raw_euclidean_distance",
+    "predicted_goal_changed_cell_raw_euclidean_distance",
     "oracle_goal_projected_euclidean_distance",
+    "predicted_goal_projected_euclidean_distance",
 ]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
 
@@ -129,6 +136,21 @@ def beam_plan_once(
     beam_depth: int,
     device: torch.device,
 ) -> tuple[WorldAction | None, int]:
+    if transition_mode == "symbolic_reencode":
+        return _beam_plan_once_symbolic(
+            model,
+            board,
+            context_latents,
+            predicted_goal,
+            oracle_goal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=score_mode,
+            beam_width=beam_width,
+            beam_depth=beam_depth,
+            device=device,
+        )
     beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = [(0.0, board.copy(), [], None)]
     best: tuple[float, list[WorldAction]] | None = None
     action_evals = 0
@@ -141,10 +163,10 @@ def beam_plan_once(
                 except ValueError:
                     continue
                 next_seq = [*seq, action]
-                if transition_mode == "symbolic_reencode":
-                    score, next_latent = score_board(
+                if latent is None:
+                    _, latent = score_board(
                         model,
-                        leaf,
+                        node_board,
                         context_latents,
                         predicted_goal,
                         oracle_goal,
@@ -154,47 +176,18 @@ def beam_plan_once(
                         score_mode=score_mode,
                         device=device,
                     )
-                    if score_mode == "oracle_goal_raw_euclidean_progress":
-                        node_score, _ = score_board(
-                            model,
-                            node_board,
-                            context_latents,
-                            predicted_goal,
-                            oracle_goal,
-                            clue_mask,
-                            editable_mask,
-                            active_mask,
-                            score_mode="oracle_goal_raw_euclidean_distance",
-                            device=device,
-                        )
-                        score = score - node_score
-                    elif score_mode == "oracle_goal_changed_cell_raw_euclidean_distance":
-                        score = float(changed_cell_raw_euclidean_distance(next_latent, oracle_goal, action).item())
+                action_t = torch.as_tensor([[action.row, action.col, action.value]], dtype=torch.long, device=device)
+                next_latent = model.predict_next(latent, action_t, context_latents)
+                mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+                target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
+                if _is_progress_score(score_mode):
+                    next_score = raw_tokenwise_euclidean_distance(next_latent, target_goal, mask_t)
+                    node_score = raw_tokenwise_euclidean_distance(latent, target_goal, mask_t)
+                    score = float((next_score - node_score).item())
+                elif _is_changed_cell_score(score_mode):
+                    score = float(changed_cell_raw_euclidean_distance(next_latent, target_goal, action).item())
                 else:
-                    if latent is None:
-                        _, latent = score_board(
-                            model,
-                            node_board,
-                            context_latents,
-                            predicted_goal,
-                            oracle_goal,
-                            clue_mask,
-                            editable_mask,
-                            active_mask,
-                            score_mode=score_mode,
-                            device=device,
-                    )
-                    action_t = torch.as_tensor([[action.row, action.col, action.value]], dtype=torch.long, device=device)
-                    next_latent = model.predict_next(latent, action_t, context_latents)
-                    mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
-                    if score_mode == "oracle_goal_raw_euclidean_progress":
-                        next_score = raw_tokenwise_euclidean_distance(next_latent, oracle_goal, mask_t)
-                        node_score = raw_tokenwise_euclidean_distance(latent, oracle_goal, mask_t)
-                        score = float((next_score - node_score).item())
-                    elif score_mode == "oracle_goal_changed_cell_raw_euclidean_distance":
-                        score = float(changed_cell_raw_euclidean_distance(next_latent, oracle_goal, action).item())
-                    else:
-                        score = float(latent_distance(model, next_latent, predicted_goal, oracle_goal, mask_t, score_mode).item())
+                    score = float(latent_distance(model, next_latent, predicted_goal, oracle_goal, mask_t, score_mode).item())
                 action_evals += 1
                 candidates.append((score, leaf, next_seq, next_latent))
                 if best is None or score < best[0]:
@@ -203,7 +196,94 @@ def beam_plan_once(
             break
         candidates.sort(key=lambda item: item[0])
         beam = candidates[: max(1, int(beam_width))]
-        if beam[0][0] <= 1.0e-8:
+        if _can_early_stop(score_mode) and beam[0][0] <= 1.0e-8:
+            break
+    if best is None or not best[1]:
+        return None, action_evals
+    return best[1][0], action_evals
+
+
+@torch.no_grad()
+def _beam_plan_once_symbolic(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    context_latents: torch.Tensor,
+    predicted_goal: torch.Tensor,
+    oracle_goal: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    beam_width: int,
+    beam_depth: int,
+    device: torch.device,
+) -> tuple[WorldAction | None, int]:
+    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = [(0.0, board.copy(), [], None)]
+    best: tuple[float, list[WorldAction]] | None = None
+    action_evals = 0
+    base_progress_mode = _progress_base_score_mode(score_mode)
+    target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
+    for _ in range(max(1, int(beam_depth))):
+        leaves: list[np.ndarray] = []
+        seqs: list[list[WorldAction]] = []
+        actions: list[WorldAction] = []
+        node_scores: list[float] = []
+        for _, node_board, seq, _ in beam:
+            node_score = 0.0
+            if base_progress_mode is not None:
+                node_score, _ = score_board(
+                    model,
+                    node_board,
+                    context_latents,
+                    predicted_goal,
+                    oracle_goal,
+                    clue_mask,
+                    editable_mask,
+                    active_mask,
+                    score_mode=base_progress_mode,  # type: ignore[arg-type]
+                    device=device,
+                )
+            for action in legal_fill_actions(node_board, allow_conflicts=True):
+                try:
+                    leaf = apply_fill_action(node_board, action, allow_conflicts=True)
+                except ValueError:
+                    continue
+                leaves.append(leaf)
+                seqs.append([*seq, action])
+                actions.append(action)
+                node_scores.append(node_score)
+        if not leaves:
+            break
+        leaf_latents = encode_boards(
+            model,
+            leaves,
+            context_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
+        )
+        mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(len(leaves), -1, -1)
+        if base_progress_mode is not None:
+            absolute = latent_distance(model, leaf_latents, predicted_goal, oracle_goal, mask_t, base_progress_mode)
+            score_values = absolute - torch.as_tensor(node_scores, dtype=absolute.dtype, device=device)
+        elif _is_changed_cell_score(score_mode):
+            score_values = torch.stack(
+                [changed_cell_raw_euclidean_distance(leaf_latents[i : i + 1], target_goal, action) for i, action in enumerate(actions)]
+            ).reshape(-1)
+        else:
+            score_values = latent_distance(model, leaf_latents, predicted_goal, oracle_goal, mask_t, score_mode)
+        scores = [float(x) for x in score_values.detach().cpu().tolist()]
+        action_evals += len(leaves)
+        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = []
+        for score, leaf, seq in zip(scores, leaves, seqs, strict=True):
+            candidates.append((score, leaf, seq, None))
+            if best is None or score < best[0]:
+                best = (score, seq)
+        candidates.sort(key=lambda item: item[0])
+        beam = candidates[: max(1, int(beam_width))]
+        if _can_early_stop(score_mode) and beam[0][0] <= 1.0e-8:
             break
     if best is None or not best[1]:
         return None, action_evals
@@ -232,6 +312,31 @@ def score_board(
     return float(latent_distance(model, latent, predicted_goal, oracle_goal, active_t, score_mode).item()), latent
 
 
+@torch.no_grad()
+def encode_boards(
+    model: GridTokenGoalJEPA,
+    boards: list[np.ndarray],
+    context_latents: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    device: torch.device,
+    chunk_size: int = 512,
+) -> torch.Tensor:
+    board_t = torch.as_tensor(np.stack(boards), dtype=torch.long, device=device)
+    count = board_t.shape[0]
+    clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device).expand(count, -1, -1)
+    edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device).expand(count, -1, -1)
+    active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(count, -1, -1)
+    context_t = context_latents.expand(count, -1, -1)
+    latents = []
+    for start in range(0, count, chunk_size):
+        end = min(count, start + chunk_size)
+        latents.append(model.encode_state(board_t[start:end], context_t[start:end], clue_t[start:end], edit_t[start:end], active_t[start:end]))
+    return torch.cat(latents, dim=0)
+
+
 def latent_distance(
     model: GridTokenGoalJEPA,
     latent: torch.Tensor,
@@ -240,23 +345,70 @@ def latent_distance(
     mask: torch.Tensor,
     score_mode: str,
 ) -> torch.Tensor:
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], -1)
+    predicted_goal = _expand_tokens_like(predicted_goal, latent)
+    oracle_goal = _expand_tokens_like(oracle_goal, latent)
     if score_mode == "predicted_goal_distance":
         return model.distance(latent, predicted_goal, mask)
     if score_mode == "oracle_goal_distance":
         return model.distance(latent, oracle_goal, mask)
-    if score_mode in {"oracle_goal_raw_euclidean_distance", "oracle_goal_raw_euclidean_progress"}:
-        return raw_tokenwise_euclidean_distance(latent, oracle_goal, mask)
-    if score_mode == "oracle_goal_raw_squared_euclidean_distance":
-        return raw_tokenwise_squared_euclidean_distance(latent, oracle_goal, mask)
-    if score_mode == "oracle_goal_raw_cosine_distance":
-        return raw_tokenwise_cosine_distance(latent, oracle_goal, mask)
-    if score_mode == "oracle_goal_raw_hybrid_distance":
-        return raw_tokenwise_euclidean_distance(latent, oracle_goal, mask) + raw_tokenwise_cosine_distance(latent, oracle_goal, mask)
-    if score_mode == "oracle_goal_projected_euclidean_distance":
-        return projected_tokenwise_euclidean_distance(latent, oracle_goal, mask, model.distance_projector)
-    if score_mode == "oracle_goal_changed_cell_raw_euclidean_distance":
-        return raw_tokenwise_euclidean_distance(latent, oracle_goal, mask)
+    target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
+    metric = _score_metric_name(score_mode)
+    if metric in {"raw_euclidean_distance", "raw_euclidean_progress"}:
+        return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
+    if metric == "raw_squared_euclidean_distance":
+        return raw_tokenwise_squared_euclidean_distance(latent, target_goal, mask)
+    if metric == "raw_cosine_distance":
+        return raw_tokenwise_cosine_distance(latent, target_goal, mask)
+    if metric == "raw_hybrid_distance":
+        return raw_tokenwise_euclidean_distance(latent, target_goal, mask) + raw_tokenwise_cosine_distance(latent, target_goal, mask)
+    if metric == "projected_euclidean_distance":
+        return projected_tokenwise_euclidean_distance(latent, target_goal, mask, model.distance_projector)
+    if metric == "changed_cell_raw_euclidean_distance":
+        return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
     raise ValueError(f"Unknown score_mode: {score_mode}")
+
+
+def _expand_tokens_like(tokens: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    if tokens.shape == reference.shape:
+        return tokens
+    if tokens.shape[0] == 1 and tokens.shape[1:] == reference.shape[1:]:
+        return tokens.expand(reference.shape[0], -1, -1)
+    return tokens
+
+
+def _target_goal_latents(score_mode: str, predicted_goal: torch.Tensor, oracle_goal: torch.Tensor) -> torch.Tensor:
+    if score_mode.startswith("predicted_goal_"):
+        return predicted_goal
+    return oracle_goal
+
+
+def _score_metric_name(score_mode: str) -> str:
+    for prefix in ("oracle_goal_", "predicted_goal_"):
+        if score_mode.startswith(prefix):
+            return score_mode.removeprefix(prefix)
+    return score_mode
+
+
+def _is_progress_score(score_mode: str) -> bool:
+    return _score_metric_name(score_mode) == "raw_euclidean_progress"
+
+
+def _is_changed_cell_score(score_mode: str) -> bool:
+    return _score_metric_name(score_mode) == "changed_cell_raw_euclidean_distance"
+
+
+def _progress_base_score_mode(score_mode: str) -> str | None:
+    if not _is_progress_score(score_mode):
+        return None
+    if score_mode.startswith("predicted_goal_"):
+        return "predicted_goal_raw_euclidean_distance"
+    return "oracle_goal_raw_euclidean_distance"
+
+
+def _can_early_stop(score_mode: str) -> bool:
+    return not _is_progress_score(score_mode)
 
 
 def raw_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:

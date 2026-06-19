@@ -212,11 +212,17 @@ def test_beam_mpc_runs_with_raw_oracle_euclidean_goal_distance():
     "score_mode",
     [
         "oracle_goal_raw_squared_euclidean_distance",
+        "predicted_goal_raw_squared_euclidean_distance",
         "oracle_goal_raw_cosine_distance",
+        "predicted_goal_raw_cosine_distance",
         "oracle_goal_raw_hybrid_distance",
+        "predicted_goal_raw_hybrid_distance",
         "oracle_goal_raw_euclidean_progress",
+        "predicted_goal_raw_euclidean_progress",
         "oracle_goal_changed_cell_raw_euclidean_distance",
+        "predicted_goal_changed_cell_raw_euclidean_distance",
         "oracle_goal_projected_euclidean_distance",
+        "predicted_goal_projected_euclidean_distance",
     ],
 )
 def test_beam_mpc_runs_with_oracle_metric_probe_scores(score_mode):
@@ -241,6 +247,27 @@ def test_beam_mpc_runs_with_oracle_metric_probe_scores(score_mode):
     assert result.beam_width == 2
     assert result.beam_depth == 2
     assert result.action_evals > 0
+
+
+def test_progress_metric_does_not_trigger_zero_distance_early_stop():
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model()
+    result = run_beam_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_goal_raw_euclidean_progress",
+        transition_mode="symbolic_reencode",
+        beam_width=2,
+        beam_depth=2,
+        max_steps=1,
+        device=torch.device("cpu"),
+    )
+    assert result.action_evals > 18
 
 
 def test_raw_tokenwise_euclidean_distance_uses_unprojected_latents():
