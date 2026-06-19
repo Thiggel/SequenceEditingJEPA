@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-19 09:16 CEST
+Last updated: 2026-06-19 09:45 CEST
 
 ## Current Result
 
@@ -86,6 +86,12 @@ including changed-cell raw, hybrid, cosine, raw squared, and progress/delta.
 `M0_full` remained `0.0` across completed metric-sweep rows. The older
 per-metric probes `3751931`-`3751938` timed out after 24h with 5/8 rows each;
 best there remained `R1_no_context_masks` raw at `0.125`.
+
+Planner implementation update: predicted-goal versions of the raw metric probe
+scores are now implemented, raw L2 progress/delta no longer triggers the
+zero-distance early-stop path, and symbolic re-encode planning batches
+candidate board encodes per beam layer. Verification:
+`source scripts/env.sh && pytest -q` -> `48 passed`.
 
 Implementation review status:
 
