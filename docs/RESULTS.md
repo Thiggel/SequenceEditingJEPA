@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-18 16:57 CEST
+Last updated: 2026-06-19 09:16 CEST
 
 ## Current Result
 
@@ -77,6 +77,15 @@ boards at beam width 8/depth 16, and raw L2 progress/delta reached `0.25` at
 depths 16 and 32. `M0_full` remains `0.0`; `R4_no_goal_nce` remains `0.0` but
 raw squared/progress rows have much lower remaining Hamming than the normalized
 metric.
+
+Final metric-sweep result: the strongest row is `R4_no_goal_nce` with
+changed-cell raw Euclidean distance, beam width `8`, depths `16` and `32`,
+which solved `3/4` boards (`solve_rate=0.75`) with mean remaining Hamming
+`1.0`. `R1_no_context_masks` solved `1/4` (`0.25`) under several raw metrics,
+including changed-cell raw, hybrid, cosine, raw squared, and progress/delta.
+`M0_full` remained `0.0` across completed metric-sweep rows. The older
+per-metric probes `3751931`-`3751938` timed out after 24h with 5/8 rows each;
+best there remained `R1_no_context_masks` raw at `0.125`.
 
 Implementation review status:
 
