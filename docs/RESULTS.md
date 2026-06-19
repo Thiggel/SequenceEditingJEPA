@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-19 11:15 CEST
+Last updated: 2026-06-19 11:35 CEST
 
 ## Current Result
 
@@ -101,6 +101,13 @@ Latent-rollout timing probe `3755858` completed on RTX Pro 6000. It used
 depths `4,8,16,32`, and skipped diagnostics. Total wall time was `18m09s`.
 Per-board row times ranged from `9.15s` at width 4/depth 4 to `275.75s` at
 width 32/depth 32; all 12 width-depth rows summed to `994.98s`.
+
+Submitted full latent-rollout sweep jobs `3755904`-`3756007`:
+104 jobs = 13 ablations x 8 metric families. Each job bundles oracle and
+predicted goal variants, uses latent rollout only, beam width `16`, depths
+`4,16,32`, `10` boards, and skips diagnostics. Initial Slurm state: all 104
+running, with 16 on `rtxpro6k` and 88 on `a40`. Output root:
+`$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_sudoku_<ablation>/planner_latent_bw16_d4_16_32_10ex/<metric>/`.
 
 Implementation review status:
 
