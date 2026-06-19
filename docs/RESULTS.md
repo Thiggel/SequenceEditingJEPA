@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-19 11:35 CEST
+Last updated: 2026-06-19 13:45 CEST
 
 ## Current Result
 
@@ -108,6 +108,13 @@ predicted goal variants, uses latent rollout only, beam width `16`, depths
 `4,16,32`, `10` boards, and skips diagnostics. Initial Slurm state: all 104
 running, with 16 on `rtxpro6k` and 88 on `a40`. Output root:
 `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_sudoku_<ablation>/planner_latent_bw16_d4_16_32_10ex/<metric>/`.
+
+Interim at 13:45 CEST: `M0_full` and `R1_no_context_masks` completed all 8
+metrics successfully. 85 original jobs are still running on `a40`. Three
+original jobs failed with transient Hugging Face cache/file-lock stale-handle
+errors and were resubmitted as `3757178`-`3757180`, now running on `rtxpro6k`.
+Partial scan: 101 output files, 272 planner rows, 16 complete outputs, no
+solves yet (`max solve_rate=0.0`).
 
 Implementation review status:
 
