@@ -151,51 +151,105 @@ def beam_plan_once(
             beam_depth=beam_depth,
             device=device,
         )
-    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = [(0.0, board.copy(), [], None)]
+    return _beam_plan_once_latent(
+        model,
+        board,
+        context_latents,
+        predicted_goal,
+        oracle_goal,
+        active_mask,
+        score_mode=score_mode,
+        beam_width=beam_width,
+        beam_depth=beam_depth,
+        device=device,
+    )
+
+
+@torch.no_grad()
+def _beam_plan_once_latent(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    context_latents: torch.Tensor,
+    predicted_goal: torch.Tensor,
+    oracle_goal: torch.Tensor,
+    active_mask: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    beam_width: int,
+    beam_depth: int,
+    device: torch.device,
+    chunk_size: int = 2048,
+) -> tuple[WorldAction | None, int]:
+    clue_mask = board != 0
+    editable_mask = ~clue_mask
+    _, start_latent = score_board(
+        model,
+        board,
+        context_latents,
+        predicted_goal,
+        oracle_goal,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        score_mode=score_mode,
+        device=device,
+    )
+    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = [(0.0, board.copy(), [], start_latent)]
     best: tuple[float, list[WorldAction]] | None = None
     action_evals = 0
+    base_progress_mode = _progress_base_score_mode(score_mode)
+    target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
     for _ in range(max(1, int(beam_depth))):
-        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = []
+        parent_latents: list[torch.Tensor] = []
+        leaves: list[np.ndarray] = []
+        seqs: list[list[WorldAction]] = []
+        actions: list[WorldAction] = []
         for _, node_board, seq, latent in beam:
+            if latent is None:
+                raise RuntimeError("Latent rollout beam node is missing its latent state.")
             for action in legal_fill_actions(node_board, allow_conflicts=True):
                 try:
                     leaf = apply_fill_action(node_board, action, allow_conflicts=True)
                 except ValueError:
                     continue
-                next_seq = [*seq, action]
-                if latent is None:
-                    _, latent = score_board(
-                        model,
-                        node_board,
-                        context_latents,
-                        predicted_goal,
-                        oracle_goal,
-                        clue_mask,
-                        editable_mask,
-                        active_mask,
-                        score_mode=score_mode,
-                        device=device,
-                    )
-                action_t = torch.as_tensor([[action.row, action.col, action.value]], dtype=torch.long, device=device)
-                next_latent = model.predict_next(latent, action_t, context_latents)
-                mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
-                target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
-                if _is_progress_score(score_mode):
-                    next_score = raw_tokenwise_euclidean_distance(next_latent, target_goal, mask_t)
-                    node_score = raw_tokenwise_euclidean_distance(latent, target_goal, mask_t)
-                    score = float((next_score - node_score).item())
-                elif _is_changed_cell_score(score_mode):
-                    score = float(changed_cell_raw_euclidean_distance(next_latent, target_goal, action).item())
-                else:
-                    score = float(latent_distance(model, next_latent, predicted_goal, oracle_goal, mask_t, score_mode).item())
-                action_evals += 1
-                candidates.append((score, leaf, next_seq, next_latent))
-                if best is None or score < best[0]:
-                    best = (score, next_seq)
-        if not candidates:
+                parent_latents.append(latent)
+                leaves.append(leaf)
+                seqs.append([*seq, action])
+                actions.append(action)
+        if not leaves:
             break
-        candidates.sort(key=lambda item: item[0])
-        beam = candidates[: max(1, int(beam_width))]
+        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = []
+        mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+        for start in range(0, len(leaves), chunk_size):
+            end = min(len(leaves), start + chunk_size)
+            parent_batch = torch.cat(parent_latents[start:end], dim=0)
+            action_t = torch.as_tensor(
+                [[action.row, action.col, action.value] for action in actions[start:end]],
+                dtype=torch.long,
+                device=device,
+            )
+            context_t = context_latents.expand(parent_batch.shape[0], -1, -1)
+            next_latents = model.predict_next(parent_batch, action_t, context_t)
+            chunk_mask = mask_t.expand(parent_batch.shape[0], -1, -1)
+            if base_progress_mode is not None:
+                next_score = raw_tokenwise_euclidean_distance(next_latents, _expand_tokens_like(target_goal, next_latents), chunk_mask)
+                node_score = raw_tokenwise_euclidean_distance(parent_batch, _expand_tokens_like(target_goal, parent_batch), chunk_mask)
+                score_values = next_score - node_score
+            elif _is_changed_cell_score(score_mode):
+                score_values = changed_cell_raw_euclidean_distances(next_latents, _expand_tokens_like(target_goal, next_latents), actions[start:end])
+            else:
+                score_values = latent_distance(model, next_latents, predicted_goal, oracle_goal, chunk_mask, score_mode)
+            scores = [float(x) for x in score_values.detach().cpu().tolist()]
+            for offset, score in enumerate(scores):
+                idx = start + offset
+                latent = next_latents[offset : offset + 1].detach()
+                candidates.append((score, leaves[idx], seqs[idx], latent))
+                if best is None or score < best[0]:
+                    best = (score, seqs[idx])
+            candidates.sort(key=lambda item: item[0])
+            candidates = candidates[: max(1, int(beam_width))]
+            action_evals += end - start
+        beam = candidates
         if _can_early_stop(score_mode) and beam[0][0] <= 1.0e-8:
             break
     if best is None or not best[1]:
@@ -466,6 +520,18 @@ def changed_cell_raw_euclidean_distance(a: torch.Tensor, b: torch.Tensor, action
     if idx < 0 or idx >= a.shape[-2]:
         raise ValueError(f"Action cell index {idx} is outside token count {a.shape[-2]}.")
     return (a[..., idx, :].float() - b[..., idx, :].float()).square().sum(dim=-1).sqrt()
+
+
+def changed_cell_raw_euclidean_distances(a: torch.Tensor, b: torch.Tensor, actions: list[WorldAction]) -> torch.Tensor:
+    if a.shape != b.shape:
+        raise ValueError(f"Changed-cell distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    if len(actions) != a.shape[0]:
+        raise ValueError(f"Expected one action per batch item, got {len(actions)} actions for batch size {a.shape[0]}.")
+    indices = torch.as_tensor([int(action.row) * 9 + int(action.col) for action in actions], dtype=torch.long, device=a.device)
+    if bool(((indices < 0) | (indices >= a.shape[-2])).any().item()):
+        raise ValueError(f"Action cell indices must be inside token count {a.shape[-2]}.")
+    batch = torch.arange(a.shape[0], device=a.device)
+    return (a[batch, indices, :].float() - b[batch, indices, :].float()).square().sum(dim=-1).sqrt()
 
 
 @torch.no_grad()

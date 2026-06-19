@@ -78,7 +78,7 @@ depths 16 and 32. `M0_full` remains `0.0`; `R4_no_goal_nce` remains `0.0` but
 raw squared/progress rows have much lower remaining Hamming than the normalized
 metric.
 
-Final metric-sweep result: the strongest row is `R4_no_goal_nce` with
+Final metric-sweep result: the strongest symbolic-reencode row is `R4_no_goal_nce` with
 changed-cell raw Euclidean distance, beam width `8`, depths `16` and `32`,
 which solved `3/4` boards (`solve_rate=0.75`) with mean remaining Hamming
 `1.0`. `R1_no_context_masks` solved `1/4` (`0.25`) under several raw metrics,
@@ -89,9 +89,11 @@ best there remained `R1_no_context_masks` raw at `0.125`.
 
 Planner implementation update: predicted-goal versions of the raw metric probe
 scores are now implemented, raw L2 progress/delta no longer triggers the
-zero-distance early-stop path, and symbolic re-encode planning batches
-candidate board encodes per beam layer. Verification:
-`source scripts/env.sh && pytest -q` -> `48 passed`.
+zero-distance early-stop path, symbolic re-encode planning batches candidate
+board encodes per beam layer, and latent-rollout planning batches predictor
+expansions per beam layer. The strong changed-cell rows above are encoder
+geometry/symbolic-transition diagnostics, not learned latent world-model solve
+results. Verification: `source scripts/env.sh && pytest -q` -> `53 passed`.
 
 Implementation review status:
 

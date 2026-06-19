@@ -10,6 +10,7 @@ from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _temporal_straightening_loss
 from puzzle_jepa.planning.grid_goal_planner import (
     changed_cell_raw_euclidean_distance,
+    changed_cell_raw_euclidean_distances,
     projected_tokenwise_euclidean_distance,
     raw_tokenwise_cosine_distance,
     raw_tokenwise_euclidean_distance,
@@ -249,6 +250,39 @@ def test_beam_mpc_runs_with_oracle_metric_probe_scores(score_mode):
     assert result.action_evals > 0
 
 
+@pytest.mark.parametrize(
+    "score_mode",
+    [
+        "oracle_goal_raw_squared_euclidean_distance",
+        "predicted_goal_raw_hybrid_distance",
+        "oracle_goal_raw_euclidean_progress",
+        "predicted_goal_changed_cell_raw_euclidean_distance",
+    ],
+)
+def test_latent_rollout_beam_mpc_runs_with_metric_probe_scores(score_mode):
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model()
+    result = run_beam_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode=score_mode,
+        transition_mode="latent_rollout",
+        beam_width=2,
+        beam_depth=2,
+        max_steps=2,
+        device=torch.device("cpu"),
+    )
+    assert result.steps <= 2
+    assert result.beam_width == 2
+    assert result.beam_depth == 2
+    assert result.action_evals > 0
+
+
 def test_progress_metric_does_not_trigger_zero_distance_early_stop():
     example = _example()
     state = example.goal.copy()
@@ -294,6 +328,17 @@ def test_metric_probe_distance_variants_are_task_agnostic_token_metrics():
     assert raw_tokenwise_cosine_distance(a, b, mask).item() == pytest.approx(1.0)
     assert projected_tokenwise_euclidean_distance(a, b, mask, projector).item() == pytest.approx(5.0)
     assert changed_cell_raw_euclidean_distance(a, b, action).item() == pytest.approx(5.0)
+
+
+def test_batched_changed_cell_distance_matches_single_item_distance():
+    a = torch.tensor([[[0.0, 0.0], [3.0, 4.0]], [[5.0, 12.0], [0.0, 0.0]]])
+    b = torch.zeros_like(a)
+    actions = [WorldAction(0, 1, 7), WorldAction(0, 0, 3)]
+
+    batched = changed_cell_raw_euclidean_distances(a, b, actions)
+
+    assert batched.tolist() == pytest.approx([5.0, 13.0])
+    assert batched[0].item() == pytest.approx(changed_cell_raw_euclidean_distance(a[:1], b[:1], actions[0]).item())
 
 
 def test_invalid_distance_mode_is_rejected():
