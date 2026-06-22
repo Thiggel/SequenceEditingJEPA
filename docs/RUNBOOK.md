@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-22 00:00 CEST
+Last updated: 2026-06-22 00:20 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -27,17 +27,19 @@ reset.
 
 Action-conditioning/stability suite state:
 
-- Training array: `3760074`, `grid_goal_act_train`, `0-95%32`,
+- Original training array: `3760074`, `grid_goal_act_train`, `0-95%32`,
   partitions `rtxpro6k,a100`, 24h limit.
-- Eval array: `3760099`, `grid_goal_act_eval`, `0-95%32`,
-  dependency `afterok:3760074`, partitions `rtxpro6k,a100`, 6h limit.
-- Outcome: training had 29 completed tasks and 67 failed tasks. Eval is stuck
-  as `DependencyNeverSatisfied` and produced no planner rows.
+- Original outcome: training had 29 completed tasks and 67 failed tasks.
 - Failure reason: CUDA OOM on 40GB A100 nodes at batch 8. RTX Pro 6000 tasks
   completed.
+- Stale eval `3760099` was canceled because it was `DependencyNeverSatisfied`.
+- Rerun training array: `3768285`, failed indices only
+  `24-26,28-38,42,44-95%16`, partition `rtxpro6k`.
+- Replacement eval array: `3768300`, full `0-95%32`, partition `rtxpro6k`,
+  dependency `afterok:3768285`.
 - Monitor:
   ```bash
-  squeue -j 3760074,3760099
+  squeue -j 3768285,3768300
   ```
 - Output root:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_action_suite/grid_goal_action_<base>_<action>_<stability>_<dynamics>/`.
