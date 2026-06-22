@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-22 20:14 CEST
+Last updated: 2026-06-22 20:21 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -42,12 +42,18 @@ Action-conditioning/stability suite state:
   `a[2041,2043,2141-2143,2841,2843,2941,0531-0537,0631-0633,0731,0831-0833,0931-0934]`.
   Tasks `61-64` started on A100-80GB shortly after the update; remaining tasks
   show near-term Slurm estimates.
-- Replacement eval array: `3768300`, full `0-95%32`, dependency
-  `afterok:3768285`, also updated to `rtxpro6k,a100` with the same safe node
-  list.
+- Replacement eval array `3768300` was canceled and replaced by split evals so
+  completed checkpoints evaluate immediately:
+  - `3770937`: original completed tasks `0-23,27,39-41,43%32`
+  - `3770953`: completed rerun tasks `24-26,28-38,42,44%32`
+  - `3770954`-`3771004`: per-task evals for rerun tasks `45-95`, each
+    dependency-held with explicit `afterok:<train-task-jobid>`
+  - mapping file:
+    `logs/grid_goal_act_eval_split_afterok_submit_20260622_2020.tsv`
 - Monitor:
   ```bash
-  squeue -j 3768285,3768300
+  squeue -j 3768285,3770937,3770953
+  squeue --jobs=$(seq -s, 3770954 3771004)
   ```
 - Output root:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_action_suite/grid_goal_action_<base>_<action>_<stability>_<dynamics>/`.
