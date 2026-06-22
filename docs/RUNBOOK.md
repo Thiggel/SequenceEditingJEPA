@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-22 00:20 CEST
+Last updated: 2026-06-22 20:14 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -34,9 +34,17 @@ Action-conditioning/stability suite state:
   completed.
 - Stale eval `3760099` was canceled because it was `DependencyNeverSatisfied`.
 - Rerun training array: `3768285`, failed indices only
-  `24-26,28-38,42,44-95%16`, partition `rtxpro6k`.
-- Replacement eval array: `3768300`, full `0-95%32`, partition `rtxpro6k`,
-  dependency `afterok:3768285`.
+  `24-26,28-38,42,44-95%16`, originally partition `rtxpro6k`.
+- First rerun tranche `24-38`, `42`, and `44` completed. Tasks `45-60` are
+  running on RTX Pro 6000.
+- Pending tasks `61-95` were updated in place to `rtxpro6k,a100` with an
+  explicit safe node list containing only RTX Pro 6000 and A100-80GB nodes:
+  `a[2041,2043,2141-2143,2841,2843,2941,0531-0537,0631-0633,0731,0831-0833,0931-0934]`.
+  Tasks `61-64` started on A100-80GB shortly after the update; remaining tasks
+  show near-term Slurm estimates.
+- Replacement eval array: `3768300`, full `0-95%32`, dependency
+  `afterok:3768285`, also updated to `rtxpro6k,a100` with the same safe node
+  list.
 - Monitor:
   ```bash
   squeue -j 3768285,3768300
