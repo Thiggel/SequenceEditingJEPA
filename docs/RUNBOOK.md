@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-22 20:21 CEST
+Last updated: 2026-06-23 14:37 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -35,13 +35,10 @@ Action-conditioning/stability suite state:
 - Stale eval `3760099` was canceled because it was `DependencyNeverSatisfied`.
 - Rerun training array: `3768285`, failed indices only
   `24-26,28-38,42,44-95%16`, originally partition `rtxpro6k`.
-- First rerun tranche `24-38`, `42`, and `44` completed. Tasks `45-60` are
-  running on RTX Pro 6000.
-- Pending tasks `61-95` were updated in place to `rtxpro6k,a100` with an
-  explicit safe node list containing only RTX Pro 6000 and A100-80GB nodes:
-  `a[2041,2043,2141-2143,2841,2843,2941,0531-0537,0631-0633,0731,0831-0833,0931-0934]`.
-  Tasks `61-64` started on A100-80GB shortly after the update; remaining tasks
-  show near-term Slurm estimates.
+- All 96 checkpoint files exist.
+- Remaining active training tasks at 2026-06-23 14:37 CEST are `76-95`.
+  Task `76` is on A100 at step `58k/60k`; tasks `77-95` are on RTX Pro and
+  mostly around `38k-44k/60k`.
 - Replacement eval array `3768300` was canceled and replaced by split evals so
   completed checkpoints evaluate immediately:
   - `3770937`: original completed tasks `0-23,27,39-41,43%32`
@@ -55,6 +52,15 @@ Action-conditioning/stability suite state:
   squeue -j 3768285,3770937,3770953
   squeue --jobs=$(seq -s, 3770954 3771004)
   ```
+- Eval output at 2026-06-23 14:37 CEST: `76` planner output files, `994`
+  JSONL rows, `27` complete files, `49` partial files, and `20` missing files
+  for still-running/not-yet-evaluated checkpoints. Many A100 eval jobs hit the
+  6h limit after about `11/18` rows; RTX Pro evals complete in about
+  `4h38m-4h42m`.
+- Current planner result: `0` solves across `994` rows. Best partial row is
+  `remaining_hamming_mean=5.8` for
+  `R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform` with
+  `oracle_goal_distance` at beam depths `16` and `32`.
 - Output root:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_action_suite/grid_goal_action_<base>_<action>_<stability>_<dynamics>/`.
 - Scripts:
