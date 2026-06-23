@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-23 14:37 CEST
+Last updated: 2026-06-23 14:50 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -61,6 +61,15 @@ Action-conditioning/stability suite state:
   `remaining_hamming_mean=5.8` for
   `R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform` with
   `oracle_goal_distance` at beam depths `16` and `32`.
+- Incomplete main eval rerun: `3773057`, RTX Pro-only, 8h limit, reruns
+  incomplete `planner_eval_latent` matrices for indices
+  `0,1,2,5-13,24-26,28,30-35,37,38,42-44,46-60,66-68%16`.
+- Pending main evals `3770985`-`3771004` for tasks `76-95` are now RTX
+  Pro-only. Task 95 depends on `afterok:3768285_95`.
+- Depth-64 evals: `3773058` for indices `0-75%16`, plus per-task dependency
+  jobs `3773059`-`3773078` for indices `76-95`. They use beam width `16`,
+  beam depth `64`, max steps `81`, the same six score modes, and write to
+  `planner_eval_latent_depth64`.
 - Output root:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_action_suite/grid_goal_action_<base>_<action>_<stability>_<dynamics>/`.
 - Scripts:

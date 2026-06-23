@@ -49,7 +49,7 @@ DYNAMICS_VARIANT="${DYNAMICS_VARIANTS[$dyn_index]}"
 RUN_NAME="grid_goal_action_${ABLATION}_${ACTION_VARIANT}_${STABILITY_VARIANT}_${DYNAMICS_VARIANT}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/grid_goal_action_suite/${RUN_NAME}"
 CHECKPOINT="${RUN_ROOT}/checkpoint.pt"
-OUTPUT_DIR="${RUN_ROOT}/planner_eval_latent"
+OUTPUT_DIR="${RUN_ROOT}/planner_eval_latent${OUTPUT_SUFFIX:-}"
 
 if [[ ! -s "${CHECKPOINT}" ]]; then
   echo "Missing checkpoint ${CHECKPOINT}; cannot run planner eval for ${RUN_NAME}." >&2
