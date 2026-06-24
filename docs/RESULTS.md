@@ -1,37 +1,35 @@
 # Results
 
-Last updated: 2026-06-22 00:00 CEST
+Last updated: 2026-06-24 10:36 CEST
 
 ## Current Result
 
-Action-conditioning/stability first-wave suite:
+Action-conditioning/stability suite:
 
-- Training array `3760074`: 96 jobs, `0-95%32`, partitions `rtxpro6k,a100`,
-  24h limit.
-- Dependency-held eval array `3760099`: 96 jobs, `0-95%32`,
-  `afterok:3760074`, partitions `rtxpro6k,a100`, 6h limit.
-- Final training state: 29 completed, 67 failed.
-- Eval state: `DependencyNeverSatisfied`; no planner rows were produced.
-- Failure reason: CUDA OOM on 40GB A100 nodes at batch 8. RTX Pro 6000 tasks
-  completed.
+- Training rerun `3768285` completed all 96 checkpoints.
+- Corrected eval reruns are active:
+  - `3775750` restores incomplete main latent planner matrices.
+  - `3775751` reruns the depth-64 sweep in separate output directories.
+- Main depth-32 snapshot at 2026-06-24 10:36 CEST:
+  - 51/96 configs have complete six-score depth-32 rows.
+  - 45 configs are still incomplete or being rewritten by `3775750`.
+  - Solve rate is `0.0` across all 306 observed depth-32 rows.
 
-The suite crosses two base recipes (`R4_no_goal_nce`,
-`R7_no_terminal_corrupt`), eight action-conditioning variants, three stability
-variants (`SIGReg`, `EMA+SIGReg`, `EMA+VICReg`), and uniform vs
-affected-token-weighted dynamics loss. Eval is latent rollout only with beam
-width `16`, depths `4,16,32`, 10 boards, and oracle/predicted goal versions of
-normalized, raw Euclidean, and changed-cell raw Euclidean distances.
+Preliminary depth-32 signal:
 
-Completed subset:
-
-- all completed checkpoints are `R4_no_goal_nce`
-- no `R7_no_terminal_corrupt` checkpoint completed
-- best latent-rollout action top-1:
-  `A6_affected_marker_delta/S4_ema_vicreg/D0_uniform`, `0.4375`
-- best symbolic predicted-goal action top-1:
-  `A6_affected_marker_delta/S4_ema_vicreg/D1_affected`, `0.46875`
-- EMA target encoders are much better than non-EMA on rollout MSE and action
-  diagnostics
+- One config is qualitatively better than the rest:
+  `R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform`.
+  At beam width `16`, depth `32`, it reaches remaining Hamming `5.8` with
+  normalized oracle-goal distance and `9.2` with changed-cell raw oracle L2.
+- The same config is much worse with predicted goals: remaining Hamming `36.6`
+  normalized and `35.1` changed-cell raw. Predicted goal quality is still a
+  major bottleneck.
+- Observed factor signals favor `R4_no_goal_nce`, `A6_affected_marker_delta`,
+  `S4_ema_vicreg`, and `D0_uniform`. `D1_affected` does not help in the
+  observed depth-32 rows.
+- Important caveat: action variants `A1_affected_marker` and the strongest
+  `A7_local_action_feature_delta/S4` rows are underrepresented until `3775750`
+  finishes. Treat this as a live partial readout, not the final ablation table.
 
 ## Previous Result
 

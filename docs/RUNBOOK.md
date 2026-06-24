@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-24 10:04 CEST
+Last updated: 2026-06-24 10:36 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -50,15 +50,18 @@ Action-conditioning/stability suite state:
   ```bash
   squeue -j 3775750,3775751
   ```
-- Eval status at 2026-06-24 10:04 CEST: prior evals are complete, but the
+- Eval status at 2026-06-24 10:36 CEST: prior evals are complete, but the
   2026-06-23 corrected rerun/depth64 submissions passed comma-separated
   variables through `sbatch --export=...`, so Slurm split them at commas.
-  Current main outputs have 96 files but only 51 complete 18-row matrices and
-  45 one-row matrices; current depth64 outputs have 96 one-row matrices.
-- Current planner result in observed rows: `0` solves. Best row is still
-  `remaining_hamming_mean=5.8` for
+  Current main outputs have 96 files but only 51 complete 18-row matrices, 16
+  two-row matrices, and 29 one-row matrices; current depth64 outputs have 96
+  one-row matrices.
+- Current depth-32 result in observed complete rows: `0` solves across 306
+  rows. Best row is still `remaining_hamming_mean=5.8` for
   `R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform` with
-  `oracle_goal_distance` at beam depths `16` and `32`.
+  `oracle_goal_distance`. The same config reaches `9.2` remaining Hamming with
+  changed-cell raw oracle L2, but predicted-goal variants remain much worse
+  (`35.1-36.6` remaining Hamming for the best predicted rows).
 - Corrected main eval rerun: `3775750`, RTX Pro-only, 8h limit, reruns
   indices `0,1,2,5-13,24-26,28,30-35,37,38,42-44,46-60,66-68%16`.
   This uses environment inheritance rather than comma values in `--export` and
