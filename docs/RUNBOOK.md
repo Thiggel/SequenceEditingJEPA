@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-24 10:36 CEST
+Last updated: 2026-06-24 10:58 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -19,6 +19,12 @@ Goal-JEPA** for Sudoku.
 - Training Slurm array: `scripts/slurm/run_grid_goal_sudoku_ablation.slurm`
 - Dependency-ready planner eval array:
   `scripts/slurm/run_grid_goal_sudoku_planner_eval.slurm`
+- Follow-up train array:
+  `scripts/slurm/run_grid_goal_followup_train.slurm`
+- Follow-up planner eval array:
+  `scripts/slurm/run_grid_goal_followup_eval.slurm`
+- Current-best checkpoint-time eval array:
+  `scripts/slurm/run_grid_goal_best_checkpoint_eval.slurm`
 
 All previous LeWM/CLS/value-head jobs were cancelled or completed before this
 reset.
@@ -74,6 +80,34 @@ Action-conditioning/stability suite state:
 - Scripts:
   `scripts/slurm/run_grid_goal_action_suite_train.slurm` and
   `scripts/slurm/run_grid_goal_action_suite_eval.slurm`.
+
+Prepared follow-up scripts are not submitted yet:
+
+- `scripts/slurm/run_grid_goal_followup_train.slurm`
+  - array `0-5%6`, 24h, variants `F0_dense_k16`,
+    `F1_dense_k32_detach8`, `H0_hierarchy_l4_l16`,
+    `H1_hierarchy_dense_l4_l16`, `S0_scale_d384_dense`,
+    `S1_deeper_d256_dense`
+  - all use the current best recipe: `R4_no_goal_nce`,
+    `affected_marker`, `predict_delta=true`, `EMA+VICReg`, uniform dynamics
+  - default max steps `45000`; override with `TRAIN_MAX_STEPS`
+- `scripts/slurm/run_grid_goal_followup_eval.slurm`
+  - array `0-17%12`, 24h, one row per follow-up variant and planner group
+  - planner groups: beam, categorical CEM, hierarchical CEM
+  - hierarchical CEM skips non-hierarchical variants
+  - default eval: latent rollout, 10 boards, beam width `16`, depths
+    `4,16,32,64`, six oracle/predicted score modes
+- `scripts/slurm/run_grid_goal_best_checkpoint_eval.slurm`
+  - eval-only sweep for existing best action-suite checkpoint at
+    `20k,30k,40k,50k,60k`
+  - planner groups: beam and categorical CEM
+
+Local verification for the follow-up implementation:
+
+- `source scripts/env.sh && python -m compileall -q puzzle_jepa tests`
+- `source scripts/env.sh && pytest -q`
+- compact Python smoke over all six follow-up configs and beam/CEM/hierarchy
+  planner paths completed in `8.68s` on CPU.
 
 RTX Pro 6000 batch probes for `M0_full` were submitted and all failed quickly
 with CUDA OOM:

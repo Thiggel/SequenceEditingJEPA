@@ -133,21 +133,24 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
         )
         _set_optimizer_lr(optimizer, lr)
         optimizer.step()
-        model.update_ema_target_encoder()
+        if hasattr(model, "update_ema_target_encoder"):
+            model.update_ema_target_encoder()
         output = outputs[-1]
         if step == 1 or step % eval_every == 0 or step == max_steps:
             latest = {
                 "step": step,
                 "ablation": ablation,
                 "train_loss": float(output.loss.detach().cpu()),
-                "train_dynamics_loss": float(output.dynamics_loss.cpu()),
-                "train_sigreg_loss": float(output.sigreg_loss.cpu()),
-                "train_goal_mse_loss": float(output.goal_mse_loss.cpu()),
-                "train_goal_nce_loss": float(output.goal_nce_loss.cpu()),
-                "train_progress_rank_loss": float(output.progress_rank_loss.cpu()),
-                "train_action_rank_loss": float(output.action_rank_loss.cpu()),
-                "train_temporal_straightening_loss": float(output.temporal_straightening_loss.cpu()),
-                "train_terminal_corrupt_loss": float(output.terminal_corrupt_loss.cpu()),
+                "train_dynamics_loss": _output_scalar(output, "dynamics_loss"),
+                "train_dense_future_loss": _output_scalar(output, "dense_future_loss"),
+                "train_hierarchy_loss": _output_scalar(output, "hierarchy_loss"),
+                "train_sigreg_loss": _output_scalar(output, "sigreg_loss"),
+                "train_goal_mse_loss": _output_scalar(output, "goal_mse_loss"),
+                "train_goal_nce_loss": _output_scalar(output, "goal_nce_loss"),
+                "train_progress_rank_loss": _output_scalar(output, "progress_rank_loss"),
+                "train_action_rank_loss": _output_scalar(output, "action_rank_loss"),
+                "train_temporal_straightening_loss": _output_scalar(output, "temporal_straightening_loss"),
+                "train_terminal_corrupt_loss": _output_scalar(output, "terminal_corrupt_loss"),
                 "learning_rate": lr,
                 "peak_learning_rate": peak_lr,
                 "warmup_steps": warmup_steps,
@@ -312,6 +315,15 @@ def _scheduled_lr(
 def _set_optimizer_lr(optimizer: torch.optim.Optimizer, lr: float) -> None:
     for group in optimizer.param_groups:
         group["lr"] = lr
+
+
+def _output_scalar(output: Any, name: str) -> float:
+    value = getattr(output, name, None)
+    if value is None:
+        return 0.0
+    if isinstance(value, torch.Tensor):
+        return float(value.detach().cpu())
+    return float(value)
 
 
 @hydra.main(version_base=None, config_path="../../configs/puzzle", config_name="grid_goal_sudoku")

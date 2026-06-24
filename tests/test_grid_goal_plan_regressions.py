@@ -12,7 +12,7 @@ from puzzle_jepa.data.grid_goal_sudoku import (
 )
 from puzzle_jepa.data.worlds import SudokuWorld
 from puzzle_jepa.eval.grid_goal_diagnostics import run_grid_goal_diagnostics
-from puzzle_jepa.eval.grid_goal_planner_matrix import load_checkpoint
+from puzzle_jepa.eval.grid_goal_planner_matrix import load_checkpoint, run_planner_matrix
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
 from puzzle_jepa.train.grid_goal_sudoku import _zero_context_masks
 
@@ -357,6 +357,33 @@ def test_training_action_rank_state_is_not_hard_wired_to_initial_board(monkeypat
 )
 def test_recursive_baseline_scaffolding_is_kept(legacy_path):
     assert Path(legacy_path).exists()
+
+
+def test_planner_matrix_records_beam_and_cem_rows(tmp_path):
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    tiny = type(example)(state, example.goal)
+    model = _small_model()
+    records = run_planner_matrix(
+        model,
+        [tiny],
+        output_path=tmp_path / "planner_matrix.jsonl",
+        device=torch.device("cpu"),
+        beam_widths=(2,),
+        beam_depths=(1,),
+        scores=("oracle_goal_distance",),
+        transitions=("latent_rollout",),
+        planners=("mpc_beam", "categorical_cem"),
+        max_examples=1,
+        max_steps=1,
+        cem_samples=3,
+        cem_iters=1,
+        cem_elites=1,
+    )
+
+    assert [record["planner"] for record in records] == ["mpc_beam", "categorical_cem"]
+    assert (tmp_path / "planner_matrix.jsonl").read_text().count("\n") == 2
 
 
 def test_diagnostics_include_rollout_and_goal_alignment_metrics(tmp_path):

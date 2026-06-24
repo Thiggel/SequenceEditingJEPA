@@ -31,6 +31,7 @@ ScoreMode = Literal[
     "predicted_goal_projected_euclidean_distance",
 ]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
+PlannerMode = Literal["mpc_beam", "categorical_cem", "hierarchical_cem"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,9 @@ class BeamMPCResult:
     beam_depth: int
     action_evals: int
     elapsed_seconds: float
+
+
+ACTION_VOCAB = tuple(WorldAction(row=row, col=col, value=value) for row in range(9) for col in range(9) for value in range(1, 10))
 
 
 def hamming_distance(board: np.ndarray, goal: np.ndarray) -> int:
@@ -119,6 +123,202 @@ def run_beam_mpc(
 
 
 @torch.no_grad()
+def run_categorical_cem_mpc(
+    model: GridTokenGoalJEPA,
+    puzzle: np.ndarray,
+    goal: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    transition_mode: TransitionMode,
+    beam_width: int,
+    beam_depth: int,
+    max_steps: int = 81,
+    device: torch.device,
+    cem_samples: int = 128,
+    cem_iters: int = 4,
+    cem_elites: int = 16,
+    cem_momentum: float = 0.7,
+    seed: int = 0,
+) -> BeamMPCResult:
+    del beam_width
+    start = time.time()
+    rng = np.random.default_rng(seed)
+    model.eval()
+    current = np.asarray(puzzle, dtype=np.int64).copy()
+    actions_taken: list[WorldAction] = []
+    clue_mask = current != 0
+    editable_mask = ~clue_mask
+    active_mask = np.ones((9, 9), dtype=bool)
+    context_latents, predicted_goal, oracle_goal = _prepare_goal_latents(
+        model, current, goal, clue_mask, editable_mask, active_mask, device=device
+    )
+    action_evals = 0
+    for _ in range(max_steps):
+        if np.array_equal(current, goal) or not np.any(current == 0):
+            break
+        first, evals = categorical_cem_plan_once(
+            model,
+            current,
+            goal,
+            context_latents,
+            predicted_goal,
+            oracle_goal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=score_mode,
+            transition_mode=transition_mode,
+            horizon=beam_depth,
+            samples=cem_samples,
+            iterations=cem_iters,
+            elites=cem_elites,
+            momentum=cem_momentum,
+            rng=rng,
+            device=device,
+        )
+        action_evals += evals
+        if first is None:
+            break
+        try:
+            current = apply_fill_action(current, first, allow_conflicts=True)
+        except ValueError:
+            break
+        actions_taken.append(first)
+    return BeamMPCResult(
+        solved=bool(np.array_equal(current, goal)),
+        steps=len(actions_taken),
+        remaining_hamming=hamming_distance(current, goal),
+        actions=actions_taken,
+        final_board=current,
+        score_mode=score_mode,
+        transition_mode=transition_mode,
+        beam_width=cem_samples,
+        beam_depth=beam_depth,
+        action_evals=action_evals,
+        elapsed_seconds=time.time() - start,
+    )
+
+
+@torch.no_grad()
+def run_hierarchical_cem_mpc(
+    model: GridTokenGoalJEPA,
+    puzzle: np.ndarray,
+    goal: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    transition_mode: TransitionMode,
+    beam_width: int,
+    beam_depth: int,
+    max_steps: int = 81,
+    device: torch.device,
+    cem_samples: int = 128,
+    cem_iters: int = 4,
+    cem_elites: int = 16,
+    cem_momentum: float = 0.7,
+    high_cem_samples: int = 128,
+    high_cem_iters: int = 4,
+    high_cem_elites: int = 16,
+    high_cem_momentum: float = 0.7,
+    high_cem_std: float = 1.0,
+    seed: int = 0,
+) -> BeamMPCResult:
+    del beam_width
+    if not model.hierarchy_levels:
+        raise ValueError("hierarchical_cem requires a checkpoint trained with hierarchy_levels.")
+    start = time.time()
+    rng = np.random.default_rng(seed)
+    model.eval()
+    current = np.asarray(puzzle, dtype=np.int64).copy()
+    actions_taken: list[WorldAction] = []
+    clue_mask = current != 0
+    editable_mask = ~clue_mask
+    active_mask = np.ones((9, 9), dtype=bool)
+    context_latents, predicted_goal, oracle_goal = _prepare_goal_latents(
+        model, current, goal, clue_mask, editable_mask, active_mask, device=device
+    )
+    action_evals = 0
+    for _ in range(max_steps):
+        if np.array_equal(current, goal) or not np.any(current == 0):
+            break
+        _, current_latent = score_board(
+            model,
+            current,
+            context_latents,
+            predicted_goal,
+            oracle_goal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=score_mode,
+            device=device,
+        )
+        target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
+        subgoal = target_goal
+        high_levels = tuple(sorted(model.hierarchy_levels, reverse=True))
+        for level in high_levels:
+            macro_horizon = max(1, int(np.ceil(max(1, beam_depth) / level)))
+            subgoal, evals = hierarchical_subgoal_cem(
+                model,
+                current_latent,
+                subgoal,
+                context_latents,
+                active_mask,
+                score_mode=score_mode,
+                level=level,
+                macro_horizon=macro_horizon,
+                samples=high_cem_samples,
+                iterations=high_cem_iters,
+                elites=high_cem_elites,
+                momentum=high_cem_momentum,
+                init_std=high_cem_std,
+                rng=rng,
+                device=device,
+            )
+            action_evals += evals
+        first, evals = categorical_cem_plan_once(
+            model,
+            current,
+            goal,
+            context_latents,
+            subgoal,
+            subgoal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=_subgoal_score_mode(score_mode),  # type: ignore[arg-type]
+            transition_mode=transition_mode,
+            horizon=min(max(1, beam_depth), min(high_levels)),
+            samples=cem_samples,
+            iterations=cem_iters,
+            elites=cem_elites,
+            momentum=cem_momentum,
+            rng=rng,
+            device=device,
+        )
+        action_evals += evals
+        if first is None:
+            break
+        try:
+            current = apply_fill_action(current, first, allow_conflicts=True)
+        except ValueError:
+            break
+        actions_taken.append(first)
+    return BeamMPCResult(
+        solved=bool(np.array_equal(current, goal)),
+        steps=len(actions_taken),
+        remaining_hamming=hamming_distance(current, goal),
+        actions=actions_taken,
+        final_board=current,
+        score_mode=score_mode,
+        transition_mode=transition_mode,
+        beam_width=cem_samples,
+        beam_depth=beam_depth,
+        action_evals=action_evals,
+        elapsed_seconds=time.time() - start,
+    )
+
+
+@torch.no_grad()
 def beam_plan_once(
     model: GridTokenGoalJEPA,
     board: np.ndarray,
@@ -163,6 +363,133 @@ def beam_plan_once(
         beam_depth=beam_depth,
         device=device,
     )
+
+
+@torch.no_grad()
+def categorical_cem_plan_once(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    goal: np.ndarray,
+    context_latents: torch.Tensor,
+    predicted_goal: torch.Tensor,
+    oracle_goal: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    transition_mode: TransitionMode,
+    horizon: int,
+    samples: int,
+    iterations: int,
+    elites: int,
+    momentum: float,
+    rng: np.random.Generator,
+    device: torch.device,
+) -> tuple[WorldAction | None, int]:
+    del goal
+    horizon = max(1, int(horizon))
+    samples = max(1, int(samples))
+    iterations = max(1, int(iterations))
+    elites = max(1, min(int(elites), samples))
+    momentum = float(np.clip(momentum, 0.0, 0.999))
+    probs = np.full((horizon, len(ACTION_VOCAB)), 1.0 / len(ACTION_VOCAB), dtype=np.float64)
+    best_score = float("inf")
+    best_first: WorldAction | None = None
+    action_evals = 0
+    for _ in range(iterations):
+        seq_ids, final_boards = _sample_categorical_action_sequences(board, probs, samples=samples, rng=rng)
+        scores = _score_cem_sequences(
+            model,
+            board,
+            final_boards,
+            seq_ids,
+            context_latents,
+            predicted_goal,
+            oracle_goal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=score_mode,
+            transition_mode=transition_mode,
+            device=device,
+        )
+        action_evals += samples * horizon
+        order = np.argsort(scores)
+        if float(scores[order[0]]) < best_score:
+            best_score = float(scores[order[0]])
+            best_first = ACTION_VOCAB[int(seq_ids[order[0], 0])]
+        elite_ids = seq_ids[order[:elites]]
+        elite_probs = np.full_like(probs, 1.0e-6)
+        for step in range(horizon):
+            counts = np.bincount(elite_ids[:, step], minlength=len(ACTION_VOCAB)).astype(np.float64)
+            elite_probs[step] += counts / counts.sum().clip(min=1.0)
+            elite_probs[step] /= elite_probs[step].sum()
+        probs = momentum * probs + (1.0 - momentum) * elite_probs
+        probs /= probs.sum(axis=1, keepdims=True)
+    return best_first, action_evals
+
+
+@torch.no_grad()
+def hierarchical_subgoal_cem(
+    model: GridTokenGoalJEPA,
+    start_latent: torch.Tensor,
+    goal_latent: torch.Tensor,
+    context_latents: torch.Tensor,
+    active_mask: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    level: int,
+    macro_horizon: int,
+    samples: int,
+    iterations: int,
+    elites: int,
+    momentum: float,
+    init_std: float,
+    rng: np.random.Generator,
+    device: torch.device,
+) -> tuple[torch.Tensor, int]:
+    level = int(level)
+    macro_horizon = max(1, int(macro_horizon))
+    samples = max(1, int(samples))
+    iterations = max(1, int(iterations))
+    elites = max(1, min(int(elites), samples))
+    momentum = float(np.clip(momentum, 0.0, 0.999))
+    mean = torch.zeros((macro_horizon, model.d_model), dtype=start_latent.dtype, device=device)
+    std = torch.full_like(mean, float(init_std))
+    mask = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(samples, -1, -1)
+    best_score = float("inf")
+    best_subgoal = goal_latent.detach()
+    action_evals = 0
+    for _ in range(iterations):
+        noise = torch.as_tensor(
+            rng.standard_normal((samples, macro_horizon, model.d_model)),
+            dtype=start_latent.dtype,
+            device=device,
+        )
+        macro_actions = mean.unsqueeze(0) + std.unsqueeze(0) * noise
+        rollout = start_latent.expand(samples, -1, -1)
+        context = context_latents.expand(samples, -1, -1)
+        first_subgoals: torch.Tensor | None = None
+        for step in range(macro_horizon):
+            rollout = model.predict_high_level_from_macro(rollout, macro_actions[:, step], context, level=level)
+            if step == 0:
+                first_subgoals = rollout.detach()
+        target = _expand_tokens_like(goal_latent, rollout)
+        score_values = latent_distance(model, rollout, target, target, mask, _subgoal_score_mode(score_mode))
+        scores = score_values.detach().float()
+        action_evals += samples * macro_horizon
+        order = torch.argsort(scores)
+        best_index = int(order[0].item())
+        if float(scores[best_index].item()) < best_score and first_subgoals is not None:
+            best_score = float(scores[best_index].item())
+            best_subgoal = first_subgoals[best_index : best_index + 1].detach()
+        elite = macro_actions[order[:elites]]
+        elite_mean = elite.mean(dim=0)
+        elite_std = elite.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+        mean = momentum * mean + (1.0 - momentum) * elite_mean
+        std = momentum * std + (1.0 - momentum) * elite_std
+    return best_subgoal, action_evals
 
 
 @torch.no_grad()
@@ -432,6 +759,100 @@ def _expand_tokens_like(tokens: torch.Tensor, reference: torch.Tensor) -> torch.
     return tokens
 
 
+def _sample_categorical_action_sequences(
+    board: np.ndarray,
+    probs: np.ndarray,
+    *,
+    samples: int,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    horizon = probs.shape[0]
+    seq_ids = np.zeros((samples, horizon), dtype=np.int64)
+    final_boards: list[np.ndarray] = []
+    for sample in range(samples):
+        current = np.asarray(board, dtype=np.int64).copy()
+        for step in range(horizon):
+            valid = _valid_action_vocab_mask(current)
+            step_probs = probs[step] * valid
+            if step_probs.sum() <= 0:
+                step_probs = valid.astype(np.float64)
+            step_probs = step_probs / step_probs.sum()
+            action_id = int(rng.choice(len(ACTION_VOCAB), p=step_probs))
+            seq_ids[sample, step] = action_id
+            try:
+                current = apply_fill_action(current, ACTION_VOCAB[action_id], allow_conflicts=True)
+            except ValueError:
+                pass
+        final_boards.append(current)
+    return seq_ids, final_boards
+
+
+def _valid_action_vocab_mask(board: np.ndarray) -> np.ndarray:
+    mask = np.zeros((len(ACTION_VOCAB),), dtype=bool)
+    for index, action in enumerate(ACTION_VOCAB):
+        mask[index] = bool(board[action.row, action.col] == 0)
+    return mask
+
+
+@torch.no_grad()
+def _score_cem_sequences(
+    model: GridTokenGoalJEPA,
+    start_board: np.ndarray,
+    final_boards: list[np.ndarray],
+    seq_ids: np.ndarray,
+    context_latents: torch.Tensor,
+    predicted_goal: torch.Tensor,
+    oracle_goal: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    transition_mode: TransitionMode,
+    device: torch.device,
+) -> np.ndarray:
+    if transition_mode == "symbolic_reencode":
+        latents = encode_boards(
+            model,
+            final_boards,
+            context_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
+        )
+    else:
+        _, start_latent = score_board(
+            model,
+            start_board,
+            context_latents,
+            predicted_goal,
+            oracle_goal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=score_mode,
+            device=device,
+        )
+        latents = start_latent.expand(seq_ids.shape[0], -1, -1)
+        context = context_latents.expand(seq_ids.shape[0], -1, -1)
+        for step in range(seq_ids.shape[1]):
+            actions = torch.as_tensor(
+                [[ACTION_VOCAB[int(action_id)].row, ACTION_VOCAB[int(action_id)].col, ACTION_VOCAB[int(action_id)].value] for action_id in seq_ids[:, step]],
+                dtype=torch.long,
+                device=device,
+            )
+            latents = model.predict_next(latents, actions, context)
+    mask = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(latents.shape[0], -1, -1)
+    target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
+    if _is_changed_cell_score(score_mode):
+        final_actions = [ACTION_VOCAB[int(action_id)] for action_id in seq_ids[:, -1]]
+        scores = changed_cell_raw_euclidean_distances(latents, _expand_tokens_like(target_goal, latents), final_actions)
+    else:
+        scores = latent_distance(model, latents, predicted_goal, oracle_goal, mask, score_mode)
+    return scores.detach().cpu().numpy()
+
+
 def _target_goal_latents(score_mode: str, predicted_goal: torch.Tensor, oracle_goal: torch.Tensor) -> torch.Tensor:
     if score_mode.startswith("predicted_goal_"):
         return predicted_goal
@@ -451,6 +872,13 @@ def _is_progress_score(score_mode: str) -> bool:
 
 def _is_changed_cell_score(score_mode: str) -> bool:
     return _score_metric_name(score_mode) == "changed_cell_raw_euclidean_distance"
+
+
+def _subgoal_score_mode(score_mode: str) -> str:
+    metric = _score_metric_name(score_mode)
+    if metric == "raw_euclidean_progress":
+        metric = "raw_euclidean_distance"
+    return f"oracle_goal_{metric}"
 
 
 def _progress_base_score_mode(score_mode: str) -> str | None:

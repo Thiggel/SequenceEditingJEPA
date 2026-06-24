@@ -16,6 +16,8 @@ from puzzle_jepa.planning.grid_goal_planner import (
     raw_tokenwise_euclidean_distance,
     raw_tokenwise_squared_euclidean_distance,
     run_beam_mpc,
+    run_categorical_cem_mpc,
+    run_hierarchical_cem_mpc,
 )
 
 
@@ -214,12 +216,72 @@ def test_forward_computes_all_requested_losses():
         corrupt_goals=corrupt_goals,
     )
     assert torch.isfinite(output.loss)
+    assert output.dense_future_loss.ndim == 0
+    assert output.hierarchy_loss.ndim == 0
     assert output.predicted_goal_latents.shape == (2, 81, 32)
     assert output.predicted_next_latents.shape[2:] == (81, 32)
     assert output.progress_rank_loss.ndim == 0
     assert output.action_rank_loss.ndim == 0
     assert output.temporal_straightening_loss.ndim == 0
     assert output.terminal_corrupt_loss.ndim == 0
+
+
+def test_dense_future_prediction_and_truncated_rollout_run():
+    batch = _small_batch()
+    model = _small_model(
+        dense_future_weight=0.5,
+        rollout_detach_interval=2,
+        multi_step_horizons=(1, 4, 8),
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+    output.loss.backward()
+
+    assert torch.isfinite(output.loss)
+    assert output.dense_future_loss.item() > 0.0
+
+
+def test_hierarchy_uses_one_encoder_and_multiple_predictors():
+    batch = _small_batch()
+    model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=0.5)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    pred_level2 = model.predict_high_level(state, batch.actions[:, :2], context, level=2)
+    pred_level4 = model.predict_high_level(state, batch.actions[:, :4], context, level=4)
+
+    assert model.embedder is not None
+    assert not hasattr(model, "high_level_state_encoder")
+    assert sorted(model.high_level_predictors.keys()) == ["2", "4"]
+    assert pred_level2.shape == state.shape
+    assert pred_level4.shape == state.shape
+
+
+def test_hierarchy_loss_runs_with_multiple_predictors():
+    batch = _small_batch()
+    model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=1.0)
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.hierarchy_loss.item() > 0.0
 
 
 def test_mean_pooled_distance_mode_runs():
@@ -353,6 +415,61 @@ def test_latent_rollout_beam_mpc_runs_with_metric_probe_scores(score_mode):
     assert result.steps <= 2
     assert result.beam_width == 2
     assert result.beam_depth == 2
+    assert result.action_evals > 0
+
+
+def test_categorical_cem_mpc_runs_with_latent_rollout():
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model()
+    result = run_categorical_cem_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_goal_distance",
+        transition_mode="latent_rollout",
+        beam_width=2,
+        beam_depth=2,
+        max_steps=1,
+        cem_samples=4,
+        cem_iters=2,
+        cem_elites=2,
+        device=torch.device("cpu"),
+    )
+    assert result.steps <= 1
+    assert result.beam_depth == 2
+    assert result.action_evals > 0
+
+
+def test_hierarchical_cem_mpc_plans_high_level_subgoal_then_low_level_action():
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=1.0)
+    result = run_hierarchical_cem_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_goal_distance",
+        transition_mode="latent_rollout",
+        beam_width=2,
+        beam_depth=4,
+        max_steps=1,
+        cem_samples=4,
+        cem_iters=1,
+        cem_elites=2,
+        high_cem_samples=4,
+        high_cem_iters=1,
+        high_cem_elites=2,
+        device=torch.device("cpu"),
+    )
+    assert result.steps <= 1
+    assert result.beam_depth == 4
     assert result.action_evals > 0
 
 

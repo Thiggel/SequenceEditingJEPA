@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-19 19:30 CEST
+Last updated: 2026-06-24 10:58 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -42,6 +42,14 @@ The full model trains:
 Temporal straightening computes curvature from adjacent latent velocities over
 the full active grid-token latent and is independent of the predicted goal.
 
+Follow-up objective knobs now implemented:
+
+- dense future-state prediction: a rollout from `s_t` can supervise every
+  intermediate future state `t+1...t+K`, not only the endpoint `t+K`
+- optional truncated rollout gradients via `model.rollout_detach_interval`
+- high-level hierarchy losses with one shared context/state encoder and
+  multiple stride-specific predictors
+
 ## Ablations
 
 ## Action-Conditioning First Wave
@@ -62,6 +70,43 @@ Grid:
 Eval for this wave uses latent rollout only, beam width `16`, depths
 `4,16,32`, 10 boards, and normalized/raw/changed-cell metrics against oracle
 and predicted goal latents.
+
+## Follow-Up Wave
+
+Prepared but not submitted yet:
+
+- Train script: `scripts/slurm/run_grid_goal_followup_train.slurm`
+- Eval script: `scripts/slurm/run_grid_goal_followup_eval.slurm`
+- Existing-checkpoint eval sweep:
+  `scripts/slurm/run_grid_goal_best_checkpoint_eval.slurm`
+
+All trained variants start from the current best recipe:
+`R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform`
+(`affected_marker`, `predict_delta=true`, `EMA+VICReg`, uniform dynamics).
+
+Variants:
+
+| Run | Change |
+| --- | --- |
+| `F0_dense_k16` | Dense intermediate future-state loss, horizons `1,4,8,16` |
+| `F1_dense_k32_detach8` | Dense loss, horizons `1,4,8,16,32`, detach rollout every 8 steps |
+| `H0_hierarchy_l4_l16` | Hierarchy with stride-4 and stride-16 predictors |
+| `H1_hierarchy_dense_l4_l16` | Hierarchy plus dense intermediate future-state loss |
+| `S0_scale_d384_dense` | Wider model probe, `d_model=384`, dense loss, reduced default batch |
+| `S1_deeper_d256_dense` | Deeper 256-wide model probe, dense loss |
+
+Planning modes:
+
+- `mpc_beam`: existing latent-rollout beam MPC
+- `categorical_cem`: discrete CEM over legal Sudoku action sequences
+- `hierarchical_cem`: high-level continuous latent-action CEM creates latent
+  subgoals, then lower-level categorical CEM plans primitive actions to the
+  next subgoal
+
+Hierarchy follows the "Hierarchical Planning with Latent World Models" design
+at the level needed here: a shared encoder/latent space, multiple temporal
+predictors, latent macro-actions for high-level planning, and top-down subgoal
+conditioning. There is no second state encoder.
 
 ## Original Ablations
 

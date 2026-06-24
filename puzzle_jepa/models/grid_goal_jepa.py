@@ -16,6 +16,8 @@ ROLE_GOAL_QUERY = 2
 class GridGoalJEPAOutput:
     loss: torch.Tensor
     dynamics_loss: torch.Tensor
+    dense_future_loss: torch.Tensor
+    hierarchy_loss: torch.Tensor
     sigreg_loss: torch.Tensor
     goal_mse_loss: torch.Tensor
     goal_nce_loss: torch.Tensor
@@ -178,6 +180,39 @@ class SudokuActionToken(nn.Module):
         return self.action_type(types) + self.row(rows) + self.col(cols) + self.digit(digits)
 
 
+class MacroActionEncoder(nn.Module):
+    def __init__(
+        self,
+        *,
+        d_model: int,
+        max_steps: int,
+        num_layers: int,
+        num_heads: int,
+        mlp_ratio: float,
+        dropout: float,
+    ):
+        super().__init__()
+        self.max_steps = int(max_steps)
+        self.position = nn.Embedding(max_steps, d_model)
+        self.encoder = BidirectionalTransformer(
+            num_layers=num_layers,
+            d_model=d_model,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            dropout=dropout,
+        )
+
+    def forward(self, action_tokens: torch.Tensor) -> torch.Tensor:
+        if action_tokens.ndim != 3:
+            raise ValueError(f"MacroActionEncoder expects [batch, steps, dim], got {tuple(action_tokens.shape)}.")
+        steps = action_tokens.shape[1]
+        if steps > self.max_steps:
+            raise ValueError(f"Macro action length {steps} exceeds configured max {self.max_steps}.")
+        pos = torch.arange(steps, device=action_tokens.device).view(1, steps)
+        tokens = action_tokens + self.position(pos)
+        return self.encoder(tokens).mean(dim=1)
+
+
 class GridTokenGoalJEPA(nn.Module):
     def __init__(
         self,
@@ -201,6 +236,11 @@ class GridTokenGoalJEPA(nn.Module):
         rank_margin: float = 0.1,
         rank_temperature: float = 0.1,
         multi_step_horizons: tuple[int, ...] = (1, 4, 8, 16),
+        dense_future_weight: float = 0.0,
+        rollout_detach_interval: int = 0,
+        hierarchy_levels: tuple[int, ...] = (),
+        hierarchy_loss_weight: float = 0.0,
+        macro_action_encoder_layers: int = 1,
         distance_mode: str = "tokenwise",
         action_conditioning: str = "action_token",
         predict_delta: bool = False,
@@ -231,6 +271,41 @@ class GridTokenGoalJEPA(nn.Module):
             num_layers=predictor_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
         )
         self.predictor_out = nn.Linear(d_model, d_model)
+        self.hierarchy_levels = tuple(sorted({int(level) for level in hierarchy_levels if int(level) > 1}))
+        self.hierarchy_loss_weight = float(hierarchy_loss_weight)
+        self.dense_future_weight = float(dense_future_weight)
+        self.rollout_detach_interval = int(rollout_detach_interval)
+        if self.rollout_detach_interval < 0:
+            raise ValueError("rollout_detach_interval must be non-negative.")
+        if self.hierarchy_levels:
+            max_level = max(self.hierarchy_levels)
+            self.macro_action_encoder = MacroActionEncoder(
+                d_model=d_model,
+                max_steps=max_level,
+                num_layers=macro_action_encoder_layers,
+                num_heads=num_heads,
+                mlp_ratio=mlp_ratio,
+                dropout=dropout,
+            )
+            self.high_level_predictors = nn.ModuleDict(
+                {
+                    str(level): BidirectionalTransformer(
+                        num_layers=predictor_layers,
+                        d_model=d_model,
+                        num_heads=num_heads,
+                        mlp_ratio=mlp_ratio,
+                        dropout=dropout,
+                    )
+                    for level in self.hierarchy_levels
+                }
+            )
+            self.high_level_predictor_out = nn.ModuleDict(
+                {str(level): nn.Linear(d_model, d_model) for level in self.hierarchy_levels}
+            )
+        else:
+            self.macro_action_encoder = None
+            self.high_level_predictors = nn.ModuleDict()
+            self.high_level_predictor_out = nn.ModuleDict()
         self.goal_decoder = BidirectionalTransformer(
             num_layers=goal_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
         )
@@ -244,7 +319,7 @@ class GridTokenGoalJEPA(nn.Module):
         self.progress_margin = float(progress_margin)
         self.rank_margin = float(rank_margin)
         self.rank_temperature = float(rank_temperature)
-        self.multi_step_horizons = tuple(int(k) for k in multi_step_horizons)
+        self.multi_step_horizons = tuple(sorted({int(k) for k in multi_step_horizons if int(k) > 0}))
         if distance_mode not in {"tokenwise", "mean_pooled"}:
             raise ValueError("distance_mode must be 'tokenwise' or 'mean_pooled'.")
         self.distance_mode = str(distance_mode)
@@ -337,6 +412,47 @@ class GridTokenGoalJEPA(nn.Module):
             predicted = state_latent + predicted
         return predicted
 
+    def encode_macro_action(self, actions: torch.Tensor) -> torch.Tensor:
+        if self.macro_action_encoder is None:
+            raise RuntimeError("This model was not configured with hierarchy_levels.")
+        if actions.ndim != 3 or actions.shape[-1] != 3:
+            raise ValueError(f"Macro actions must have shape [batch, steps, 3], got {tuple(actions.shape)}.")
+        batch, steps = actions.shape[:2]
+        tokens = self.action_token(actions.reshape(batch * steps, 3)).reshape(batch, steps, self.d_model)
+        return self.macro_action_encoder(tokens)
+
+    def predict_high_level(
+        self,
+        state_latent: torch.Tensor,
+        actions: torch.Tensor,
+        context_latents: torch.Tensor,
+        *,
+        level: int,
+    ) -> torch.Tensor:
+        macro_action = self.encode_macro_action(actions)
+        return self.predict_high_level_from_macro(state_latent, macro_action, context_latents, level=level)
+
+    def predict_high_level_from_macro(
+        self,
+        state_latent: torch.Tensor,
+        macro_action: torch.Tensor,
+        context_latents: torch.Tensor,
+        *,
+        level: int,
+    ) -> torch.Tensor:
+        key = str(int(level))
+        if key not in self.high_level_predictors:
+            raise ValueError(f"No high-level predictor configured for level {level}.")
+        if macro_action.ndim != 2 or macro_action.shape[-1] != self.d_model:
+            raise ValueError(f"Macro action must have shape [batch, {self.d_model}], got {tuple(macro_action.shape)}.")
+        action_token = macro_action.unsqueeze(-2)
+        y = torch.cat([action_token, state_latent], dim=-2)
+        y = self.high_level_predictors[key](y, context_latents)
+        predicted = self.high_level_predictor_out[key](y[..., 1:, :])
+        if self.predict_delta:
+            predicted = state_latent + predicted
+        return predicted
+
     @torch.no_grad()
     def update_ema_target_encoder(self, decay: float | None = None) -> None:
         if not self.use_ema_target_encoder:
@@ -400,6 +516,7 @@ class GridTokenGoalJEPA(nn.Module):
 
         transition_mask = masks[:, :-1] & masks[:, 1:]
         dynamics_terms = []
+        dense_future_terms = []
         if frames > 1:
             predicted_next = self.predict_next(
                 state_latents[:, :-1].reshape(-1, token_count, self.d_model),
@@ -430,6 +547,26 @@ class GridTokenGoalJEPA(nn.Module):
             for offset in range(horizon):
                 act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
                 rollout = self.predict_next(rollout, act, ctx)
+                if self.dense_future_weight > 0.0:
+                    dense_horizon = offset + 1
+                    dense_target = target_state_latents[:, dense_horizon : dense_horizon + start_count]
+                    dense_valid = masks[:, :start_count] & masks[:, dense_horizon : dense_horizon + start_count]
+                    dense_actions = actions[:, : dense_horizon + start_count - 1]
+                    dense_error = self._dynamics_error(
+                        rollout.reshape(batch, start_count, token_count, self.d_model),
+                        dense_target,
+                        dense_actions,
+                        rows=rows,
+                        cols=cols,
+                        horizon=dense_horizon,
+                    )
+                    dense_future_terms.append(_masked_mean(dense_error, dense_valid) / (dense_horizon**0.5))
+                if (
+                    self.rollout_detach_interval > 0
+                    and (offset + 1) % self.rollout_detach_interval == 0
+                    and offset + 1 < horizon
+                ):
+                    rollout = rollout.detach()
             target = target_state_latents[:, horizon : horizon + start_count]
             valid = masks[:, :start_count] & masks[:, horizon : horizon + start_count]
             rollout_actions = actions[:, :horizon + start_count - 1]
@@ -443,6 +580,43 @@ class GridTokenGoalJEPA(nn.Module):
             )
             dynamics_terms.append(_masked_mean(error, valid) / (horizon**0.5))
         dynamics_loss = torch.stack(dynamics_terms).sum()
+        if dense_future_terms:
+            dense_future_loss = torch.stack(dense_future_terms).mean()
+        else:
+            dense_future_loss = state_latents.sum() * 0.0
+
+        hierarchy_terms = []
+        for level in self.hierarchy_levels:
+            if frames <= level:
+                continue
+            start_count = frames - level
+            starts = state_latents[:, :start_count].reshape(batch * start_count, token_count, self.d_model)
+            ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
+                -1, token_count, self.d_model
+            )
+            chunks = []
+            for offset in range(level):
+                chunks.append(actions[:, offset : offset + start_count])
+            chunk_actions = torch.stack(chunks, dim=2).reshape(batch * start_count, level, 3)
+            predicted_waypoint = self.predict_high_level(starts, chunk_actions, ctx, level=level).reshape(
+                batch, start_count, token_count, self.d_model
+            )
+            target_waypoint = target_state_latents[:, level : level + start_count]
+            valid = masks[:, :start_count] & masks[:, level : level + start_count]
+            rollout_actions = actions[:, : level + start_count - 1]
+            error = self._dynamics_error(
+                predicted_waypoint,
+                target_waypoint,
+                rollout_actions,
+                rows=rows,
+                cols=cols,
+                horizon=level,
+            )
+            hierarchy_terms.append(_masked_mean(error, valid) / (level**0.5))
+        if hierarchy_terms:
+            hierarchy_loss = torch.stack(hierarchy_terms).sum()
+        else:
+            hierarchy_loss = state_latents.sum() * 0.0
 
         active_flat = active_mask.reshape(batch, token_count)
         goal_mse_loss = ((predicted_goal - goal_target.detach()).square().mean(dim=-1) * active_flat.float()).sum() / active_flat.float().sum().clamp_min(1.0)
@@ -495,6 +669,8 @@ class GridTokenGoalJEPA(nn.Module):
         sigreg_loss = self._regularizer_loss(state_latents, masks[:, :, None].expand(batch, frames, token_count))
         loss = (
             dynamics_loss
+            + self.dense_future_weight * dense_future_loss
+            + self.hierarchy_loss_weight * hierarchy_loss
             + self.sigreg_weight * sigreg_loss
             + goal_mse_loss
             + self.goal_nce_weight * goal_nce_loss
@@ -506,6 +682,8 @@ class GridTokenGoalJEPA(nn.Module):
         return GridGoalJEPAOutput(
             loss=loss,
             dynamics_loss=dynamics_loss.detach(),
+            dense_future_loss=dense_future_loss.detach(),
+            hierarchy_loss=hierarchy_loss.detach(),
             sigreg_loss=sigreg_loss.detach(),
             goal_mse_loss=goal_mse_loss.detach(),
             goal_nce_loss=goal_nce_loss.detach(),

@@ -30,6 +30,11 @@ model:
   rank_margin: 0.1
   rank_temperature: 0.1
   multi_step_horizons: [1, 4, 8, 16]
+  dense_future_weight: 0.0
+  rollout_detach_interval: 0
+  hierarchy_levels: []
+  hierarchy_loss_weight: 0.0
+  macro_action_encoder_layers: 1
   distance_mode: tokenwise
   action_conditioning: action_token
   predict_delta: false
