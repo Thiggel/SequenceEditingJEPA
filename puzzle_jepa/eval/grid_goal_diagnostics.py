@@ -233,7 +233,8 @@ def _latent_rollout_action_rank_metrics(
 
 
 def _rollout_drift_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExample], *, device: torch.device) -> dict[str, float]:
-    horizons = (1, 4, 8, 16)
+    configured = tuple(int(horizon) for horizon in getattr(model, "multi_step_horizons", ()) if int(horizon) > 0)
+    horizons = tuple(sorted(set((1, 4, 8, 16) + configured)))
     values: dict[int, list[float]] = {horizon: [] for horizon in horizons}
     for example in examples:
         board = example.state.copy()

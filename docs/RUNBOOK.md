@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-24 11:38 CEST
+Last updated: 2026-06-24 11:50 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -81,9 +81,7 @@ Action-conditioning/stability suite state:
   `scripts/slurm/run_grid_goal_action_suite_train.slurm` and
   `scripts/slurm/run_grid_goal_action_suite_eval.slurm`.
 
-Prepared follow-up scripts are not submitted yet. Do not submit categorical
-CEM, hierarchical CEM, or h32-gated follow-up jobs until the audit regressions
-below are fixed.
+Prepared follow-up scripts are not submitted yet.
 
 - `scripts/slurm/run_grid_goal_followup_train.slurm`
   - array `0-5%6`, 24h, variants `F0_dense_k16`,
@@ -110,13 +108,19 @@ Local verification for the follow-up implementation:
 - Prior compact Python smoke over all six follow-up configs and
   beam/CEM/hierarchy planner paths completed in `8.68s` on CPU, but was too
   shallow.
-- New targeted regressions intentionally fail:
+- Audit regressions fixed at 2026-06-24 11:50 CEST:
   - `test_categorical_cem_mpc_handles_horizon_longer_than_remaining_blanks`
   - `test_hierarchical_cem_mpc_handles_subgoal_horizon_longer_than_remaining_blanks`
   - `test_rollout_diagnostics_include_configured_long_horizons`
-- Failure reasons: CEM sequence sampling produces NaN probabilities once a
-  sampled horizon exhausts remaining blank cells; diagnostics omit h32 rollout
-  metrics despite `model.multi_step_horizons` including `32`.
+- Fixes:
+  - beam, categorical CEM, and hierarchical CEM now cap lookahead by remaining
+    blanks so the simulated future never exceeds editable cells left
+  - CEM sequence sampling stops safely if a sampled sequence fills the board
+  - rollout diagnostics now include configured horizons such as h32
+- Verification:
+  - targeted audit tests: `3 passed`
+  - `source scripts/env.sh && python -m compileall -q puzzle_jepa tests`
+  - `source scripts/env.sh && pytest -q` -> `70 passed`
 
 RTX Pro 6000 batch probes for `M0_full` were submitted and all failed quickly
 with CUDA OOM:

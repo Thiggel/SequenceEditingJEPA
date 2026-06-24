@@ -56,6 +56,17 @@ def hamming_distance(board: np.ndarray, goal: np.ndarray) -> int:
     return int(np.not_equal(board, goal).sum())
 
 
+def remaining_blanks(board: np.ndarray) -> int:
+    return int(np.count_nonzero(np.asarray(board) == 0))
+
+
+def capped_horizon(requested: int, board: np.ndarray) -> int:
+    blanks = remaining_blanks(board)
+    if blanks <= 0:
+        return 0
+    return min(max(1, int(requested)), blanks)
+
+
 @torch.no_grad()
 def run_beam_mpc(
     model: GridTokenGoalJEPA,
@@ -83,6 +94,9 @@ def run_beam_mpc(
     for _ in range(max_steps):
         if np.array_equal(current, goal) or not np.any(current == 0):
             break
+        depth = capped_horizon(beam_depth, current)
+        if depth <= 0:
+            break
         first, evals = beam_plan_once(
             model,
             current,
@@ -96,7 +110,7 @@ def run_beam_mpc(
             score_mode=score_mode,
             transition_mode=transition_mode,
             beam_width=beam_width,
-            beam_depth=beam_depth,
+            beam_depth=depth,
             device=device,
         )
         action_evals += evals
@@ -156,6 +170,9 @@ def run_categorical_cem_mpc(
     for _ in range(max_steps):
         if np.array_equal(current, goal) or not np.any(current == 0):
             break
+        depth = capped_horizon(beam_depth, current)
+        if depth <= 0:
+            break
         first, evals = categorical_cem_plan_once(
             model,
             current,
@@ -168,7 +185,7 @@ def run_categorical_cem_mpc(
             active_mask,
             score_mode=score_mode,
             transition_mode=transition_mode,
-            horizon=beam_depth,
+            horizon=depth,
             samples=cem_samples,
             iterations=cem_iters,
             elites=cem_elites,
@@ -240,6 +257,9 @@ def run_hierarchical_cem_mpc(
     for _ in range(max_steps):
         if np.array_equal(current, goal) or not np.any(current == 0):
             break
+        depth = capped_horizon(beam_depth, current)
+        if depth <= 0:
+            break
         _, current_latent = score_board(
             model,
             current,
@@ -254,9 +274,9 @@ def run_hierarchical_cem_mpc(
         )
         target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
         subgoal = target_goal
-        high_levels = tuple(sorted(model.hierarchy_levels, reverse=True))
+        high_levels = tuple(level for level in sorted(model.hierarchy_levels, reverse=True) if level <= depth)
         for level in high_levels:
-            macro_horizon = max(1, int(np.ceil(max(1, beam_depth) / level)))
+            macro_horizon = max(1, int(np.ceil(depth / level)))
             subgoal, evals = hierarchical_subgoal_cem(
                 model,
                 current_latent,
@@ -287,7 +307,7 @@ def run_hierarchical_cem_mpc(
             active_mask,
             score_mode=_subgoal_score_mode(score_mode),  # type: ignore[arg-type]
             transition_mode=transition_mode,
-            horizon=min(max(1, beam_depth), min(high_levels)),
+            horizon=min(depth, min(high_levels) if high_levels else depth),
             samples=cem_samples,
             iterations=cem_iters,
             elites=cem_elites,
@@ -336,6 +356,9 @@ def beam_plan_once(
     beam_depth: int,
     device: torch.device,
 ) -> tuple[WorldAction | None, int]:
+    depth = capped_horizon(beam_depth, board)
+    if depth <= 0:
+        return None, 0
     if transition_mode == "symbolic_reencode":
         return _beam_plan_once_symbolic(
             model,
@@ -348,7 +371,7 @@ def beam_plan_once(
             active_mask,
             score_mode=score_mode,
             beam_width=beam_width,
-            beam_depth=beam_depth,
+            beam_depth=depth,
             device=device,
         )
     return _beam_plan_once_latent(
@@ -360,7 +383,7 @@ def beam_plan_once(
         active_mask,
         score_mode=score_mode,
         beam_width=beam_width,
-        beam_depth=beam_depth,
+        beam_depth=depth,
         device=device,
     )
 
@@ -388,7 +411,9 @@ def categorical_cem_plan_once(
     device: torch.device,
 ) -> tuple[WorldAction | None, int]:
     del goal
-    horizon = max(1, int(horizon))
+    horizon = capped_horizon(horizon, board)
+    if horizon <= 0:
+        return None, 0
     samples = max(1, int(samples))
     iterations = max(1, int(iterations))
     elites = max(1, min(int(elites), samples))
@@ -773,6 +798,9 @@ def _sample_categorical_action_sequences(
         current = np.asarray(board, dtype=np.int64).copy()
         for step in range(horizon):
             valid = _valid_action_vocab_mask(current)
+            if not bool(valid.any()):
+                seq_ids[sample, step:] = seq_ids[sample, max(0, step - 1)]
+                break
             step_probs = probs[step] * valid
             if step_probs.sum() <= 0:
                 step_probs = valid.astype(np.float64)
