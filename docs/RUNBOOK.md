@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-24 11:50 CEST
+Last updated: 2026-06-24 12:00 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -81,7 +81,7 @@ Action-conditioning/stability suite state:
   `scripts/slurm/run_grid_goal_action_suite_train.slurm` and
   `scripts/slurm/run_grid_goal_action_suite_eval.slurm`.
 
-Prepared follow-up scripts are not submitted yet.
+Follow-up scripts are now submitted; script details:
 
 - `scripts/slurm/run_grid_goal_followup_train.slurm`
   - array `0-5%6`, 24h, variants `F0_dense_k16`,
@@ -101,6 +101,39 @@ Prepared follow-up scripts are not submitted yet.
   - eval-only sweep for existing best action-suite checkpoint at
     `20k,30k,40k,50k,60k`
   - planner groups: beam and categorical CEM
+
+Submitted follow-up jobs at 2026-06-24 11:54 CEST, all on `rtxpro6k`:
+
+- Training array `3776065`, `grid_goal_fu_train`, array `0-5%6`, 24h.
+- Dependency-held eval arrays:
+  - `3776066`, array `0-2%3`, dependency `afterok:3776065_0`
+  - `3776068`, array `6-8%3`, dependency `afterok:3776065_2`
+  - `3776069`, array `9-11%3`, dependency `afterok:3776065_3`
+  - `3776070`, array `12-14%3`, dependency `afterok:3776065_4`
+- Existing-best checkpoint-time eval array `3776072`, `grid_goal_ckpt_eval`,
+  array `0-9%10`, 24h, no dependency.
+- Initial training tasks `3776065_1` (`F1_dense_k32_detach8`) and
+  `3776065_5` (`S1_deeper_d256_dense`) OOMed quickly at batch 8 on RTX Pro.
+  Their stale eval arrays `3776067` and `3776071` were canceled.
+- Failed partial run directories were preserved as:
+  - `grid_goal_followup_F1_dense_k32_detach8_failed_3776065_20260624_115750`
+  - `grid_goal_followup_S1_deeper_d256_dense_failed_3776065_20260624_115750`
+- Replacement training array `3776086`, array `1,5%2`, 24h, `BATCH_SIZE=4`,
+  partition `rtxpro6k`.
+- Replacement dependency-held eval arrays:
+  - `3776087`, array `3-5%3`, dependency `afterok:3776086_1`
+  - `3776088`, array `15-17%3`, dependency `afterok:3776086_5`
+- Current state after resubmission: `3776065_0,2,3,4` and checkpoint eval
+  tasks `3776072_0-6` are running; `3776072_7-9` are pending for resources;
+  replacement train array `3776086_[1,5%2]` is pending on priority with
+  estimated start `2026-06-24T22:06:08`; eval arrays `3776066`,
+  `3776068`, `3776069`, `3776070`, `3776087`, and `3776088` are
+  dependency-held.
+- Output roots:
+  - follow-up training/eval:
+    `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_followups/grid_goal_followup_<variant>/`
+  - checkpoint-time eval:
+    `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_action_suite/grid_goal_action_R4_no_goal_nce_A6_affected_marker_delta_S4_ema_vicreg_D0_uniform/planner_eval_checkpoint_<step>_<planner>/`
 
 Local verification for the follow-up implementation:
 
