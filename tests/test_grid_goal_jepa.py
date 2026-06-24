@@ -444,6 +444,32 @@ def test_categorical_cem_mpc_runs_with_latent_rollout():
     assert result.action_evals > 0
 
 
+def test_categorical_cem_mpc_handles_horizon_longer_than_remaining_blanks():
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model()
+
+    result = run_categorical_cem_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_goal_distance",
+        transition_mode="symbolic_reencode",
+        beam_width=2,
+        beam_depth=4,
+        max_steps=1,
+        cem_samples=4,
+        cem_iters=1,
+        cem_elites=1,
+        device=torch.device("cpu"),
+    )
+
+    assert result.steps <= 1
+    assert result.action_evals > 0
+
+
 def test_hierarchical_cem_mpc_plans_high_level_subgoal_then_low_level_action():
     example = _example()
     state = example.goal.copy()
@@ -470,6 +496,35 @@ def test_hierarchical_cem_mpc_plans_high_level_subgoal_then_low_level_action():
     )
     assert result.steps <= 1
     assert result.beam_depth == 4
+    assert result.action_evals > 0
+
+
+def test_hierarchical_cem_mpc_handles_subgoal_horizon_longer_than_remaining_blanks():
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=1.0)
+
+    result = run_hierarchical_cem_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_goal_distance",
+        transition_mode="symbolic_reencode",
+        beam_width=2,
+        beam_depth=4,
+        max_steps=1,
+        cem_samples=4,
+        cem_iters=1,
+        cem_elites=1,
+        high_cem_samples=4,
+        high_cem_iters=1,
+        high_cem_elites=1,
+        device=torch.device("cpu"),
+    )
+
+    assert result.steps <= 1
     assert result.action_evals > 0
 
 

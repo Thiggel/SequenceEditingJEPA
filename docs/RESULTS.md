@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-24 10:36 CEST
+Last updated: 2026-06-24 11:38 CEST
 
 ## Current Result
 
@@ -30,6 +30,23 @@ Preliminary depth-32 signal:
 - Important caveat: action variants `A1_affected_marker` and the strongest
   `A7_local_action_feature_delta/S4` rows are underrepresented until `3775750`
   finishes. Treat this as a live partial readout, not the final ablation table.
+
+## Follow-Up Audit
+
+Dense future-state prediction, hierarchy, categorical CEM, and hierarchical CEM
+were reviewed before full follow-up submission. The hierarchy path has the
+intended shared latent space, stride-specific high-level predictors, high-level
+latent CEM toward the goal, and primitive CEM toward the first subgoal.
+
+Remaining blockers are covered by failing tests:
+
+- Categorical CEM crashes when the planning horizon exceeds remaining blank
+  cells: `ValueError: Probabilities contain NaN`.
+- Hierarchical CEM inherits that primitive CEM near-terminal crash.
+- Rollout diagnostics omit h32 metrics for models configured with horizon 32.
+
+`source scripts/env.sh && python -m compileall -q puzzle_jepa tests` passes.
+Full `pytest -q` is expected to fail until these tests are fixed.
 
 ## Previous Result
 

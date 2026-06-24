@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-24 10:58 CEST
+Last updated: 2026-06-24 11:38 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -73,7 +73,8 @@ and predicted goal latents.
 
 ## Follow-Up Wave
 
-Prepared but not submitted yet:
+Prepared but not ready to submit until the follow-up audit regressions are
+fixed:
 
 - Train script: `scripts/slurm/run_grid_goal_followup_train.slurm`
 - Eval script: `scripts/slurm/run_grid_goal_followup_eval.slurm`
@@ -107,6 +108,16 @@ Hierarchy follows the "Hierarchical Planning with Latent World Models" design
 at the level needed here: a shared encoder/latent space, multiple temporal
 predictors, latent macro-actions for high-level planning, and top-down subgoal
 conditioning. There is no second state encoder.
+
+Follow-up audit blockers:
+
+- `categorical_cem` crashes near terminal states when `beam_depth` exceeds the
+  remaining blank cells because sampled sequences can exhaust all valid actions
+  before the horizon ends.
+- `hierarchical_cem` inherits the same primitive CEM failure while fulfilling
+  subgoals.
+- h32 diagnostics are missing for `F1_dense_k32_detach8`; diagnostics still
+  emit rollout drift only for horizons `1,4,8,16`.
 
 ## Original Ablations
 

@@ -409,6 +409,22 @@ def test_diagnostics_include_rollout_and_goal_alignment_metrics(tmp_path):
     assert required <= set(metrics)
 
 
+def test_rollout_diagnostics_include_configured_long_horizons(tmp_path):
+    model = _small_model(multi_step_horizons=(1, 4, 8, 16, 32)).eval()
+    metrics = run_grid_goal_diagnostics(
+        model,
+        [_example()],
+        tmp_path,
+        device=torch.device("cpu"),
+        panel_examples=1,
+        panel_steps=1,
+        panel_actions=2,
+    )
+
+    assert "predictor_rollout_mse_h32" in metrics
+    assert "latent_rollout_drift_mse_h32" in metrics
+
+
 def test_planner_checkpoint_loader_accepts_training_metadata_numpy_scalars(tmp_path):
     model_config = _small_model_config()
     model = GridTokenGoalJEPA(**model_config)
