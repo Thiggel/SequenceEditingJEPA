@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-23 14:50 CEST
+Last updated: 2026-06-24 10:04 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -35,10 +35,9 @@ Action-conditioning/stability suite state:
 - Stale eval `3760099` was canceled because it was `DependencyNeverSatisfied`.
 - Rerun training array: `3768285`, failed indices only
   `24-26,28-38,42,44-95%16`, originally partition `rtxpro6k`.
-- All 96 checkpoint files exist.
-- Remaining active training tasks at 2026-06-23 14:37 CEST are `76-95`.
-  Task `76` is on A100 at step `58k/60k`; tasks `77-95` are on RTX Pro and
-  mostly around `38k-44k/60k`.
+- Training rerun `3768285` completed all 96 checkpoints. Tail RTX Pro tasks
+  finished on 2026-06-23 around 17:32-18:40 CEST; A100 task `76` finished at
+  15:14 CEST after `17:35:55`.
 - Replacement eval array `3768300` was canceled and replaced by split evals so
   completed checkpoints evaluate immediately:
   - `3770937`: original completed tasks `0-23,27,39-41,43%32`
@@ -49,27 +48,24 @@ Action-conditioning/stability suite state:
     `logs/grid_goal_act_eval_split_afterok_submit_20260622_2020.tsv`
 - Monitor:
   ```bash
-  squeue -j 3768285,3770937,3770953
-  squeue --jobs=$(seq -s, 3770954 3771004)
+  squeue -j 3775750,3775751
   ```
-- Eval output at 2026-06-23 14:37 CEST: `76` planner output files, `994`
-  JSONL rows, `27` complete files, `49` partial files, and `20` missing files
-  for still-running/not-yet-evaluated checkpoints. Many A100 eval jobs hit the
-  6h limit after about `11/18` rows; RTX Pro evals complete in about
-  `4h38m-4h42m`.
-- Current planner result: `0` solves across `994` rows. Best partial row is
+- Eval status at 2026-06-24 10:04 CEST: prior evals are complete, but the
+  2026-06-23 corrected rerun/depth64 submissions passed comma-separated
+  variables through `sbatch --export=...`, so Slurm split them at commas.
+  Current main outputs have 96 files but only 51 complete 18-row matrices and
+  45 one-row matrices; current depth64 outputs have 96 one-row matrices.
+- Current planner result in observed rows: `0` solves. Best row is still
   `remaining_hamming_mean=5.8` for
   `R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform` with
   `oracle_goal_distance` at beam depths `16` and `32`.
-- Incomplete main eval rerun: `3773057`, RTX Pro-only, 8h limit, reruns
-  incomplete `planner_eval_latent` matrices for indices
-  `0,1,2,5-13,24-26,28,30-35,37,38,42-44,46-60,66-68%16`.
-- Pending main evals `3770985`-`3771004` for tasks `76-95` are now RTX
-  Pro-only. Task 95 depends on `afterok:3768285_95`.
-- Depth-64 evals: `3773058` for indices `0-75%16`, plus per-task dependency
-  jobs `3773059`-`3773078` for indices `76-95`. They use beam width `16`,
-  beam depth `64`, max steps `81`, the same six score modes, and write to
-  `planner_eval_latent_depth64`.
+- Corrected main eval rerun: `3775750`, RTX Pro-only, 8h limit, reruns
+  indices `0,1,2,5-13,24-26,28,30-35,37,38,42-44,46-60,66-68%16`.
+  This uses environment inheritance rather than comma values in `--export` and
+  should restore 18-row `planner_eval_latent` matrices.
+- Corrected depth64 eval: `3775751`, RTX Pro-only, 12h limit, indices
+  `0-95%16`, beam width `16`, beam depth `64`, max steps `81`, same six score
+  modes, output `planner_eval_latent_depth64`.
 - Output root:
   `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_action_suite/grid_goal_action_<base>_<action>_<stability>_<dynamics>/`.
 - Scripts:
