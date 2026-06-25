@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-25 11:28 CEST
+Last updated: 2026-06-25 11:56 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -39,9 +39,24 @@ Goal-JEPA** for Sudoku.
 All previous LeWM/CLS/value-head jobs were cancelled or completed before this
 reset.
 
-## Next-Wave Prepared State
+## Next-Wave Active State
 
-No next-wave jobs have been submitted from this implementation pass.
+Stage `goal_conditioning` is submitted.
+
+- Train array: `3780027`, tasks `0-2%3`, partition `rtxpro6k,a100`,
+  currently running on `rtxpro6k`.
+- Eval array: `3780028`, tasks `0-2%3`, dependency `aftercorr:3780027`,
+  currently dependency-held.
+- Oversight jobs: `3780033`-`3780042`, 12-hour cadence over 5 days.
+  `OVERSIGHT_SUBMIT_NEXT=1` and `OVERSIGHT_CLEANUP=1` were set at submission.
+  The first oversight job `3780033` ran immediately; the rest are begin-time
+  held.
+- Oversight jobs request one GPU because this Alex Slurm instance rejects jobs
+  without `--gres=gpu`.
+
+No later stage was manually submitted; the oversight jobs are responsible for
+stage advancement once the current stage has completed train checkpoints and
+planner rows.
 
 Implemented and verified:
 
@@ -58,10 +73,10 @@ Implemented and verified:
 - optional policy prior over primitive legal actions and fused macro-actions;
   planning can bias beam scores using `model.policy_prior_planning_weight`
 
-Stage submit command:
+Stage submit command used:
 
 ```bash
-GRID_GOAL_STAGE=goal_conditioning scripts/experiments/submit_grid_goal_next_wave.sh
+GRID_GOAL_STAGE=goal_conditioning TRAIN_CONCURRENCY=3 EVAL_CONCURRENCY=3 scripts/experiments/submit_grid_goal_next_wave.sh
 ```
 
 Stages supported by the wrapper:
@@ -70,10 +85,10 @@ Stages supported by the wrapper:
 `predictor_delta_topk`, `ranking_losses`, `hierarchical_planning`,
 `policy_prior`.
 
-Oversight scheduling command:
+Oversight scheduling command used:
 
 ```bash
-OVERSIGHT_COUNT=10 OVERSIGHT_INTERVAL_HOURS=12 scripts/oversight/submit_grid_goal_oversight.sh
+GRID_GOAL_STAGE=goal_conditioning OVERSIGHT_COUNT=10 OVERSIGHT_INTERVAL_HOURS=12 OVERSIGHT_SUBMIT_NEXT=1 OVERSIGHT_CLEANUP=1 scripts/oversight/submit_grid_goal_oversight.sh
 ```
 
 Oversight only reports by default. Set `OVERSIGHT_SUBMIT_NEXT=1` to let it
@@ -94,10 +109,9 @@ Verification from this pass:
 
 ## Slurm Snapshot
 
-Current sequence-editing status at 2026-06-25 09:32 CEST:
+Current sequence-editing status at 2026-06-25 11:56 CEST:
 
-- No active sequence-editing Slurm jobs remain in `squeue`; visible live jobs
-  belong to other repos.
+- Active next-wave jobs are listed above. Previous follow-up jobs are complete.
 - Follow-up training/eval is complete:
   - original train array `3776065`: tasks `0,2,3,4` completed; tasks `1,5`
     OOMed at batch 8 and were superseded

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=grid_goal_oversight
+#SBATCH --partition=rtxpro6k,a100
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
 #SBATCH --time=00:20:00
 #SBATCH --output=logs/%x_%A.out

@@ -1,11 +1,20 @@
 # Results
 
-Last updated: 2026-06-25 11:28 CEST
+Last updated: 2026-06-25 11:56 CEST
+
+## Active Submission
+
+Stage `goal_conditioning` has been submitted but has no results yet.
+
+- Train array `3780027` is running tasks `0-2` on RTX Pro.
+- Eval array `3780028` is dependency-held with `aftercorr:3780027`.
+- Oversight jobs `3780033`-`3780042` are scheduled every 12 hours with
+  stage advancement and safe cleanup enabled.
 
 ## Implementation Pass
 
-No new experimental results were generated in this pass and no next-wave jobs
-were submitted. The code now supports the staged next wave described in
+No new experimental results were generated in the implementation pass. The
+code now supports the staged next wave described in
 `docs/EXPERIMENT_PLAN.md`, including conditional predicted goals,
 hierarchical beam, hierarchy-dense rollout supervision, delta-top-k score
 probes, ranking-loss switches, and an optional primitive/macro policy prior.
