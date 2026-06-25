@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-24 12:00 CEST
+Last updated: 2026-06-25 09:32 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -30,6 +30,42 @@ All previous LeWM/CLS/value-head jobs were cancelled or completed before this
 reset.
 
 ## Slurm Snapshot
+
+Current sequence-editing status at 2026-06-25 09:32 CEST:
+
+- No active sequence-editing Slurm jobs remain in `squeue`; visible live jobs
+  belong to other repos.
+- Follow-up training/eval is complete:
+  - original train array `3776065`: tasks `0,2,3,4` completed; tasks `1,5`
+    OOMed at batch 8 and were superseded
+  - replacement train array `3776086`: tasks `1,5` completed at batch 4
+  - follow-up eval arrays `3776066`, `3776068`, `3776069`, `3776070`,
+    `3776087`, and `3776088` completed
+  - checkpoint-time eval array `3776072` completed
+- Result files:
+  - follow-up trained variants: 336 planner rows across 6 variants, beam/CEM
+    planners, depths `4,16,32,64`, and six oracle/predicted score modes
+  - checkpoint-time sweep: 240 planner rows across checkpoints
+    `20k,30k,40k,50k,60k`, beam/CEM planners, depths `4,16,32,64`, and six
+    score modes
+- Best follow-up signal:
+  `H1_hierarchy_dense_l4_l16` with `mpc_beam` and
+  `oracle_goal_changed_cell_raw_euclidean_distance` solved `6/10` boards at
+  beam depth `16` and had mean remaining Hamming `0.5`. Depths `32` and `64`
+  solved `4/10` and `5/10`, respectively.
+- All predicted-goal follow-up rows still solved `0/10`. The best predicted
+  follow-up row had mean remaining Hamming `36.0`, so predicted-goal geometry
+  remains the main blocker.
+- Categorical CEM and hierarchical CEM did not solve any boards in this wave.
+- Corrected action-conditioning/stability evals also finished:
+  - main `planner_eval_latent`: 96/96 complete files, 1728 rows, zero solves
+  - depth-64 `planner_eval_latent_depth64`: 96/96 complete files, 576 rows,
+    zero solves
+  - best action-suite row remains
+    `R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform` with
+    `oracle_goal_distance`, mean remaining Hamming `5.8`
+  - best predicted action-suite row remains much worse: mean remaining Hamming
+    `35.1` with changed-cell predicted goal distance
 
 Action-conditioning/stability suite state:
 

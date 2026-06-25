@@ -1,35 +1,74 @@
 # Results
 
-Last updated: 2026-06-24 11:38 CEST
+Last updated: 2026-06-25 09:32 CEST
 
 ## Current Result
+
+Follow-up wave:
+
+- All follow-up train/eval jobs completed after resubmitting the two memory
+  heavy variants at batch 4.
+- Follow-up outputs contain 336 planner rows across all six variants and
+  checkpoint-time outputs contain 240 planner rows for the current best
+  action-suite run at `20k,30k,40k,50k,60k`.
+- The only nonzero solve signal is
+  `H1_hierarchy_dense_l4_l16` with `mpc_beam` and
+  `oracle_goal_changed_cell_raw_euclidean_distance`:
+  - depth 4: `0/10`, remaining Hamming `1.7`
+  - depth 16: `6/10`, remaining Hamming `0.5`
+  - depth 32: `4/10`, remaining Hamming `1.3`
+  - depth 64: `5/10`, remaining Hamming `1.3`
+- The same variant with oracle raw Euclidean but not changed-cell scoring got
+  close but did not solve: best remaining Hamming `6.8`.
+- The same variant with normalized oracle goal distance stayed worse:
+  best remaining Hamming `22.9`.
+- All predicted-goal rows solved `0/10`; the best predicted follow-up row was
+  still around `36.0` remaining Hamming.
+- Categorical CEM and hierarchical CEM solved `0/10` everywhere. They were
+  faster than exhaustive beam, but the sampled search was much worse at the
+  same score modes.
+
+Diagnostics:
+
+- `H1_hierarchy_dense_l4_l16` has strong oracle symbolic action top-1
+  (`0.5938`) but weaker latent-rollout oracle top-1 (`0.3438`) and predicted
+  top-1 (`0.3438` symbolic, `0.25` rollout).
+- `F0_dense_k16` has the best latent-rollout oracle top-1 (`0.7188`) but did
+  not solve; its best oracle changed-cell beam row had `9.9` remaining
+  Hamming.
+- `F1_dense_k32_detach8` emitted h32 rollout diagnostics as intended, but
+  performed poorly in planning. Its h32 rollout MSE was `0.0141`, while
+  oracle action top-1 was only `0.0625`.
+- The wider `S0_scale_d384_dense` increased effective rank (`81.9`) but did
+  not improve solve rate or predicted-goal planning.
+
+Interpretation: hierarchy plus dense future prediction is the first latent
+rollout configuration in this wave that can solve Sudoku under an oracle,
+changed-cell metric. That is a real positive signal for the dynamics/latent
+rollout path. It does not yet validate predicted-goal planning: the goal
+predictor/goal metric gap remains large enough that all predicted-goal solve
+rates are still zero.
 
 Action-conditioning/stability suite:
 
 - Training rerun `3768285` completed all 96 checkpoints.
-- Corrected eval reruns are active:
-  - `3775750` restores incomplete main latent planner matrices.
-  - `3775751` reruns the depth-64 sweep in separate output directories.
-- Main depth-32 snapshot at 2026-06-24 10:36 CEST:
-  - 51/96 configs have complete six-score depth-32 rows.
-  - 45 configs are still incomplete or being rewritten by `3775750`.
-  - Solve rate is `0.0` across all 306 observed depth-32 rows.
+- Corrected eval reruns completed:
+  - main `planner_eval_latent`: 96/96 complete matrices, 1728 rows
+  - depth-64 `planner_eval_latent_depth64`: 96/96 complete matrices, 576 rows
+- Solve rate is `0.0` across all action-suite rows.
 
-Preliminary depth-32 signal:
+Best action-suite signal:
 
 - One config is qualitatively better than the rest:
   `R4_no_goal_nce/A6_affected_marker_delta/S4_ema_vicreg/D0_uniform`.
-  At beam width `16`, depth `32`, it reaches remaining Hamming `5.8` with
-  normalized oracle-goal distance and `9.2` with changed-cell raw oracle L2.
+  It reaches remaining Hamming `5.8` with normalized oracle-goal distance in
+  both the main sweep and depth-64 sweep.
 - The same config is much worse with predicted goals: remaining Hamming `36.6`
   normalized and `35.1` changed-cell raw. Predicted goal quality is still a
   major bottleneck.
-- Observed factor signals favor `R4_no_goal_nce`, `A6_affected_marker_delta`,
-  `S4_ema_vicreg`, and `D0_uniform`. `D1_affected` does not help in the
-  observed depth-32 rows.
-- Important caveat: action variants `A1_affected_marker` and the strongest
-  `A7_local_action_feature_delta/S4` rows are underrepresented until `3775750`
-  finishes. Treat this as a live partial readout, not the final ablation table.
+- `A7_local_action_feature_delta/S4_ema_vicreg/D1_affected` is the next best
+  changed-cell oracle row, with remaining Hamming `9.0` in the main sweep, but
+  it also has zero exact solves.
 
 ## Follow-Up Audit
 
@@ -38,15 +77,14 @@ were reviewed before full follow-up submission. The hierarchy path has the
 intended shared latent space, stride-specific high-level predictors, high-level
 latent CEM toward the goal, and primitive CEM toward the first subgoal.
 
-Remaining blockers are covered by failing tests:
+The audit blockers were fixed before submission:
 
-- Categorical CEM crashes when the planning horizon exceeds remaining blank
-  cells: `ValueError: Probabilities contain NaN`.
-- Hierarchical CEM inherits that primitive CEM near-terminal crash.
-- Rollout diagnostics omit h32 metrics for models configured with horizon 32.
+- Categorical and hierarchical CEM cap lookahead by remaining blank cells.
+- CEM sampling stops safely after a sampled sequence fills the board.
+- Rollout diagnostics emit configured long horizons, including h32.
 
-`source scripts/env.sh && python -m compileall -q puzzle_jepa tests` passes.
-Full `pytest -q` is expected to fail until these tests are fixed.
+Verification before submission: `source scripts/env.sh && pytest -q` ->
+`70 passed`.
 
 ## Previous Result
 

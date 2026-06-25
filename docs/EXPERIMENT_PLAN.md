@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-24 11:38 CEST
+Last updated: 2026-06-25 09:32 CEST
 
 ## Grid-Token Goal-JEPA
 
@@ -73,8 +73,7 @@ and predicted goal latents.
 
 ## Follow-Up Wave
 
-Prepared but not ready to submit until the follow-up audit regressions are
-fixed:
+Submitted and completed after the follow-up audit regressions were fixed:
 
 - Train script: `scripts/slurm/run_grid_goal_followup_train.slurm`
 - Eval script: `scripts/slurm/run_grid_goal_followup_eval.slurm`
@@ -111,13 +110,17 @@ conditioning. There is no second state encoder.
 
 Follow-up audit blockers:
 
-- `categorical_cem` crashes near terminal states when `beam_depth` exceeds the
-  remaining blank cells because sampled sequences can exhaust all valid actions
-  before the horizon ends.
-- `hierarchical_cem` inherits the same primitive CEM failure while fulfilling
-  subgoals.
-- h32 diagnostics are missing for `F1_dense_k32_detach8`; diagnostics still
-  emit rollout drift only for horizons `1,4,8,16`.
+- Fixed. Beam, categorical CEM, and hierarchical CEM cap lookahead by remaining
+  blank cells, categorical CEM sampling stops safely after a sampled sequence
+  fills the board, and rollout diagnostics include configured long horizons
+  such as h32.
+
+Follow-up outcome:
+
+- `H1_hierarchy_dense_l4_l16` is the only nonzero solve result so far:
+  `6/10` solved with `mpc_beam`, depth `16`, and oracle changed-cell raw L2.
+- All predicted-goal rows still solved `0/10`.
+- Categorical CEM and hierarchical CEM solved `0/10`.
 
 ## Original Ablations
 
