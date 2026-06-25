@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-25 11:56 CEST
+Last updated: 2026-06-25 12:09 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -44,7 +44,7 @@ reset.
 Stage `goal_conditioning` is submitted.
 
 - Train array: `3780027`, tasks `0-2%3`, partition `rtxpro6k,a100`,
-  currently running on `rtxpro6k`.
+  currently running on `rtxpro6k` with empty stderr.
 - Eval array: `3780028`, tasks `0-2%3`, dependency `aftercorr:3780027`,
   currently dependency-held.
 - Oversight jobs: `3780033`-`3780042`, 12-hour cadence over 5 days.
@@ -57,6 +57,10 @@ Stage `goal_conditioning` is submitted.
 No later stage was manually submitted; the oversight jobs are responsible for
 stage advancement once the current stage has completed train checkpoints and
 planner rows.
+
+Early metrics at 12:09 CEST are finite: `G0_context` has reached step 2000,
+and the two conditional-goal variants have reached step 1000. No checkpoints
+or planner rows exist yet.
 
 Implemented and verified:
 
