@@ -64,7 +64,9 @@ SCORES="${SCORES:-${BASE_SCORES},${DELTA_SCORES}}"
 
 if [[ -z "${PLANNERS:-}" ]]; then
   PLANNERS="mpc_beam"
-  if [[ "${VARIANT}" == H* || "${VARIANT}" == P* || "${VARIANT}" == PP* || "${VARIANT}" == BASE || "${STAGE}" == "dense_horizon" || "${STAGE}" == "ranking_losses" ]]; then
+  if [[ "${STAGE}" == "dense_horizon" || "${STAGE}" == "predictor_delta_topk" || "${STAGE}" == "hierarchical_planning" || "${STAGE}" == "policy_prior" ]]; then
+    PLANNERS="mpc_beam,hierarchical_beam"
+  elif [[ "${STAGE}" == "hierarchy_levels" && "${VARIANT}" != "H_empty" ]]; then
     PLANNERS="mpc_beam,hierarchical_beam"
   fi
 fi

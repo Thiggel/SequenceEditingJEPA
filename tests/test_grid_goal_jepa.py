@@ -749,6 +749,17 @@ def test_delta_topk_distance_scores_largest_predicted_changes():
     assert top2.item() == pytest.approx((1.0 + 9.8) / 2.0)
 
 
+def test_delta_topk_distance_does_not_average_inactive_tokens_when_k_is_large():
+    previous = torch.zeros((1, 3, 1))
+    next_latents = torch.tensor([[[100.0], [1.0], [50.0]]])
+    goal = torch.zeros_like(next_latents)
+    mask = torch.tensor([[False, True, False]])
+
+    score = delta_topk_raw_euclidean_distances(next_latents, previous, goal, mask, top_k=3)
+
+    assert score.item() == pytest.approx(1.0)
+
+
 def test_invalid_distance_mode_is_rejected():
     with pytest.raises(ValueError, match="distance_mode"):
         _small_model(distance_mode="bad")

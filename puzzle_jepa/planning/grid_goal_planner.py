@@ -1392,9 +1392,12 @@ def delta_topk_raw_euclidean_distances(
     delta = (next_latents.float() - previous_latents.float()).square().sum(dim=-1)
     delta = delta.masked_fill(~mask, float("-inf"))
     k = min(max(1, int(top_k)), next_latents.shape[-2])
-    indices = delta.topk(k=k, dim=-1).indices
+    selected_delta, indices = delta.topk(k=k, dim=-1)
     per_token = (next_latents.float() - goal_latents.float()).square().sum(dim=-1).sqrt()
-    return per_token.gather(dim=-1, index=indices).mean(dim=-1)
+    selected = per_token.gather(dim=-1, index=indices)
+    selected_mask = torch.isfinite(selected_delta)
+    weights = selected_mask.to(dtype=selected.dtype)
+    return (selected * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
 
 
 @torch.no_grad()
