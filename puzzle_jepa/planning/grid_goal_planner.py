@@ -27,11 +27,17 @@ ScoreMode = Literal[
     "predicted_goal_raw_euclidean_progress",
     "oracle_goal_changed_cell_raw_euclidean_distance",
     "predicted_goal_changed_cell_raw_euclidean_distance",
+    "oracle_goal_delta_top1_raw_euclidean_distance",
+    "predicted_goal_delta_top1_raw_euclidean_distance",
+    "oracle_goal_delta_top3_raw_euclidean_distance",
+    "predicted_goal_delta_top3_raw_euclidean_distance",
+    "oracle_goal_delta_top5_raw_euclidean_distance",
+    "predicted_goal_delta_top5_raw_euclidean_distance",
     "oracle_goal_projected_euclidean_distance",
     "predicted_goal_projected_euclidean_distance",
 ]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
-PlannerMode = Literal["mpc_beam", "categorical_cem", "hierarchical_cem"]
+PlannerMode = Literal["mpc_beam", "categorical_cem", "hierarchical_cem", "hierarchical_beam"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +93,7 @@ def run_beam_mpc(
     clue_mask = current != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
-    context_latents, predicted_goal, oracle_goal = _prepare_goal_latents(
+    context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
         model, current, goal, clue_mask, editable_mask, active_mask, device=device
     )
     action_evals = 0
@@ -97,6 +103,16 @@ def run_beam_mpc(
         depth = capped_horizon(beam_depth, current)
         if depth <= 0:
             break
+        predicted_goal = _predict_goal_for_board(
+            model,
+            current,
+            context_latents,
+            initial_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
+        )
         first, evals = beam_plan_once(
             model,
             current,
@@ -163,7 +179,7 @@ def run_categorical_cem_mpc(
     clue_mask = current != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
-    context_latents, predicted_goal, oracle_goal = _prepare_goal_latents(
+    context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
         model, current, goal, clue_mask, editable_mask, active_mask, device=device
     )
     action_evals = 0
@@ -173,6 +189,16 @@ def run_categorical_cem_mpc(
         depth = capped_horizon(beam_depth, current)
         if depth <= 0:
             break
+        predicted_goal = _predict_goal_for_board(
+            model,
+            current,
+            context_latents,
+            initial_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
+        )
         first, evals = categorical_cem_plan_once(
             model,
             current,
@@ -250,7 +276,7 @@ def run_hierarchical_cem_mpc(
     clue_mask = current != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
-    context_latents, predicted_goal, oracle_goal = _prepare_goal_latents(
+    context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
         model, current, goal, clue_mask, editable_mask, active_mask, device=device
     )
     action_evals = 0
@@ -260,6 +286,16 @@ def run_hierarchical_cem_mpc(
         depth = capped_horizon(beam_depth, current)
         if depth <= 0:
             break
+        predicted_goal = _predict_goal_for_board(
+            model,
+            current,
+            context_latents,
+            initial_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
+        )
         _, current_latent = score_board(
             model,
             current,
@@ -336,6 +372,169 @@ def run_hierarchical_cem_mpc(
         action_evals=action_evals,
         elapsed_seconds=time.time() - start,
     )
+
+
+@torch.no_grad()
+def run_hierarchical_beam_mpc(
+    model: GridTokenGoalJEPA,
+    puzzle: np.ndarray,
+    goal: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    transition_mode: TransitionMode,
+    beam_width: int,
+    beam_depth: int,
+    max_steps: int = 81,
+    device: torch.device,
+) -> BeamMPCResult:
+    if not model.hierarchy_levels:
+        raise ValueError("hierarchical_beam requires a checkpoint trained with hierarchy_levels.")
+    start = time.time()
+    model.eval()
+    current = np.asarray(puzzle, dtype=np.int64).copy()
+    actions_taken: list[WorldAction] = []
+    clue_mask = current != 0
+    editable_mask = ~clue_mask
+    active_mask = np.ones((9, 9), dtype=bool)
+    context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
+        model, current, goal, clue_mask, editable_mask, active_mask, device=device
+    )
+    action_evals = 0
+    for _ in range(max_steps):
+        if np.array_equal(current, goal) or not np.any(current == 0):
+            break
+        depth = capped_horizon(beam_depth, current)
+        if depth <= 0:
+            break
+        predicted_goal = _predict_goal_for_board(
+            model,
+            current,
+            context_latents,
+            initial_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
+        )
+        _, current_latent = score_board(
+            model,
+            current,
+            context_latents,
+            predicted_goal,
+            oracle_goal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=score_mode,
+            device=device,
+        )
+        target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
+        subgoal = target_goal
+        high_levels = tuple(level for level in sorted(model.hierarchy_levels, reverse=True) if level <= depth)
+        for level in high_levels:
+            subgoal, evals = hierarchical_subgoal_beam(
+                model,
+                current,
+                current_latent,
+                subgoal,
+                context_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                score_mode=score_mode,
+                level=level,
+                beam_width=beam_width,
+                device=device,
+            )
+            action_evals += evals
+        first, evals = beam_plan_once(
+            model,
+            current,
+            goal,
+            context_latents,
+            subgoal,
+            subgoal,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode=_subgoal_score_mode(score_mode),  # type: ignore[arg-type]
+            transition_mode=transition_mode,
+            beam_width=beam_width,
+            beam_depth=min(depth, min(high_levels) if high_levels else depth),
+            device=device,
+        )
+        action_evals += evals
+        if first is None:
+            break
+        try:
+            current = apply_fill_action(current, first, allow_conflicts=True)
+        except ValueError:
+            break
+        actions_taken.append(first)
+    return BeamMPCResult(
+        solved=bool(np.array_equal(current, goal)),
+        steps=len(actions_taken),
+        remaining_hamming=hamming_distance(current, goal),
+        actions=actions_taken,
+        final_board=current,
+        score_mode=score_mode,
+        transition_mode=transition_mode,
+        beam_width=beam_width,
+        beam_depth=beam_depth,
+        action_evals=action_evals,
+        elapsed_seconds=time.time() - start,
+    )
+
+
+@torch.no_grad()
+def hierarchical_subgoal_beam(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    start_latent: torch.Tensor,
+    goal_latent: torch.Tensor,
+    context_latents: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    level: int,
+    beam_width: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, int]:
+    candidates, evals = _latent_beam_candidates(
+        model,
+        board,
+        start_latent,
+        context_latents,
+        goal_latent,
+        active_mask,
+        score_mode=_subgoal_score_mode(score_mode),  # type: ignore[arg-type]
+        beam_width=beam_width,
+        beam_depth=level,
+        device=device,
+    )
+    if not candidates:
+        return goal_latent, evals
+    sequences = [seq for _, seq, _ in candidates if len(seq) >= level]
+    if not sequences:
+        return goal_latent, evals
+    action_t = torch.as_tensor(
+        [[[action.row, action.col, action.value] for action in seq[:level]] for seq in sequences],
+        dtype=torch.long,
+        device=device,
+    )
+    start = start_latent.expand(action_t.shape[0], -1, -1)
+    context = context_latents.expand(action_t.shape[0], -1, -1)
+    predicted_waypoints = model.predict_high_level(start, action_t, context, level=level)
+    mask = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(action_t.shape[0], -1, -1)
+    target = _expand_tokens_like(goal_latent, predicted_waypoints)
+    scores = latent_distance(model, predicted_waypoints, target, target, mask, _subgoal_score_mode(score_mode))
+    if _policy_prior_planning_weight(model) > 0.0:
+        macro_priors = model.score_macro_action_prior(start, target, context, mask, action_t, level=level)
+        scores = scores - _policy_prior_planning_weight(model) * macro_priors.to(dtype=scores.dtype)
+    best = int(torch.argmin(scores).item())
+    return predicted_waypoints[best : best + 1].detach(), evals + action_t.shape[0]
 
 
 @torch.no_grad()
@@ -587,10 +786,27 @@ def _beam_plan_once_latent(
                 next_score = raw_tokenwise_euclidean_distance(next_latents, _expand_tokens_like(target_goal, next_latents), chunk_mask)
                 node_score = raw_tokenwise_euclidean_distance(parent_batch, _expand_tokens_like(target_goal, parent_batch), chunk_mask)
                 score_values = next_score - node_score
+            elif _is_delta_topk_score(score_mode):
+                score_values = delta_topk_raw_euclidean_distances(
+                    next_latents,
+                    parent_batch,
+                    _expand_tokens_like(target_goal, next_latents),
+                    chunk_mask,
+                    top_k=_delta_topk_value(score_mode),
+                )
             elif _is_changed_cell_score(score_mode):
                 score_values = changed_cell_raw_euclidean_distances(next_latents, _expand_tokens_like(target_goal, next_latents), actions[start:end])
             else:
                 score_values = latent_distance(model, next_latents, predicted_goal, oracle_goal, chunk_mask, score_mode)
+            score_values = _apply_policy_prior_bias(
+                model,
+                score_values,
+                parent_batch,
+                target_goal,
+                context_t,
+                chunk_mask,
+                action_t,
+            )
             scores = [float(x) for x in score_values.detach().cpu().tolist()]
             for offset, score in enumerate(scores):
                 idx = start + offset
@@ -607,6 +823,90 @@ def _beam_plan_once_latent(
     if best is None or not best[1]:
         return None, action_evals
     return best[1][0], action_evals
+
+
+@torch.no_grad()
+def _latent_beam_candidates(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    start_latent: torch.Tensor,
+    context_latents: torch.Tensor,
+    target_goal: torch.Tensor,
+    active_mask: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    beam_width: int,
+    beam_depth: int,
+    device: torch.device,
+    chunk_size: int = 2048,
+) -> tuple[list[tuple[float, list[WorldAction], torch.Tensor]], int]:
+    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor]] = [(0.0, board.copy(), [], start_latent)]
+    action_evals = 0
+    kept: list[tuple[float, list[WorldAction], torch.Tensor]] = []
+    for _ in range(max(1, int(beam_depth))):
+        parent_latents: list[torch.Tensor] = []
+        leaves: list[np.ndarray] = []
+        seqs: list[list[WorldAction]] = []
+        actions: list[WorldAction] = []
+        for _, node_board, seq, latent in beam:
+            for action in legal_fill_actions(node_board, allow_conflicts=True):
+                try:
+                    leaf = apply_fill_action(node_board, action, allow_conflicts=True)
+                except ValueError:
+                    continue
+                parent_latents.append(latent)
+                leaves.append(leaf)
+                seqs.append([*seq, action])
+                actions.append(action)
+        if not leaves:
+            break
+        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor]] = []
+        mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+        for start in range(0, len(leaves), chunk_size):
+            end = min(len(leaves), start + chunk_size)
+            parent_batch = torch.cat(parent_latents[start:end], dim=0)
+            action_t = torch.as_tensor(
+                [[action.row, action.col, action.value] for action in actions[start:end]],
+                dtype=torch.long,
+                device=device,
+            )
+            context_t = context_latents.expand(parent_batch.shape[0], -1, -1)
+            next_latents = model.predict_next(parent_batch, action_t, context_t)
+            chunk_mask = mask_t.expand(parent_batch.shape[0], -1, -1)
+            if _is_delta_topk_score(score_mode):
+                score_values = delta_topk_raw_euclidean_distances(
+                    next_latents,
+                    parent_batch,
+                    _expand_tokens_like(target_goal, next_latents),
+                    chunk_mask,
+                    top_k=_delta_topk_value(score_mode),
+                )
+            elif _is_changed_cell_score(score_mode):
+                score_values = changed_cell_raw_euclidean_distances(
+                    next_latents,
+                    _expand_tokens_like(target_goal, next_latents),
+                    actions[start:end],
+                )
+            else:
+                score_values = latent_distance(model, next_latents, target_goal, target_goal, chunk_mask, score_mode)
+            score_values = _apply_policy_prior_bias(
+                model,
+                score_values,
+                parent_batch,
+                target_goal,
+                context_t,
+                chunk_mask,
+                action_t,
+            )
+            scores = [float(x) for x in score_values.detach().cpu().tolist()]
+            for offset, score in enumerate(scores):
+                idx = start + offset
+                candidates.append((score, leaves[idx], seqs[idx], next_latents[offset : offset + 1].detach()))
+            action_evals += end - start
+        candidates.sort(key=lambda item: item[0])
+        beam = candidates[: max(1, int(beam_width))]
+        kept = [(score, seq, latent) for score, _, seq, latent in beam]
+    return kept, action_evals
 
 
 @torch.no_grad()
@@ -631,6 +931,7 @@ def _beam_plan_once_symbolic(
     base_progress_mode = _progress_base_score_mode(score_mode)
     target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
     for _ in range(max(1, int(beam_depth))):
+        parent_boards: list[np.ndarray] = []
         leaves: list[np.ndarray] = []
         seqs: list[list[WorldAction]] = []
         actions: list[WorldAction] = []
@@ -655,6 +956,7 @@ def _beam_plan_once_symbolic(
                     leaf = apply_fill_action(node_board, action, allow_conflicts=True)
                 except ValueError:
                     continue
+                parent_boards.append(node_board)
                 leaves.append(leaf)
                 seqs.append([*seq, action])
                 actions.append(action)
@@ -674,12 +976,53 @@ def _beam_plan_once_symbolic(
         if base_progress_mode is not None:
             absolute = latent_distance(model, leaf_latents, predicted_goal, oracle_goal, mask_t, base_progress_mode)
             score_values = absolute - torch.as_tensor(node_scores, dtype=absolute.dtype, device=device)
+        elif _is_delta_topk_score(score_mode):
+            parent_latents = encode_boards(
+                model,
+                parent_boards,
+                context_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
+            )
+            score_values = delta_topk_raw_euclidean_distances(
+                leaf_latents,
+                parent_latents,
+                _expand_tokens_like(target_goal, leaf_latents),
+                mask_t,
+                top_k=_delta_topk_value(score_mode),
+            )
         elif _is_changed_cell_score(score_mode):
             score_values = torch.stack(
                 [changed_cell_raw_euclidean_distance(leaf_latents[i : i + 1], target_goal, action) for i, action in enumerate(actions)]
             ).reshape(-1)
         else:
             score_values = latent_distance(model, leaf_latents, predicted_goal, oracle_goal, mask_t, score_mode)
+        if _policy_prior_planning_weight(model) > 0.0:
+            parent_latents = encode_boards(
+                model,
+                parent_boards,
+                context_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
+            )
+            action_t = torch.as_tensor(
+                [[action.row, action.col, action.value] for action in actions],
+                dtype=torch.long,
+                device=device,
+            )
+            score_values = _apply_policy_prior_bias(
+                model,
+                score_values,
+                parent_latents,
+                target_goal,
+                context_latents.expand(parent_latents.shape[0], -1, -1),
+                mask_t,
+                action_t,
+            )
         scores = [float(x) for x in score_values.detach().cpu().tolist()]
         action_evals += len(leaves)
         candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = []
@@ -772,6 +1115,8 @@ def latent_distance(
     if metric == "projected_euclidean_distance":
         return projected_tokenwise_euclidean_distance(latent, target_goal, mask, model.distance_projector)
     if metric == "changed_cell_raw_euclidean_distance":
+        return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
+    if _is_delta_topk_score(score_mode):
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
     raise ValueError(f"Unknown score_mode: {score_mode}")
 
@@ -902,6 +1247,20 @@ def _is_changed_cell_score(score_mode: str) -> bool:
     return _score_metric_name(score_mode) == "changed_cell_raw_euclidean_distance"
 
 
+def _is_delta_topk_score(score_mode: str) -> bool:
+    metric = _score_metric_name(score_mode)
+    return metric.startswith("delta_top") and metric.endswith("_raw_euclidean_distance")
+
+
+def _delta_topk_value(score_mode: str) -> int:
+    metric = _score_metric_name(score_mode)
+    prefix = "delta_top"
+    suffix = "_raw_euclidean_distance"
+    if not metric.startswith(prefix) or not metric.endswith(suffix):
+        raise ValueError(f"Score mode {score_mode!r} is not a delta top-k score.")
+    return int(metric[len(prefix) : -len(suffix)])
+
+
 def _subgoal_score_mode(score_mode: str) -> str:
     metric = _score_metric_name(score_mode)
     if metric == "raw_euclidean_progress":
@@ -919,6 +1278,26 @@ def _progress_base_score_mode(score_mode: str) -> str | None:
 
 def _can_early_stop(score_mode: str) -> bool:
     return not _is_progress_score(score_mode)
+
+
+def _policy_prior_planning_weight(model: GridTokenGoalJEPA) -> float:
+    return float(getattr(model, "policy_prior_planning_weight", 0.0))
+
+
+def _apply_policy_prior_bias(
+    model: GridTokenGoalJEPA,
+    scores: torch.Tensor,
+    parent_latents: torch.Tensor,
+    target_goal: torch.Tensor,
+    context_latents: torch.Tensor,
+    active_mask: torch.Tensor,
+    actions: torch.Tensor,
+) -> torch.Tensor:
+    weight = _policy_prior_planning_weight(model)
+    if weight <= 0.0:
+        return scores
+    priors = model.score_action_prior(parent_latents, target_goal, context_latents, active_mask, actions)
+    return scores - weight * priors.to(dtype=scores.dtype)
 
 
 def raw_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -990,6 +1369,34 @@ def changed_cell_raw_euclidean_distances(a: torch.Tensor, b: torch.Tensor, actio
     return (a[batch, indices, :].float() - b[batch, indices, :].float()).square().sum(dim=-1).sqrt()
 
 
+def delta_topk_raw_euclidean_distances(
+    next_latents: torch.Tensor,
+    previous_latents: torch.Tensor,
+    goal_latents: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    top_k: int,
+) -> torch.Tensor:
+    if next_latents.shape != previous_latents.shape:
+        raise ValueError(
+            f"Delta top-k inputs must have matching next/previous shapes, got "
+            f"{tuple(next_latents.shape)} and {tuple(previous_latents.shape)}."
+        )
+    goal_latents = _expand_tokens_like(goal_latents, next_latents)
+    if goal_latents.shape != next_latents.shape:
+        raise ValueError(f"Goal latents must expand to {tuple(next_latents.shape)}, got {tuple(goal_latents.shape)}.")
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], -1)
+    if mask.shape != next_latents.shape[:-1]:
+        raise ValueError(f"Delta top-k mask must have shape {tuple(next_latents.shape[:-1])}, got {tuple(mask.shape)}.")
+    delta = (next_latents.float() - previous_latents.float()).square().sum(dim=-1)
+    delta = delta.masked_fill(~mask, float("-inf"))
+    k = min(max(1, int(top_k)), next_latents.shape[-2])
+    indices = delta.topk(k=k, dim=-1).indices
+    per_token = (next_latents.float() - goal_latents.float()).square().sum(dim=-1).sqrt()
+    return per_token.gather(dim=-1, index=indices).mean(dim=-1)
+
+
 @torch.no_grad()
 def _prepare_goal_latents(
     model: GridTokenGoalJEPA,
@@ -1000,13 +1407,46 @@ def _prepare_goal_latents(
     active_mask: np.ndarray,
     *,
     device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     context_t = torch.as_tensor(puzzle[None], dtype=torch.long, device=device)
     clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device)
     edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
     active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
     goal_t = torch.as_tensor(goal[None], dtype=torch.long, device=device)
     context_latents = model.encode_context(context_t, clue_t, edit_t, active_t)
-    predicted_goal = model.predict_goal(context_latents, active_t)
+    initial_latents = model.encode_state(context_t, context_latents, clue_t, edit_t, active_t)
+    predicted_goal = model.predict_goal(
+        context_latents,
+        active_t,
+        initial_latents=initial_latents if model.goal_conditioning == "initial_current" else None,
+        current_latents=initial_latents if model.goal_conditioning == "initial_current" else None,
+    )
     oracle_goal = model.encode_state(goal_t, context_latents, clue_t, edit_t, active_t)
-    return context_latents, predicted_goal, oracle_goal
+    return context_latents, predicted_goal, oracle_goal, initial_latents
+
+
+@torch.no_grad()
+def _predict_goal_for_board(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    context_latents: torch.Tensor,
+    initial_latents: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    device: torch.device,
+) -> torch.Tensor:
+    active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+    if model.goal_conditioning != "initial_current":
+        return model.predict_goal(context_latents, active_t)
+    board_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
+    clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device)
+    edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
+    current_latents = model.encode_state(board_t, context_latents, clue_t, edit_t, active_t)
+    return model.predict_goal(
+        context_latents,
+        active_t,
+        initial_latents=initial_latents,
+        current_latents=current_latents,
+    )

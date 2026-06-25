@@ -11,12 +11,14 @@ from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token
 from puzzle_jepa.planning.grid_goal_planner import (
     changed_cell_raw_euclidean_distance,
     changed_cell_raw_euclidean_distances,
+    delta_topk_raw_euclidean_distances,
     projected_tokenwise_euclidean_distance,
     raw_tokenwise_cosine_distance,
     raw_tokenwise_euclidean_distance,
     raw_tokenwise_squared_euclidean_distance,
     run_beam_mpc,
     run_categorical_cem_mpc,
+    run_hierarchical_beam_mpc,
     run_hierarchical_cem_mpc,
 )
 
@@ -108,6 +110,30 @@ def test_goal_predictor_depends_on_context_and_outputs_board_tokens():
     changed_goal = model.predict_goal(changed_context, batch.active_mask)
     assert predicted_goal.shape == (2, 81, 32)
     assert not torch.allclose(predicted_goal, changed_goal)
+
+
+def test_conditional_goal_predictor_depends_on_current_state_latent():
+    batch = _small_batch()
+    model = _small_model(goal_conditioning="initial_current")
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    initial = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    current = model.encode_state(batch.boards[:, 1], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    initial_goal = model.predict_goal(
+        context,
+        batch.active_mask,
+        initial_latents=initial,
+        current_latents=initial,
+    )
+    current_goal = model.predict_goal(
+        context,
+        batch.active_mask,
+        initial_latents=initial,
+        current_latents=current,
+    )
+
+    assert initial_goal.shape == (2, 81, 32)
+    assert not torch.allclose(initial_goal, current_goal)
 
 
 def test_markov_predictor_accepts_current_board_latent_and_one_action_token():
@@ -222,6 +248,7 @@ def test_forward_computes_all_requested_losses():
     assert output.predicted_next_latents.shape[2:] == (81, 32)
     assert output.progress_rank_loss.ndim == 0
     assert output.action_rank_loss.ndim == 0
+    assert output.policy_prior_loss.ndim == 0
     assert output.temporal_straightening_loss.ndim == 0
     assert output.terminal_corrupt_loss.ndim == 0
 
@@ -265,6 +292,21 @@ def test_hierarchy_uses_one_encoder_and_multiple_predictors():
     assert pred_level4.shape == state.shape
 
 
+def test_shared_hierarchy_predictor_uses_one_predictor_with_level_conditioning():
+    batch = _small_batch()
+    model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=1.0, shared_hierarchy_predictor=True)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    pred_level2 = model.predict_high_level(state, batch.actions[:, :2], context, level=2)
+    pred_level4 = model.predict_high_level(state, batch.actions[:, :4], context, level=4)
+
+    assert sorted(model.high_level_predictors.keys()) == []
+    assert model.shared_high_level_predictor is not None
+    assert pred_level2.shape == state.shape
+    assert pred_level4.shape == state.shape
+
+
 def test_hierarchy_loss_runs_with_multiple_predictors():
     batch = _small_batch()
     model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=1.0)
@@ -282,6 +324,89 @@ def test_hierarchy_loss_runs_with_multiple_predictors():
 
     assert torch.isfinite(output.loss)
     assert output.hierarchy_loss.item() > 0.0
+
+
+def test_forward_runs_with_conditional_goal_and_listwise_oracle_ranking():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_conditioning="initial_current",
+        progress_rank_target="both",
+        action_rank_mode="listwise",
+        action_rank_target="both",
+        listwise_action_rank_max_actions=32,
+    )
+    positive = batch.actions[:, 0]
+    negative = positive.clone()
+    negative[:, 2] = (negative[:, 2] % 9) + 1
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+        action_rank_states=batch.boards[:, 0],
+        positive_actions=positive,
+        negative_actions=negative,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.predicted_goal_latents.shape == (1, 81, 32)
+    assert output.action_rank_loss.item() >= 0.0
+
+
+def test_policy_prior_scores_primitive_and_macro_actions():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(hierarchy_levels=(2,), hierarchy_loss_weight=1.0, policy_prior_weight=1.0)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    goal = model.predict_goal(context, batch.active_mask)
+    primitive_actions = torch.stack([batch.actions[:, 0], batch.actions[:, 1]], dim=1)
+    macro_actions = batch.actions[:, :2].unsqueeze(1)
+
+    primitive_logits = model.score_action_prior(state, goal, context, batch.active_mask, primitive_actions)
+    macro_logits = model.score_macro_action_prior(state, goal, context, batch.active_mask, macro_actions, level=2)
+
+    assert primitive_logits.shape == (1, 2)
+    assert macro_logits.shape == (1, 1)
+    assert torch.isfinite(primitive_logits).all()
+    assert torch.isfinite(macro_logits).all()
+
+
+def test_forward_runs_with_policy_prior_loss_on_hierarchy_macro_actions():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        hierarchy_levels=(2,),
+        hierarchy_loss_weight=1.0,
+        policy_prior_weight=1.0,
+        policy_prior_mode="listwise",
+        listwise_action_rank_max_actions=32,
+    )
+    positive = batch.actions[:, 0]
+    negative = positive.clone()
+    negative[:, 2] = (negative[:, 2] % 9) + 1
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+        action_rank_states=batch.boards[:, 0],
+        positive_actions=positive,
+        negative_actions=negative,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.policy_prior_loss.item() > 0.0
 
 
 def test_mean_pooled_distance_mode_runs():
@@ -528,6 +653,31 @@ def test_hierarchical_cem_mpc_handles_subgoal_horizon_longer_than_remaining_blan
     assert result.action_evals > 0
 
 
+def test_hierarchical_beam_mpc_runs_high_level_subgoal_then_low_level_beam():
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=1.0)
+
+    result = run_hierarchical_beam_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_goal_distance",
+        transition_mode="latent_rollout",
+        beam_width=2,
+        beam_depth=4,
+        max_steps=1,
+        device=torch.device("cpu"),
+    )
+
+    assert result.steps <= 1
+    assert result.beam_depth == 4
+    assert result.action_evals > 0
+
+
 def test_progress_metric_does_not_trigger_zero_distance_early_stop():
     example = _example()
     state = example.goal.copy()
@@ -584,6 +734,19 @@ def test_batched_changed_cell_distance_matches_single_item_distance():
 
     assert batched.tolist() == pytest.approx([5.0, 13.0])
     assert batched[0].item() == pytest.approx(changed_cell_raw_euclidean_distance(a[:1], b[:1], actions[0]).item())
+
+
+def test_delta_topk_distance_scores_largest_predicted_changes():
+    previous = torch.zeros((1, 3, 2))
+    next_latents = torch.tensor([[[0.1, 0.0], [5.0, 0.0], [0.2, 0.0]]])
+    goal = torch.tensor([[[10.0, 0.0], [6.0, 0.0], [10.0, 0.0]]])
+    mask = torch.ones((1, 3), dtype=torch.bool)
+
+    top1 = delta_topk_raw_euclidean_distances(next_latents, previous, goal, mask, top_k=1)
+    top2 = delta_topk_raw_euclidean_distances(next_latents, previous, goal, mask, top_k=2)
+
+    assert top1.item() == pytest.approx(1.0)
+    assert top2.item() == pytest.approx((1.0 + 9.8) / 2.0)
 
 
 def test_invalid_distance_mode_is_rejected():

@@ -12,7 +12,12 @@ from puzzle_jepa.data.hf_puzzles import HFPuzzleColumns, iter_hf_examples
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld
 from puzzle_jepa.eval.grid_goal_diagnostics import run_grid_goal_diagnostics
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
-from puzzle_jepa.planning.grid_goal_planner import run_beam_mpc, run_categorical_cem_mpc, run_hierarchical_cem_mpc
+from puzzle_jepa.planning.grid_goal_planner import (
+    run_beam_mpc,
+    run_categorical_cem_mpc,
+    run_hierarchical_beam_mpc,
+    run_hierarchical_cem_mpc,
+)
 
 
 BEAM_DEPTHS = (8, 16, 32, 64)
@@ -136,6 +141,18 @@ def run_planner_matrix(
                                         high_cem_momentum=high_cem_momentum,
                                         high_cem_std=high_cem_std,
                                         seed=example_index,
+                                    )
+                                elif planner == "hierarchical_beam":
+                                    result = run_hierarchical_beam_mpc(
+                                        model,
+                                        example.state,
+                                        example.goal,
+                                        score_mode=score,  # type: ignore[arg-type]
+                                        transition_mode=transition,  # type: ignore[arg-type]
+                                        beam_width=beam_width,
+                                        beam_depth=beam_depth,
+                                        max_steps=max_steps,
+                                        device=device,
                                     )
                                 else:
                                     raise ValueError(f"Unknown planner {planner!r}.")

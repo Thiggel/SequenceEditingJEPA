@@ -10,7 +10,7 @@ import torch
 from puzzle_jepa.data.grid_goal_sudoku import apply_fill_action, corrupt_terminal, legal_fill_actions
 from puzzle_jepa.data.worlds import PuzzleExample, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
-from puzzle_jepa.planning.grid_goal_planner import _prepare_goal_latents, score_board
+from puzzle_jepa.planning.grid_goal_planner import _predict_goal_for_board, _prepare_goal_latents, score_board
 
 
 @torch.no_grad()
@@ -56,8 +56,18 @@ def _latents_for_board(model: GridTokenGoalJEPA, example: PuzzleExample, board: 
     clue_mask = example.state != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
-    context, predicted_goal, oracle_goal = _prepare_goal_latents(
+    context, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
         model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+    )
+    predicted_goal = _predict_goal_for_board(
+        model,
+        board,
+        context,
+        initial_latents,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        device=device,
     )
     _, board_latent = score_board(
         model,
@@ -104,13 +114,19 @@ def _trajectory_distance_metrics(model: GridTokenGoalJEPA, examples: list[Puzzle
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        context, predicted_goal, oracle_goal = _prepare_goal_latents(
+        context, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+        )
+        predicted_goal = _predict_goal_for_board(
+            model, board, context, initial_latents, clue_mask, editable_mask, active_mask, device=device
         )
         prev_oracle, _ = score_board(model, board, context, predicted_goal, oracle_goal, clue_mask, editable_mask, active_mask, score_mode="oracle_goal_distance", device=device)
         prev_pred, _ = score_board(model, board, context, predicted_goal, oracle_goal, clue_mask, editable_mask, active_mask, score_mode="predicted_goal_distance", device=device)
         for row, col in np.argwhere(board == 0):
             board = apply_fill_action(board, WorldAction(int(row), int(col), int(example.goal[row, col])), allow_conflicts=True)
+            predicted_goal = _predict_goal_for_board(
+                model, board, context, initial_latents, clue_mask, editable_mask, active_mask, device=device
+            )
             cur_oracle, _ = score_board(model, board, context, predicted_goal, oracle_goal, clue_mask, editable_mask, active_mask, score_mode="oracle_goal_distance", device=device)
             cur_pred, _ = score_board(model, board, context, predicted_goal, oracle_goal, clue_mask, editable_mask, active_mask, score_mode="predicted_goal_distance", device=device)
             oracle_drops.append(prev_oracle - cur_oracle)
@@ -143,8 +159,18 @@ def _action_rank_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExample]
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        context, predicted_goal, oracle_goal = _prepare_goal_latents(
+        context, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+        )
+        predicted_goal = _predict_goal_for_board(
+            model,
+            board,
+            context,
+            initial_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
         )
         rows = []
         for action in actions:
@@ -192,8 +218,18 @@ def _latent_rollout_action_rank_metrics(
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        context, predicted_goal, oracle_goal = _prepare_goal_latents(
+        context, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+        )
+        predicted_goal = _predict_goal_for_board(
+            model,
+            board,
+            context,
+            initial_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
         )
         _, current_latent = score_board(
             model,
@@ -250,7 +286,7 @@ def _rollout_drift_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExampl
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        context, predicted_goal, oracle_goal = _prepare_goal_latents(
+        context, predicted_goal, oracle_goal, _ = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
         )
         del predicted_goal, oracle_goal
@@ -282,7 +318,7 @@ def _goal_alignment_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExamp
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        _, predicted_goal, oracle_goal = _prepare_goal_latents(
+        _, predicted_goal, oracle_goal, _ = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
         )
         mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
@@ -310,10 +346,20 @@ def _distance_hamming_spearman_metrics(
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        context, predicted_goal, oracle_goal = _prepare_goal_latents(
+        context, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
         )
         for row, col in np.argwhere(board == 0):
+            predicted_goal = _predict_goal_for_board(
+                model,
+                board,
+                context,
+                initial_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
+            )
             hamming = float(np.not_equal(board, example.goal).sum())
             oracle_d, _ = score_board(model, board, context, predicted_goal, oracle_goal, clue_mask, editable_mask, active_mask, score_mode="oracle_goal_distance", device=device)
             pred_d, _ = score_board(model, board, context, predicted_goal, oracle_goal, clue_mask, editable_mask, active_mask, score_mode="predicted_goal_distance", device=device)
@@ -345,8 +391,18 @@ def _action_margin_by_depth_metrics(
             clue_mask = example.state != 0
             editable_mask = ~clue_mask
             active_mask = np.ones((9, 9), dtype=bool)
-            context, predicted_goal, oracle_goal = _prepare_goal_latents(
+            context, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
                 model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+            )
+            predicted_goal = _predict_goal_for_board(
+                model,
+                board,
+                context,
+                initial_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
             )
             pos = []
             neg = []
@@ -384,7 +440,7 @@ def _terminal_corruption_metrics(model: GridTokenGoalJEPA, examples: list[Puzzle
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        context, predicted_goal, oracle_goal = _prepare_goal_latents(
+        context, predicted_goal, oracle_goal, _ = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
         )
         good, _ = score_board(model, example.goal, context, predicted_goal, oracle_goal, clue_mask, editable_mask, active_mask, score_mode="predicted_goal_distance", device=device)
@@ -457,10 +513,20 @@ def _action_panels(
         clue_mask = example.state != 0
         editable_mask = ~clue_mask
         active_mask = np.ones((9, 9), dtype=bool)
-        context, predicted_goal, oracle_goal = _prepare_goal_latents(
+        context, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
             model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
         )
         for step in range(panel_steps):
+            predicted_goal = _predict_goal_for_board(
+                model,
+                board,
+                context,
+                initial_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
+            )
             actions = legal_fill_actions(board, allow_conflicts=True)
             if not actions:
                 break

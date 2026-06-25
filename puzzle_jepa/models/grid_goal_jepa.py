@@ -23,6 +23,7 @@ class GridGoalJEPAOutput:
     goal_nce_loss: torch.Tensor
     progress_rank_loss: torch.Tensor
     action_rank_loss: torch.Tensor
+    policy_prior_loss: torch.Tensor
     temporal_straightening_loss: torch.Tensor
     terminal_corrupt_loss: torch.Tensor
     state_latents: torch.Tensor
@@ -240,7 +241,17 @@ class GridTokenGoalJEPA(nn.Module):
         rollout_detach_interval: int = 0,
         hierarchy_levels: tuple[int, ...] = (),
         hierarchy_loss_weight: float = 0.0,
+        hierarchy_dense_future_weight: float = 0.0,
         macro_action_encoder_layers: int = 1,
+        shared_hierarchy_predictor: bool = False,
+        goal_conditioning: str = "context",
+        progress_rank_target: str = "predicted",
+        action_rank_mode: str = "pairwise",
+        action_rank_target: str = "predicted",
+        listwise_action_rank_max_actions: int = 729,
+        policy_prior_weight: float = 0.0,
+        policy_prior_mode: str = "pairwise",
+        policy_prior_planning_weight: float = 0.0,
         distance_mode: str = "tokenwise",
         action_conditioning: str = "action_token",
         predict_delta: bool = False,
@@ -273,10 +284,12 @@ class GridTokenGoalJEPA(nn.Module):
         self.predictor_out = nn.Linear(d_model, d_model)
         self.hierarchy_levels = tuple(sorted({int(level) for level in hierarchy_levels if int(level) > 1}))
         self.hierarchy_loss_weight = float(hierarchy_loss_weight)
+        self.hierarchy_dense_future_weight = float(hierarchy_dense_future_weight)
         self.dense_future_weight = float(dense_future_weight)
         self.rollout_detach_interval = int(rollout_detach_interval)
         if self.rollout_detach_interval < 0:
             raise ValueError("rollout_detach_interval must be non-negative.")
+        self.shared_hierarchy_predictor = bool(shared_hierarchy_predictor)
         if self.hierarchy_levels:
             max_level = max(self.hierarchy_levels)
             self.macro_action_encoder = MacroActionEncoder(
@@ -287,28 +300,78 @@ class GridTokenGoalJEPA(nn.Module):
                 mlp_ratio=mlp_ratio,
                 dropout=dropout,
             )
-            self.high_level_predictors = nn.ModuleDict(
-                {
-                    str(level): BidirectionalTransformer(
-                        num_layers=predictor_layers,
-                        d_model=d_model,
-                        num_heads=num_heads,
-                        mlp_ratio=mlp_ratio,
-                        dropout=dropout,
-                    )
-                    for level in self.hierarchy_levels
-                }
-            )
-            self.high_level_predictor_out = nn.ModuleDict(
-                {str(level): nn.Linear(d_model, d_model) for level in self.hierarchy_levels}
-            )
+            if self.shared_hierarchy_predictor:
+                self.hierarchy_level_embed = nn.Embedding(max_level + 1, d_model)
+                self.shared_high_level_predictor = BidirectionalTransformer(
+                    num_layers=predictor_layers,
+                    d_model=d_model,
+                    num_heads=num_heads,
+                    mlp_ratio=mlp_ratio,
+                    dropout=dropout,
+                )
+                self.shared_high_level_predictor_out = nn.Linear(d_model, d_model)
+                self.high_level_predictors = nn.ModuleDict()
+                self.high_level_predictor_out = nn.ModuleDict()
+            else:
+                self.hierarchy_level_embed = None
+                self.shared_high_level_predictor = None
+                self.shared_high_level_predictor_out = None
+                self.high_level_predictors = nn.ModuleDict(
+                    {
+                        str(level): BidirectionalTransformer(
+                            num_layers=predictor_layers,
+                            d_model=d_model,
+                            num_heads=num_heads,
+                            mlp_ratio=mlp_ratio,
+                            dropout=dropout,
+                        )
+                        for level in self.hierarchy_levels
+                    }
+                )
+                self.high_level_predictor_out = nn.ModuleDict(
+                    {str(level): nn.Linear(d_model, d_model) for level in self.hierarchy_levels}
+                )
         else:
             self.macro_action_encoder = None
+            self.hierarchy_level_embed = None
+            self.shared_high_level_predictor = None
+            self.shared_high_level_predictor_out = None
             self.high_level_predictors = nn.ModuleDict()
             self.high_level_predictor_out = nn.ModuleDict()
+        allowed_goal_conditioning = {"context", "initial_current"}
+        if goal_conditioning not in allowed_goal_conditioning:
+            raise ValueError(f"goal_conditioning must be one of {sorted(allowed_goal_conditioning)}.")
+        self.goal_conditioning = str(goal_conditioning)
+        if self.goal_conditioning == "initial_current":
+            self.goal_state_role = nn.Embedding(2, d_model)
+        else:
+            self.goal_state_role = None
         self.goal_decoder = BidirectionalTransformer(
             num_layers=goal_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
         )
+        allowed_progress_targets = {"predicted", "oracle", "both", "none"}
+        if progress_rank_target not in allowed_progress_targets:
+            raise ValueError(f"progress_rank_target must be one of {sorted(allowed_progress_targets)}.")
+        allowed_action_rank_modes = {"pairwise", "listwise", "none"}
+        if action_rank_mode not in allowed_action_rank_modes:
+            raise ValueError(f"action_rank_mode must be one of {sorted(allowed_action_rank_modes)}.")
+        allowed_policy_prior_modes = {"pairwise", "listwise", "none"}
+        if policy_prior_mode not in allowed_policy_prior_modes:
+            raise ValueError(f"policy_prior_mode must be one of {sorted(allowed_policy_prior_modes)}.")
+        allowed_action_rank_targets = {"predicted", "oracle", "both"}
+        if action_rank_target not in allowed_action_rank_targets:
+            raise ValueError(f"action_rank_target must be one of {sorted(allowed_action_rank_targets)}.")
+        self.progress_rank_target = str(progress_rank_target)
+        self.action_rank_mode = str(action_rank_mode)
+        self.action_rank_target = str(action_rank_target)
+        self.listwise_action_rank_max_actions = int(listwise_action_rank_max_actions)
+        if self.listwise_action_rank_max_actions <= 0:
+            raise ValueError("listwise_action_rank_max_actions must be positive.")
+        self.policy_prior_weight = float(policy_prior_weight)
+        self.policy_prior_mode = str(policy_prior_mode)
+        self.policy_prior_planning_weight = float(policy_prior_planning_weight)
+        self.policy_query = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model), nn.SiLU(), nn.Linear(d_model, d_model))
+        self.policy_action = nn.Linear(d_model, d_model, bias=False)
         self.distance_projector = nn.Linear(d_model, distance_dim)
         self.sigreg_weight = float(sigreg_weight)
         self.goal_nce_weight = float(goal_nce_weight)
@@ -441,14 +504,29 @@ class GridTokenGoalJEPA(nn.Module):
         level: int,
     ) -> torch.Tensor:
         key = str(int(level))
-        if key not in self.high_level_predictors:
+        if self.shared_hierarchy_predictor:
+            if self.shared_high_level_predictor is None or self.shared_high_level_predictor_out is None or self.hierarchy_level_embed is None:
+                raise RuntimeError("Shared hierarchy predictor was not initialized.")
+        elif key not in self.high_level_predictors:
             raise ValueError(f"No high-level predictor configured for level {level}.")
         if macro_action.ndim != 2 or macro_action.shape[-1] != self.d_model:
             raise ValueError(f"Macro action must have shape [batch, {self.d_model}], got {tuple(macro_action.shape)}.")
+        if self.shared_hierarchy_predictor:
+            level_ids = torch.full(
+                (macro_action.shape[0],),
+                min(max(0, int(level)), self.hierarchy_level_embed.num_embeddings - 1),
+                dtype=torch.long,
+                device=macro_action.device,
+            )
+            macro_action = macro_action + self.hierarchy_level_embed(level_ids).to(dtype=macro_action.dtype)
         action_token = macro_action.unsqueeze(-2)
         y = torch.cat([action_token, state_latent], dim=-2)
-        y = self.high_level_predictors[key](y, context_latents)
-        predicted = self.high_level_predictor_out[key](y[..., 1:, :])
+        if self.shared_hierarchy_predictor:
+            y = self.shared_high_level_predictor(y, context_latents)
+            predicted = self.shared_high_level_predictor_out(y[..., 1:, :])
+        else:
+            y = self.high_level_predictors[key](y, context_latents)
+            predicted = self.high_level_predictor_out[key](y[..., 1:, :])
         if self.predict_delta:
             predicted = state_latent + predicted
         return predicted
@@ -461,9 +539,37 @@ class GridTokenGoalJEPA(nn.Module):
         _ema_update(self.target_embedder, self.embedder, decay)
         _ema_update(self.target_state_encoder, self.state_encoder, decay)
 
-    def predict_goal(self, context_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+    def predict_goal(
+        self,
+        context_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        *,
+        initial_latents: torch.Tensor | None = None,
+        current_latents: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         queries = self.embedder.query_tokens(active_mask)
-        return self.goal_decoder(queries, context_latents)
+        memory = context_latents
+        if self.goal_conditioning == "initial_current":
+            if initial_latents is None or current_latents is None:
+                raise ValueError("goal_conditioning='initial_current' requires initial_latents and current_latents.")
+            if initial_latents.shape != current_latents.shape:
+                raise ValueError(
+                    f"initial_latents and current_latents must have matching shapes, got "
+                    f"{tuple(initial_latents.shape)} and {tuple(current_latents.shape)}."
+                )
+            if initial_latents.shape != context_latents.shape:
+                raise ValueError(
+                    f"Goal state latents must match context token shape {tuple(context_latents.shape)}, "
+                    f"got {tuple(initial_latents.shape)}."
+                )
+            if self.goal_state_role is None:
+                raise RuntimeError("Conditional goal role embeddings were not initialized.")
+            role_ids = torch.arange(2, device=context_latents.device)
+            role = self.goal_state_role(role_ids).to(dtype=context_latents.dtype)
+            initial = initial_latents + role[0].view(1, 1, -1)
+            current = current_latents + role[1].view(1, 1, -1)
+            memory = torch.cat([context_latents, initial, current], dim=-2)
+        return self.goal_decoder(queries, memory)
 
     def distance(self, state_latents: torch.Tensor, goal_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
         if active_mask.ndim == 3:
@@ -475,6 +581,76 @@ class GridTokenGoalJEPA(nn.Module):
             goal_latents = _masked_summary(goal_latents, mask).unsqueeze(1)
             mask = torch.ones((state_latents.shape[0], 1), dtype=torch.bool, device=state_latents.device)
         return tokenwise_distance(state_latents, goal_latents, mask, self.distance_projector)
+
+    def score_action_prior(
+        self,
+        state_latents: torch.Tensor,
+        goal_latents: torch.Tensor,
+        context_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> torch.Tensor:
+        if active_mask.ndim == 3:
+            mask = active_mask.reshape(active_mask.shape[0], -1)
+        else:
+            mask = active_mask
+        squeeze = False
+        if actions.ndim == 2:
+            actions = actions[:, None, :]
+            squeeze = True
+        if actions.ndim != 3 or actions.shape[-1] != 3:
+            raise ValueError(f"Action prior expects actions [batch, actions, 3], got {tuple(actions.shape)}.")
+        goal_latents = _expand_batch_tokens(goal_latents, state_latents)
+        context_latents = _expand_batch_tokens(context_latents, state_latents)
+        summary = (
+            _masked_summary(state_latents, mask)
+            + _masked_summary(goal_latents, mask)
+            + context_latents.mean(dim=1)
+        )
+        query = F.normalize(self.policy_query(summary), dim=-1, eps=1.0e-6)
+        batch, action_count = actions.shape[:2]
+        action_tokens = self.action_token(actions.reshape(batch * action_count, 3)).reshape(batch, action_count, self.d_model)
+        action_tokens = F.normalize(self.policy_action(action_tokens), dim=-1, eps=1.0e-6)
+        logits = (action_tokens * query[:, None]).sum(dim=-1) * (self.d_model**0.5)
+        return logits[:, 0] if squeeze else logits
+
+    def score_macro_action_prior(
+        self,
+        state_latents: torch.Tensor,
+        goal_latents: torch.Tensor,
+        context_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        macro_actions: torch.Tensor,
+        *,
+        level: int,
+    ) -> torch.Tensor:
+        if macro_actions.ndim == 3:
+            macro_actions = macro_actions[:, None]
+            squeeze = True
+        else:
+            squeeze = False
+        if macro_actions.ndim != 4 or macro_actions.shape[-1] != 3:
+            raise ValueError(f"Macro action prior expects [batch, actions, level, 3], got {tuple(macro_actions.shape)}.")
+        batch, action_count, steps = macro_actions.shape[:3]
+        if steps != int(level):
+            raise ValueError(f"Macro action length {steps} does not match level {level}.")
+        if active_mask.ndim == 3:
+            mask = active_mask.reshape(active_mask.shape[0], -1)
+        else:
+            mask = active_mask
+        goal_latents = _expand_batch_tokens(goal_latents, state_latents)
+        context_latents = _expand_batch_tokens(context_latents, state_latents)
+        summary = (
+            _masked_summary(state_latents, mask)
+            + _masked_summary(goal_latents, mask)
+            + context_latents.mean(dim=1)
+        )
+        query = F.normalize(self.policy_query(summary), dim=-1, eps=1.0e-6)
+        flat_actions = macro_actions.reshape(batch * action_count, steps, 3)
+        macro_tokens = self.encode_macro_action(flat_actions).reshape(batch, action_count, self.d_model)
+        macro_tokens = F.normalize(self.policy_action(macro_tokens), dim=-1, eps=1.0e-6)
+        logits = (macro_tokens * query[:, None]).sum(dim=-1) * (self.d_model**0.5)
+        return logits[:, 0] if squeeze else logits
 
     def forward(
         self,
@@ -512,7 +688,21 @@ class GridTokenGoalJEPA(nn.Module):
                 batch, frames, token_count, self.d_model
             )
             goal_target = self.encode_state_target(goals, context_latents, clue_mask, editable_mask, active_mask)
-        predicted_goal = self.predict_goal(context_latents, active_mask)
+        active_flat = active_mask.reshape(batch, token_count)
+        if self.goal_conditioning == "initial_current":
+            initial_for_goal = state_latents[:, :1].expand(batch, frames, token_count, self.d_model).reshape(
+                batch * frames, token_count, self.d_model
+            )
+            predicted_goal_sequence = self.predict_goal(
+                flat_context,
+                flat_active,
+                initial_latents=initial_for_goal,
+                current_latents=state_latents.reshape(batch * frames, token_count, self.d_model),
+            ).reshape(batch, frames, token_count, self.d_model)
+            predicted_goal = predicted_goal_sequence[:, 0]
+        else:
+            predicted_goal = self.predict_goal(context_latents, active_mask)
+            predicted_goal_sequence = predicted_goal[:, None].expand(batch, frames, token_count, self.d_model)
 
         transition_mask = masks[:, :-1] & masks[:, 1:]
         dynamics_terms = []
@@ -586,6 +776,7 @@ class GridTokenGoalJEPA(nn.Module):
             dense_future_loss = state_latents.sum() * 0.0
 
         hierarchy_terms = []
+        hierarchy_dense_terms = []
         for level in self.hierarchy_levels:
             if frames <= level:
                 continue
@@ -613,30 +804,79 @@ class GridTokenGoalJEPA(nn.Module):
                 horizon=level,
             )
             hierarchy_terms.append(_masked_mean(error, valid) / (level**0.5))
+            if self.hierarchy_dense_future_weight > 0.0 and self.multi_step_horizons:
+                max_dense_horizon = max(self.multi_step_horizons)
+                for dense_horizon in range(2 * level, max_dense_horizon + 1, level):
+                    if frames <= dense_horizon:
+                        continue
+                    dense_start_count = frames - dense_horizon
+                    rollout = state_latents[:, :dense_start_count].reshape(
+                        batch * dense_start_count, token_count, self.d_model
+                    )
+                    dense_ctx = context_latents[:, None].expand(
+                        batch, dense_start_count, token_count, self.d_model
+                    ).reshape(-1, token_count, self.d_model)
+                    for chunk_start in range(0, dense_horizon, level):
+                        dense_chunks = []
+                        for offset in range(level):
+                            dense_chunks.append(actions[:, chunk_start + offset : chunk_start + offset + dense_start_count])
+                        dense_actions = torch.stack(dense_chunks, dim=2).reshape(batch * dense_start_count, level, 3)
+                        rollout = self.predict_high_level(rollout, dense_actions, dense_ctx, level=level)
+                    dense_target = target_state_latents[:, dense_horizon : dense_horizon + dense_start_count]
+                    dense_valid = masks[:, :dense_start_count] & masks[:, dense_horizon : dense_horizon + dense_start_count]
+                    dense_rollout_actions = actions[:, : dense_horizon + dense_start_count - 1]
+                    dense_error = self._dynamics_error(
+                        rollout.reshape(batch, dense_start_count, token_count, self.d_model),
+                        dense_target,
+                        dense_rollout_actions,
+                        rows=rows,
+                        cols=cols,
+                        horizon=dense_horizon,
+                    )
+                    hierarchy_dense_terms.append(_masked_mean(dense_error, dense_valid) / (dense_horizon**0.5))
         if hierarchy_terms:
             hierarchy_loss = torch.stack(hierarchy_terms).sum()
         else:
             hierarchy_loss = state_latents.sum() * 0.0
+        if hierarchy_dense_terms:
+            hierarchy_loss = hierarchy_loss + self.hierarchy_dense_future_weight * torch.stack(hierarchy_dense_terms).mean()
 
-        active_flat = active_mask.reshape(batch, token_count)
-        goal_mse_loss = ((predicted_goal - goal_target.detach()).square().mean(dim=-1) * active_flat.float()).sum() / active_flat.float().sum().clamp_min(1.0)
-        pred_summary = _masked_summary(predicted_goal, active_flat)
+        goal_target_sequence = goal_target[:, None].expand(batch, frames, token_count, self.d_model)
+        goal_token_error = (predicted_goal_sequence - goal_target_sequence.detach()).square().mean(dim=-1)
+        goal_token_weights = active_flat[:, None].expand(batch, frames, token_count) & masks[:, :, None]
+        goal_mse_loss = _masked_mean(goal_token_error, goal_token_weights)
+        pred_summary = _masked_summary(
+            predicted_goal_sequence.reshape(batch * frames, token_count, self.d_model),
+            active_flat[:, None].expand(batch, frames, token_count).reshape(batch * frames, token_count),
+        ).reshape(batch, frames, self.d_model)
         target_summary = _masked_summary(goal_target.detach(), active_flat)
-        logits = F.normalize(pred_summary, dim=-1) @ F.normalize(target_summary, dim=-1).T / 0.1
-        goal_nce_loss = F.cross_entropy(logits, torch.arange(batch, device=boards.device))
+        valid_summary = masks.reshape(batch * frames)
+        if bool(valid_summary.any()):
+            logits = (
+                F.normalize(pred_summary.reshape(batch * frames, self.d_model)[valid_summary], dim=-1)
+                @ F.normalize(target_summary, dim=-1).T
+                / 0.1
+            )
+            labels = torch.arange(batch, device=boards.device)[:, None].expand(batch, frames).reshape(batch * frames)[valid_summary]
+            goal_nce_loss = F.cross_entropy(logits, labels)
+        else:
+            goal_nce_loss = state_latents.sum() * 0.0
 
-        distances = self.distance(
+        predicted_distances = self.distance(
             state_latents.reshape(batch * frames, token_count, self.d_model),
-            predicted_goal[:, None].expand(batch, frames, token_count, self.d_model).reshape(
+            predicted_goal_sequence.reshape(batch * frames, token_count, self.d_model),
+            active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols),
+        ).reshape(batch, frames)
+        oracle_distances = self.distance(
+            state_latents.reshape(batch * frames, token_count, self.d_model),
+            goal_target[:, None].expand(batch, frames, token_count, self.d_model).reshape(
                 batch * frames, token_count, self.d_model
             ),
             active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols),
         ).reshape(batch, frames)
         oracle_rows = torch.zeros_like(masks[:, 0], dtype=torch.bool) if oracle_mask is None else oracle_mask
         progress_masks = masks & oracle_rows[:, None]
-        progress_rank_loss = _progress_rank_loss(
-            distances, progress_masks, margin=self.progress_margin, temperature=self.rank_temperature
-        )
+        progress_rank_loss = self._progress_rank_objective(predicted_distances, oracle_distances, progress_masks)
         temporal_straightening_loss = _temporal_straightening_loss(
             state_latents,
             predicted_goal,
@@ -645,19 +885,85 @@ class GridTokenGoalJEPA(nn.Module):
         )
 
         action_rank_loss = state_latents.sum() * 0.0
-        if negative_actions is not None:
+        policy_prior_loss = state_latents.sum() * 0.0
+        policy_prior_terms = []
+        needs_rank_state = (
+            (self.action_rank_mode != "none" and negative_actions is not None)
+            or (self.policy_prior_weight > 0.0 and self.policy_prior_mode != "none")
+        )
+        if needs_rank_state:
             rank_states = boards[:, 0] if action_rank_states is None else action_rank_states
+            rank_state_latents = self.encode_state(rank_states, context_latents, clue_mask, editable_mask, active_mask)
+            rank_goal = self._goal_for_current_state(context_latents, active_mask, state_latents[:, 0], rank_state_latents)
             if positive_actions is None:
                 positive_actions = actions[:, 0]
-            else:
-                positive_actions = positive_actions
-            pos_boards = _apply_set_cell_actions(rank_states, positive_actions)
-            neg_boards = _apply_set_cell_actions(rank_states, negative_actions)
-            pos_latents = self.encode_state(pos_boards, context_latents, clue_mask, editable_mask, active_mask)
-            neg_latents = self.encode_state(neg_boards, context_latents, clue_mask, editable_mask, active_mask)
-            pos_d = self.distance(pos_latents, predicted_goal, active_mask)
-            neg_d = self.distance(neg_latents, predicted_goal, active_mask)
-            action_rank_loss = F.softplus((pos_d - neg_d + self.rank_margin) / self.rank_temperature).mean()
+            if self.action_rank_mode != "none" and negative_actions is not None:
+                if self.action_rank_mode == "listwise":
+                    action_rank_loss = self._listwise_action_rank_loss(
+                        rank_states,
+                        positive_actions,
+                        context_latents,
+                        clue_mask,
+                        editable_mask,
+                        active_mask,
+                        rank_goal,
+                        goal_target,
+                    )
+                else:
+                    pos_boards = _apply_set_cell_actions(rank_states, positive_actions)
+                    neg_boards = _apply_set_cell_actions(rank_states, negative_actions)
+                    pos_latents = self.encode_state(pos_boards, context_latents, clue_mask, editable_mask, active_mask)
+                    neg_latents = self.encode_state(neg_boards, context_latents, clue_mask, editable_mask, active_mask)
+                    pos_d = self._rank_target_distance(pos_latents, rank_goal, goal_target, active_mask)
+                    neg_d = self._rank_target_distance(neg_latents, rank_goal, goal_target, active_mask)
+                    action_rank_loss = F.softplus((pos_d - neg_d + self.rank_margin) / self.rank_temperature).mean()
+            if self.policy_prior_weight > 0.0 and self.policy_prior_mode != "none":
+                if self.policy_prior_mode == "listwise":
+                    policy_prior_terms.append(
+                        self._listwise_policy_prior_loss(
+                            rank_states,
+                            positive_actions,
+                            rank_state_latents,
+                            rank_goal,
+                            context_latents,
+                            active_mask,
+                        )
+                    )
+                elif negative_actions is not None:
+                    pair_actions = torch.stack([positive_actions, negative_actions], dim=1)
+                    logits = self.score_action_prior(
+                        rank_state_latents,
+                        rank_goal,
+                        context_latents,
+                        active_mask,
+                        pair_actions,
+                    )
+                    labels = torch.zeros(logits.shape[0], dtype=torch.long, device=logits.device)
+                    policy_prior_terms.append(F.cross_entropy(logits / self.rank_temperature, labels))
+        if self.policy_prior_weight > 0.0 and self.policy_prior_mode != "none" and self.hierarchy_levels:
+            for level in self.hierarchy_levels:
+                if frames <= level:
+                    continue
+                valid = masks[:, : level + 1].all(dim=1) & oracle_rows
+                if not bool(valid.any()):
+                    continue
+                positive_macro = actions[:, :level]
+                negative_macro = positive_macro.clone()
+                negative_macro[:, -1, 2] = (negative_macro[:, -1, 2] % 9) + 1
+                macro_actions = torch.stack([positive_macro, negative_macro], dim=1)
+                logits = self.score_macro_action_prior(
+                    state_latents[:, 0],
+                    predicted_goal,
+                    context_latents,
+                    active_mask,
+                    macro_actions,
+                    level=level,
+                )
+                labels = torch.zeros(logits.shape[0], dtype=torch.long, device=logits.device)
+                macro_loss = F.cross_entropy(logits[valid] / self.rank_temperature, labels[valid])
+                policy_prior_terms.append(macro_loss)
+        if policy_prior_terms:
+            policy_prior_loss = torch.stack(policy_prior_terms).mean()
 
         terminal_corrupt_loss = state_latents.sum() * 0.0
         if corrupt_goals is not None:
@@ -676,6 +982,7 @@ class GridTokenGoalJEPA(nn.Module):
             + self.goal_nce_weight * goal_nce_loss
             + self.progress_rank_weight * progress_rank_loss
             + self.action_rank_weight * action_rank_loss
+            + self.policy_prior_weight * policy_prior_loss
             + self.temporal_straightening_weight * temporal_straightening_loss
             + self.terminal_corrupt_weight * terminal_corrupt_loss
         )
@@ -689,14 +996,173 @@ class GridTokenGoalJEPA(nn.Module):
             goal_nce_loss=goal_nce_loss.detach(),
             progress_rank_loss=progress_rank_loss.detach(),
             action_rank_loss=action_rank_loss.detach(),
+            policy_prior_loss=policy_prior_loss.detach(),
             temporal_straightening_loss=temporal_straightening_loss.detach(),
             terminal_corrupt_loss=terminal_corrupt_loss.detach(),
             state_latents=state_latents,
             predicted_next_latents=predicted_next,
             predicted_goal_latents=predicted_goal,
             goal_target_latents=goal_target,
-            distances=distances.detach(),
+            distances=predicted_distances.detach(),
         )
+
+    def _goal_for_current_state(
+        self,
+        context_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        initial_latents: torch.Tensor,
+        current_latents: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.goal_conditioning == "initial_current":
+            return self.predict_goal(
+                context_latents,
+                active_mask,
+                initial_latents=initial_latents,
+                current_latents=current_latents,
+            )
+        return self.predict_goal(context_latents, active_mask)
+
+    def _progress_rank_objective(
+        self,
+        predicted_distances: torch.Tensor,
+        oracle_distances: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        terms = []
+        if self.progress_rank_target in {"predicted", "both"}:
+            terms.append(
+                _progress_rank_loss(
+                    predicted_distances,
+                    masks,
+                    margin=self.progress_margin,
+                    temperature=self.rank_temperature,
+                )
+            )
+        if self.progress_rank_target in {"oracle", "both"}:
+            terms.append(
+                _progress_rank_loss(
+                    oracle_distances,
+                    masks,
+                    margin=self.progress_margin,
+                    temperature=self.rank_temperature,
+                )
+            )
+        if not terms:
+            return predicted_distances.sum() * 0.0
+        return torch.stack(terms).mean()
+
+    def _rank_target_distance(
+        self,
+        latents: torch.Tensor,
+        predicted_goal: torch.Tensor,
+        oracle_goal: torch.Tensor,
+        active_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        terms = []
+        if self.action_rank_target in {"predicted", "both"}:
+            terms.append(self.distance(latents, predicted_goal, active_mask))
+        if self.action_rank_target in {"oracle", "both"}:
+            terms.append(self.distance(latents, oracle_goal.detach(), active_mask))
+        return torch.stack(terms).mean(dim=0)
+
+    def _listwise_action_rank_loss(
+        self,
+        rank_states: torch.Tensor,
+        positive_actions: torch.Tensor,
+        context_latents: torch.Tensor,
+        clue_mask: torch.Tensor,
+        editable_mask: torch.Tensor,
+        active_mask: torch.Tensor,
+        predicted_goal: torch.Tensor,
+        oracle_goal: torch.Tensor,
+    ) -> torch.Tensor:
+        losses = []
+        batch, rows, cols = rank_states.shape
+        for index in range(batch):
+            empties = torch.nonzero(rank_states[index] == 0, as_tuple=False)
+            if empties.numel() == 0:
+                continue
+            candidates = []
+            labels = []
+            pos = positive_actions[index]
+            for row_col in empties:
+                row = int(row_col[0].item())
+                col = int(row_col[1].item())
+                for value in range(1, 10):
+                    candidates.append([row, col, value])
+                    labels.append(row == int(pos[0].item()) and col == int(pos[1].item()) and value == int(pos[2].item()))
+            if not any(labels):
+                candidates.append([int(pos[0].item()), int(pos[1].item()), int(pos[2].item())])
+                labels.append(True)
+            if len(candidates) > self.listwise_action_rank_max_actions:
+                positive = [candidate for candidate, label in zip(candidates, labels, strict=True) if label][0]
+                negatives = [candidate for candidate, label in zip(candidates, labels, strict=True) if not label]
+                keep = max(0, self.listwise_action_rank_max_actions - 1)
+                candidates = [positive, *negatives[:keep]]
+                labels = [True, *([False] * keep)]
+            action_t = torch.as_tensor(candidates, dtype=torch.long, device=rank_states.device)
+            board_t = rank_states[index : index + 1].expand(action_t.shape[0], rows, cols)
+            succ = _apply_set_cell_actions(board_t, action_t)
+            context = context_latents[index : index + 1].expand(action_t.shape[0], -1, -1)
+            clue = clue_mask[index : index + 1].expand(action_t.shape[0], rows, cols)
+            edit = editable_mask[index : index + 1].expand(action_t.shape[0], rows, cols)
+            active = active_mask[index : index + 1].expand(action_t.shape[0], rows, cols)
+            succ_latents = self.encode_state(succ, context, clue, edit, active)
+            pred_goal = predicted_goal[index : index + 1].expand(action_t.shape[0], -1, -1)
+            oracle = oracle_goal[index : index + 1].expand(action_t.shape[0], -1, -1)
+            distances = self._rank_target_distance(succ_latents, pred_goal, oracle, active)
+            label_index = labels.index(True)
+            losses.append(F.cross_entropy((-distances / self.rank_temperature).unsqueeze(0), torch.tensor([label_index], device=rank_states.device)))
+        if not losses:
+            return rank_states.sum() * 0.0
+        return torch.stack(losses).mean()
+
+    def _listwise_policy_prior_loss(
+        self,
+        rank_states: torch.Tensor,
+        positive_actions: torch.Tensor,
+        state_latents: torch.Tensor,
+        goal_latents: torch.Tensor,
+        context_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        losses = []
+        batch = rank_states.shape[0]
+        for index in range(batch):
+            empties = torch.nonzero(rank_states[index] == 0, as_tuple=False)
+            if empties.numel() == 0:
+                continue
+            candidates = []
+            labels = []
+            pos = positive_actions[index]
+            for row_col in empties:
+                row = int(row_col[0].item())
+                col = int(row_col[1].item())
+                for value in range(1, 10):
+                    candidates.append([row, col, value])
+                    labels.append(row == int(pos[0].item()) and col == int(pos[1].item()) and value == int(pos[2].item()))
+            if not any(labels):
+                candidates.append([int(pos[0].item()), int(pos[1].item()), int(pos[2].item())])
+                labels.append(True)
+            if len(candidates) > self.listwise_action_rank_max_actions:
+                positive = [candidate for candidate, label in zip(candidates, labels, strict=True) if label][0]
+                negatives = [candidate for candidate, label in zip(candidates, labels, strict=True) if not label]
+                keep = max(0, self.listwise_action_rank_max_actions - 1)
+                candidates = [positive, *negatives[:keep]]
+                labels = [True, *([False] * keep)]
+            action_t = torch.as_tensor(candidates, dtype=torch.long, device=rank_states.device)[None]
+            logits = self.score_action_prior(
+                state_latents[index : index + 1],
+                goal_latents[index : index + 1],
+                context_latents[index : index + 1],
+                active_mask[index : index + 1],
+                action_t,
+            )
+            label_index = labels.index(True)
+            losses.append(F.cross_entropy(logits / self.rank_temperature, torch.tensor([label_index], device=rank_states.device)))
+        if not losses:
+            return rank_states.sum() * 0.0
+        return torch.stack(losses).mean()
 
     def _condition_state_latents(self, state_latent: torch.Tensor, action: torch.Tensor, action_embedding: torch.Tensor) -> torch.Tensor:
         if self.action_conditioning == "action_token" or self.action_conditioning == "action_cross_attention":
@@ -754,6 +1220,14 @@ class GridTokenGoalJEPA(nn.Module):
 def _masked_mean(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     weights = mask.float()
     return (values * weights).sum() / weights.sum().clamp_min(1.0)
+
+
+def _expand_batch_tokens(tokens: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    if tokens.shape == reference.shape:
+        return tokens
+    if tokens.shape[0] == 1 and tokens.shape[1:] == reference.shape[1:]:
+        return tokens.expand(reference.shape[0], -1, -1)
+    return tokens
 
 
 def _masked_summary(tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:

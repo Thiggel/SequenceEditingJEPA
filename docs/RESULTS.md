@@ -1,6 +1,17 @@
 # Results
 
-Last updated: 2026-06-25 09:32 CEST
+Last updated: 2026-06-25 11:28 CEST
+
+## Implementation Pass
+
+No new experimental results were generated in this pass and no next-wave jobs
+were submitted. The code now supports the staged next wave described in
+`docs/EXPERIMENT_PLAN.md`, including conditional predicted goals,
+hierarchical beam, hierarchy-dense rollout supervision, delta-top-k score
+probes, ranking-loss switches, and an optional primitive/macro policy prior.
+
+Safe cleanup removed disposable caches and previously archived failed-run
+scratch directories only. Checkpoints were not deleted.
 
 ## Current Result
 

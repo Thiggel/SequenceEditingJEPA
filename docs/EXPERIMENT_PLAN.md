@@ -1,6 +1,47 @@
 # Experiment Plan
 
-Last updated: 2026-06-25 09:32 CEST
+Last updated: 2026-06-25 11:28 CEST
+
+## Next Wave: Staged Grid
+
+Do not run the full Cartesian product. Use the staged scripts and advance only
+when the current stage produces useful diagnostics.
+
+Submission:
+
+```bash
+GRID_GOAL_STAGE=<stage> scripts/experiments/submit_grid_goal_next_wave.sh
+```
+
+Stages:
+
+| Stage | Variants | Question |
+| --- | --- | --- |
+| `goal_conditioning` | context-only, `q(c,H0,Ht)`, `q(c,H0,Ht)` plus oracle progress | Does current-state-conditioned goal prediction close the predicted-goal gap? |
+| `dense_horizon` | dense `K={2,4,8,16,32}` at fixed hierarchy `[2,4,8,16]` | How far does dense rollout improve geometry? |
+| `hierarchy_levels` | `[]`, `[2]`, `[2,4]`, `[2,4,8]`, `[2,4,8,16]`, `[2,4,8,16,32]` | Does hierarchy improve geometry beyond dense rollout? |
+| `predictor_delta_topk` | separate/shared predictors, residual/no residual, affected/top-k local training probe | Which predictor parameterization and local signal best preserve oracle solves? |
+| `ranking_losses` | predicted/oracle/both/no progress, pairwise/listwise/no action rank | Which ranking signal improves branch discrimination? |
+| `hierarchical_planning` | current best hierarchy config | Does hierarchical beam help when the hierarchy is actually used at planning time? |
+| `policy_prior` | no prior, pairwise prior, listwise prior, stronger planning prior | Does a learned primitive/macro prior improve search efficiency without masking metric failures? |
+
+Default eval per completed checkpoint:
+
+- latent rollout only
+- 10 examples
+- beam width `16`
+- depths `4,16,32,64`
+- planners `mpc_beam` and `hierarchical_beam` when hierarchy levels exist
+- oracle and predicted versions of normalized, changed-cell raw L2, and
+  delta-top-k raw L2 (`k=1,3,5`)
+
+Gate before broadening:
+
+- predicted-goal local action ranking must improve materially
+- oracle changed-cell/local solves should not regress from the H1 follow-up
+  signal
+- diagnostics should show whether the bottleneck is goal prediction, rollout
+  drift, action discrimination, or search
 
 ## Grid-Token Goal-JEPA
 

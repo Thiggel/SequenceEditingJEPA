@@ -34,7 +34,17 @@ model:
   rollout_detach_interval: 0
   hierarchy_levels: []
   hierarchy_loss_weight: 0.0
+  hierarchy_dense_future_weight: 0.0
   macro_action_encoder_layers: 1
+  shared_hierarchy_predictor: false
+  goal_conditioning: context
+  progress_rank_target: predicted
+  action_rank_mode: pairwise
+  action_rank_target: predicted
+  listwise_action_rank_max_actions: 729
+  policy_prior_weight: 0.0
+  policy_prior_mode: pairwise
+  policy_prior_planning_weight: 0.0
   distance_mode: tokenwise
   action_conditioning: action_token
   predict_delta: false

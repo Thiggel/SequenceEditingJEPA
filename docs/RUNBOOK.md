@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-25 09:32 CEST
+Last updated: 2026-06-25 11:28 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -25,9 +25,72 @@ Goal-JEPA** for Sudoku.
   `scripts/slurm/run_grid_goal_followup_eval.slurm`
 - Current-best checkpoint-time eval array:
   `scripts/slurm/run_grid_goal_best_checkpoint_eval.slurm`
+- Next-wave staged train array:
+  `scripts/slurm/run_grid_goal_next_train.slurm`
+- Next-wave staged eval array:
+  `scripts/slurm/run_grid_goal_next_eval.slurm`
+- Next-wave submit wrapper:
+  `scripts/experiments/submit_grid_goal_next_wave.sh`
+- Next-wave oversight:
+  `scripts/slurm/run_grid_goal_oversight.slurm`,
+  `scripts/oversight/submit_grid_goal_oversight.sh`, and
+  `scripts/oversight/grid_goal_next_wave.py`
 
 All previous LeWM/CLS/value-head jobs were cancelled or completed before this
 reset.
+
+## Next-Wave Prepared State
+
+No next-wave jobs have been submitted from this implementation pass.
+
+Implemented and verified:
+
+- conditional predicted goal `q(c,H0,Ht)`, recomputed at each MPC root state
+- dense rollout supervision over intermediate base-predictor futures
+- recursive dense supervision for high-level hierarchy predictors
+- hierarchy levels with either separate predictors or one shared
+  level-conditioned predictor
+- hierarchical beam planner: high-level beam proposes latent subgoals, then
+  primitive beam plans to the first subgoal
+- delta-top-k local score probes for `k=1,3,5`
+- progress-rank target switches: predicted, oracle, both, or none
+- pairwise/listwise action-rank switches
+- optional policy prior over primitive legal actions and fused macro-actions;
+  planning can bias beam scores using `model.policy_prior_planning_weight`
+
+Stage submit command:
+
+```bash
+GRID_GOAL_STAGE=goal_conditioning scripts/experiments/submit_grid_goal_next_wave.sh
+```
+
+Stages supported by the wrapper:
+
+`goal_conditioning`, `dense_horizon`, `hierarchy_levels`,
+`predictor_delta_topk`, `ranking_losses`, `hierarchical_planning`,
+`policy_prior`.
+
+Oversight scheduling command:
+
+```bash
+OVERSIGHT_COUNT=10 OVERSIGHT_INTERVAL_HOURS=12 scripts/oversight/submit_grid_goal_oversight.sh
+```
+
+Oversight only reports by default. Set `OVERSIGHT_SUBMIT_NEXT=1` to let it
+submit the next stage after the current stage is complete. Set
+`OVERSIGHT_CLEANUP=1` for safe cache/failed-run cleanup. Do not set
+`OVERSIGHT_DELETE_CHECKPOINTS=1` unless checkpoint deletion is explicitly
+intended.
+
+Verification from this pass:
+
+- `source scripts/env.sh && pytest -q tests/test_grid_goal_jepa.py` -> pass
+- `source scripts/env.sh && pytest -q tests/test_grid_goal_plan_regressions.py`
+  -> pass
+- `source scripts/env.sh && pytest -q` -> pass
+- `source scripts/env.sh && python -m compileall -q puzzle_jepa scripts tests`
+  -> pass
+- `bash -n` over the new Slurm and oversight scripts -> pass
 
 ## Slurm Snapshot
 
