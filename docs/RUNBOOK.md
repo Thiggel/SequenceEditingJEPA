@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 13:20 CEST
+Last updated: 2026-06-29 14:10 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -130,6 +130,16 @@ Submitted H1-extra controlled wave:
 - Comparable replacement hierarchy-dense train/eval elements
   `3795327_11`/`3795328_11` use batch `4` with grad accumulation `2`; the
   train element logged effective batch size `8` at step `1`.
+
+Storage cleanup at 2026-06-29 14:10 CEST:
+
+- `$HPCVAULT/sequence-editing` is about `226GB`, down from about `949GB`.
+- Deleted intermediate `checkpoint-[0-9]*.pt` files from completed non-active
+  Grid Goal runs only. Kept final `checkpoint.pt`, configs, metrics,
+  diagnostics, panels, and planner outputs.
+- Active H1 debug/extra run roots were not pruned.
+- `$WORK/.cache` was removed, freeing about `11.8GiB`. `$WORK/sequence-editing`
+  remains about `19GB`.
 - Common config: seed `5204`, batch `8`, 45k steps, LR `1e-4`,
   `affected_marker`, `predict_delta=false`, EMA+VICReg, no goal NCE,
   context-only goal predictor, temporal straightening on, dense base rollout
