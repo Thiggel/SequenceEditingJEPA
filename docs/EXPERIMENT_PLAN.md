@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-25 11:28 CEST
+Last updated: 2026-06-29 13:05 CEST
 
 ## Next Wave: Staged Grid
 
@@ -162,6 +162,32 @@ Follow-up outcome:
   `6/10` solved with `mpc_beam`, depth `16`, and oracle changed-cell raw L2.
 - All predicted-goal rows still solved `0/10`.
 - Categorical CEM and hierarchical CEM solved `0/10`.
+
+## H1 Controlled Debug/Extra Wave
+
+Active H1 debug sweeps:
+
+- Delta sweep: train `3795127`, eval `3795128`.
+- No-delta sweep: train `3795143`, eval `3795144`.
+- Both use fixed seed `5204`, batch `8`, 45k steps, hierarchy `[4,16]`,
+  `affected_marker`, EMA+VICReg, no goal NCE, context-only goal prediction,
+  temporal straightening, and dense base rollout.
+- Hierarchical-beam add-on evals: `3795248` for delta, `3795249` for
+  no-delta.
+
+H1-extra controlled wave:
+
+- Train `3795246`, eval `3795247`.
+- Common config: fixed seed `5204`, batch `8`, 45k steps, LR `1e-4`,
+  `predict_delta=false`, `affected_marker`, dense horizons `[1,4,8,16]`,
+  EMA+VICReg, no goal NCE, context-only goal predictor.
+- Ranking variants: oracle/both/no progress rank; oracle/both/listwise/no
+  action rank.
+- Hierarchy variants: `[4]`, `[4,16,32]`, shared `[4,16]` predictor, and
+  `[4,16]` with dense supervision on high-level predictors.
+- Eval uses latent rollout, 10 boards, beam width `16`, depths `4,16,32,64`,
+  six oracle/predicted normalized/raw/changed-cell score modes, and both
+  `mpc_beam` and `hierarchical_beam`.
 
 ## Original Ablations
 

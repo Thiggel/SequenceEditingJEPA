@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 12:01 CEST
+Last updated: 2026-06-29 13:05 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -35,6 +35,12 @@ Goal-JEPA** for Sudoku.
   `scripts/slurm/run_grid_goal_oversight.slurm`,
   `scripts/oversight/submit_grid_goal_oversight.sh`, and
   `scripts/oversight/grid_goal_next_wave.py`
+- H1 debug/extra train and eval:
+  `scripts/slurm/run_grid_goal_h1_debug_train.slurm`,
+  `scripts/slurm/run_grid_goal_h1_debug_eval.slurm`,
+  `scripts/slurm/run_grid_goal_h1_debug_hier_eval.slurm`,
+  `scripts/slurm/run_grid_goal_h1_extra_train.slurm`, and
+  `scripts/slurm/run_grid_goal_h1_extra_eval.slurm`
 
 All previous LeWM/CLS/value-head jobs were cancelled or completed before this
 reset.
@@ -101,6 +107,31 @@ Submitted a matching no-delta sweep:
 - Same six horizon/LR variants and fixed seed `5204`, but
   `model.predict_delta=false`.
 - Output prefix: `grid_goal_h1_debug_nodelta_seed5204`.
+
+Submitted H1 hierarchical-beam add-on evals:
+
+- `3795248`, `grid_goal_h1hier_eval`, dependency `aftercorr:3795127`, adds
+  `hierarchical_beam` rows for the delta H1 debug sweep.
+- `3795249`, `grid_goal_h1hier_eval`, dependency `aftercorr:3795143`, adds
+  `hierarchical_beam` rows for the no-delta H1 debug sweep.
+- Both write to `planner_eval_h1_debug_hierarchical` under each run root.
+
+Submitted H1-extra controlled wave:
+
+- Train array `3795246`, `grid_goal_h1x_train`, array `0-11%12`,
+  partitions `rtxpro6k,a100`, 24h. At 13:05 CEST all 12 tasks are running.
+- Eval array `3795247`, `grid_goal_h1x_eval`, dependency
+  `aftercorr:3795246`, array `0-11%12`, partitions `rtxpro6k,a100`, 24h.
+- Common config: seed `5204`, batch `8`, 45k steps, LR `1e-4`,
+  `affected_marker`, `predict_delta=false`, EMA+VICReg, no goal NCE,
+  context-only goal predictor, temporal straightening on, dense base rollout
+  horizons `[1,4,8,16]`.
+- Variants: `rank_oracle_progress`, `rank_both_progress`,
+  `rank_no_progress`, `rank_pairwise_oracle_action`,
+  `rank_pairwise_both_action`, `rank_listwise_pred_action`,
+  `rank_listwise_both_action`, `rank_no_action`, `hier_l4`,
+  `hier_l4_l16_l32`, `hier_l4_l16_shared`, and
+  `hier_l4_l16_hier_dense`.
 
 Implemented and verified:
 
