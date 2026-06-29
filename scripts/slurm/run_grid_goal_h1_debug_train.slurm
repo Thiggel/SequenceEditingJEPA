@@ -76,7 +76,7 @@ python -m puzzle_jepa.train.grid_goal_sudoku \
   "training.save_every_steps=${SAVE_EVERY_STEPS:-5000}" \
   "training.learning_rate=${LEARNING_RATE:-${LR}}" \
   "model.action_conditioning=affected_marker" \
-  "model.predict_delta=true" \
+  "model.predict_delta=${PREDICT_DELTA:-true}" \
   "model.dynamics_weighting=uniform" \
   "model.regularizer=vicreg" \
   "model.use_ema_target_encoder=true" \
