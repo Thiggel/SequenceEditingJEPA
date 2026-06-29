@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 11:53 CEST
+Last updated: 2026-06-29 11:58 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -78,18 +78,19 @@ predicted-goal success.
 
 Submitted a small controlled sweep to isolate the gap between the earlier
 successful `H1_hierarchy_dense_l4_l16` run and the failed weekend `DK*` runs.
+The initial submission `3795111`/`3795112` was canceled after four minutes
+because it used per-index seeds and included `2e-5` instead of `5e-4`.
 
-- Train array `3795111`, `grid_goal_h1dbg_train`, array `0-5%3`,
-  partition `rtxpro6k`, 24h.
-- Eval array `3795112`, `grid_goal_h1dbg_eval`, dependency
-  `aftercorr:3795111`, array `0-5%3`, partition `rtxpro6k`, 24h.
-- At 11:53 CEST, train tasks `0-2` were running and tasks `3-5` were pending
-  on `JobArrayTaskLimit`; eval tasks were dependency-held.
+- Corrected train array `3795127`, `grid_goal_h1dbg_train`, array `0-5%6`,
+  partition `rtxpro6k`, 24h. At 11:58 CEST all six train tasks are running.
+- Corrected eval array `3795128`, `grid_goal_h1dbg_eval`, dependency
+  `aftercorr:3795127`, array `0-5%6`, partition `rtxpro6k`, 24h.
 - Variants:
-  - `K14816_LR1e4`, `K14816_LR5e5`, `K14816_LR2e5`
-  - `K16_LR1e4`, `K16_LR5e5`, `K16_LR2e5`
+  - `K14816_LR1e4`, `K14816_LR5e5`, `K14816_LR5e4`
+  - `K16_LR1e4`, `K16_LR5e5`, `K16_LR5e4`
 - Fixed config: batch `8`, 45k steps, hierarchy `[4,16]`, context-only goal
-  predictor, `affected_marker`, delta predictor, EMA+VICReg, no goal NCE.
+  predictor, `affected_marker`, delta predictor, EMA+VICReg, no goal NCE,
+  fixed seed `5204` for every variant.
 
 Implemented and verified:
 
