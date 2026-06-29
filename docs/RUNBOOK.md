@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 10:53 CEST
+Last updated: 2026-06-29 10:57 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -50,7 +50,7 @@ timed-out eval jobs.
 | `goal_conditioning` | `3780027`, tasks `0-2`, completed | `3780028`, tasks `0-2`, completed | 120 valid planner rows. Best row solved `1/10` with oracle changed-cell local scoring; predicted-goal rows solved `0/10`. |
 | `dense_horizon` | `3782967`, tasks `0-4`, completed | `3782968`, tasks `0-4`, timed out | Submitted by oversight at 2026-06-25 23:55. Partial rows were written. |
 | `dense_horizon` duplicate | `3784073`, tasks `0-4`, completed | `3784074`, tasks `0-4`, timed out | Submitted again by oversight at 2026-06-26 11:55; it wrote the same run dirs. Current dense-horizon files contain 65-66 rows each, with malformed trailing JSON in two files. |
-| later stages | none | none | Not submitted. Oversight jobs `3780036`-`3780040` failed with `JSONDecodeError`; `3780041`-`3780042` are still pending begin-time and would hit the same parser bug unless fixed/canceled. |
+| later stages | none | none | Not submitted. Oversight jobs `3780036`-`3780040` failed with `JSONDecodeError`; stale pending oversight jobs `3780041`-`3780042` were canceled on 2026-06-29 after this audit. |
 
 Current next-wave run root:
 `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_next_wave`.
