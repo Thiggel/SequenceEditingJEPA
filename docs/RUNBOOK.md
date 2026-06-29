@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 10:57 CEST
+Last updated: 2026-06-29 11:53 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -73,6 +73,23 @@ planner. Conditional predicted goals and the dense-horizon stage regressed
 relative to the previous `H1_hierarchy_dense_l4_l16` oracle-local result.
 The only exact solve was a single oracle-local `G0_context` board, not a
 predicted-goal success.
+
+## H1 Debug Sweep
+
+Submitted a small controlled sweep to isolate the gap between the earlier
+successful `H1_hierarchy_dense_l4_l16` run and the failed weekend `DK*` runs.
+
+- Train array `3795111`, `grid_goal_h1dbg_train`, array `0-5%3`,
+  partition `rtxpro6k`, 24h.
+- Eval array `3795112`, `grid_goal_h1dbg_eval`, dependency
+  `aftercorr:3795111`, array `0-5%3`, partition `rtxpro6k`, 24h.
+- At 11:53 CEST, train tasks `0-2` were running and tasks `3-5` were pending
+  on `JobArrayTaskLimit`; eval tasks were dependency-held.
+- Variants:
+  - `K14816_LR1e4`, `K14816_LR5e5`, `K14816_LR2e5`
+  - `K16_LR1e4`, `K16_LR5e5`, `K16_LR2e5`
+- Fixed config: batch `8`, 45k steps, hierarchy `[4,16]`, context-only goal
+  predictor, `affected_marker`, delta predictor, EMA+VICReg, no goal NCE.
 
 Implemented and verified:
 
