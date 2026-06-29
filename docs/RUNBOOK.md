@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 13:05 CEST
+Last updated: 2026-06-29 13:08 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -119,9 +119,13 @@ Submitted H1 hierarchical-beam add-on evals:
 Submitted H1-extra controlled wave:
 
 - Train array `3795246`, `grid_goal_h1x_train`, array `0-11%12`,
-  partitions `rtxpro6k,a100`, 24h. At 13:05 CEST all 12 tasks are running.
+  partitions `rtxpro6k,a100`, 24h. Tasks `0-10` are running at batch 8.
+  Task `11` (`hier_l4_l16_hier_dense`) OOMed at batch 8.
 - Eval array `3795247`, `grid_goal_h1x_eval`, dependency
   `aftercorr:3795246`, array `0-11%12`, partitions `rtxpro6k,a100`, 24h.
+  Element `3795247_11` was canceled after the train OOM.
+- Replacement hierarchy-dense train element `3795306_11` was submitted with
+  `BATCH_SIZE=4`; replacement eval element `3795307_11` depends on it.
 - Common config: seed `5204`, batch `8`, 45k steps, LR `1e-4`,
   `affected_marker`, `predict_delta=false`, EMA+VICReg, no goal NCE,
   context-only goal predictor, temporal straightening on, dense base rollout
