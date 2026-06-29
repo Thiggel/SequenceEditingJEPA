@@ -1,15 +1,31 @@
 # Results
 
-Last updated: 2026-06-25 11:56 CEST
+Last updated: 2026-06-29 10:53 CEST
 
-## Active Submission
+## Weekend Next-Wave Result
 
-Stage `goal_conditioning` has been submitted but has no results yet.
+The oversight chain ran `goal_conditioning` and submitted `dense_horizon`
+twice. Later stages did not run because timed-out dense eval jobs left
+malformed trailing JSONL, causing oversight jobs `3780036`-`3780040` to fail
+with `JSONDecodeError`.
 
-- Train array `3780027` is running tasks `0-2` on RTX Pro.
-- Eval array `3780028` is dependency-held with `aftercorr:3780027`.
-- Oversight jobs `3780033`-`3780042` are scheduled every 12 hours with
-  stage advancement and safe cleanup enabled.
+| Stage/run | Train | Eval | Valid rows | Best result |
+| --- | --- | --- | ---: | --- |
+| `goal_conditioning/G0_context` | `3780027_0` completed | `3780028_0` completed | 40 | oracle changed-cell raw L2, depth 32: `1/10`, rem Hamming `8.7` |
+| `goal_conditioning/G1_initial_current` | `3780027_1` completed | `3780028_1` completed | 40 | oracle delta-top1 raw L2, depth 4: `0/10`, rem Hamming `42.9` |
+| `goal_conditioning/G2_initial_current_oracle_progress` | `3780027_2` completed | `3780028_2` completed | 40 | oracle changed-cell raw L2, depth 4: `0/10`, rem Hamming `31.2` |
+| `dense_horizon/DK2` | `3782967_0` and duplicate `3784073_0` completed | `3782968_0` and duplicate `3784074_0` timed out | 65 | oracle changed-cell raw L2, depth 32: `0/10`, rem Hamming `36.6` |
+| `dense_horizon/DK4` | `3782967_1` and duplicate `3784073_1` completed | `3782968_1` and duplicate `3784074_1` timed out | 65 | oracle delta-top5 raw L2, depth 32: `0/10`, rem Hamming `45.1` |
+| `dense_horizon/DK8` | `3782967_2` and duplicate `3784073_2` completed | `3782968_2` and duplicate `3784074_2` timed out | 65 | oracle changed-cell raw L2, depth 32: `0/10`, rem Hamming `38.8` |
+| `dense_horizon/DK16` | `3782967_3` and duplicate `3784073_3` completed | `3782968_3` and duplicate `3784074_3` timed out | 65 valid + 1 malformed | predicted changed-cell raw L2, depth 16: `0/10`, rem Hamming `48.0` |
+| `dense_horizon/DK32` | `3782967_4` and duplicate `3784073_4` completed | `3782968_4` and duplicate `3784074_4` timed out | 65 valid + 1 malformed | oracle changed-cell raw L2, depth 64: `0/10`, rem Hamming `48.1` |
+
+Dense-horizon predicted-goal rows all solved `0/10` and stayed near
+`47.6-48.9` remaining Hamming. The weekend result therefore does not support
+the conditional-goal or dense-horizon changes as implemented. The prior
+`H1_hierarchy_dense_l4_l16` follow-up remains the strongest signal: `6/10`
+under oracle changed-cell local scoring, but still `0/10` under predicted
+goals.
 
 ## Implementation Pass
 

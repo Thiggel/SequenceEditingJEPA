@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-25 12:09 CEST
+Last updated: 2026-06-29 10:53 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -39,28 +39,40 @@ Goal-JEPA** for Sudoku.
 All previous LeWM/CLS/value-head jobs were cancelled or completed before this
 reset.
 
-## Next-Wave Active State
+## Next-Wave Weekend State
 
-Stage `goal_conditioning` is submitted.
+The 12-hour oversight chain advanced from `goal_conditioning` to
+`dense_horizon`, but then stopped on malformed partial eval JSONL produced by
+timed-out eval jobs.
 
-- Train array: `3780027`, tasks `0-2%3`, partition `rtxpro6k,a100`,
-  currently running on `rtxpro6k` with empty stderr.
-- Eval array: `3780028`, tasks `0-2%3`, dependency `aftercorr:3780027`,
-  currently dependency-held.
-- Oversight jobs: `3780033`-`3780042`, 12-hour cadence over 5 days.
-  `OVERSIGHT_SUBMIT_NEXT=1` and `OVERSIGHT_CLEANUP=1` were set at submission.
-  The first oversight job `3780033` ran immediately; the rest are begin-time
-  held.
-- Oversight jobs request one GPU because this Alex Slurm instance rejects jobs
-  without `--gres=gpu`.
+| Stage | Train jobs | Eval jobs | Outcome |
+| --- | --- | --- | --- |
+| `goal_conditioning` | `3780027`, tasks `0-2`, completed | `3780028`, tasks `0-2`, completed | 120 valid planner rows. Best row solved `1/10` with oracle changed-cell local scoring; predicted-goal rows solved `0/10`. |
+| `dense_horizon` | `3782967`, tasks `0-4`, completed | `3782968`, tasks `0-4`, timed out | Submitted by oversight at 2026-06-25 23:55. Partial rows were written. |
+| `dense_horizon` duplicate | `3784073`, tasks `0-4`, completed | `3784074`, tasks `0-4`, timed out | Submitted again by oversight at 2026-06-26 11:55; it wrote the same run dirs. Current dense-horizon files contain 65-66 rows each, with malformed trailing JSON in two files. |
+| later stages | none | none | Not submitted. Oversight jobs `3780036`-`3780040` failed with `JSONDecodeError`; `3780041`-`3780042` are still pending begin-time and would hit the same parser bug unless fixed/canceled. |
 
-No later stage was manually submitted; the oversight jobs are responsible for
-stage advancement once the current stage has completed train checkpoints and
-planner rows.
+Current next-wave run root:
+`$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_next_wave`.
 
-Early metrics at 12:09 CEST are finite: `G0_context` has reached step 2000,
-and the two conditional-goal variants have reached step 1000. No checkpoints
-or planner rows exist yet.
+Best valid weekend rows:
+
+| Run | Valid rows | Best oracle row | Best predicted row |
+| --- | ---: | --- | --- |
+| `G0_context` | 40 | changed-cell raw L2, `mpc_beam`, depth 32: `1/10`, rem Hamming `8.7` | delta-top3 raw L2, depth 32: `0/10`, rem Hamming `42.2` |
+| `G1_initial_current` | 40 | delta-top1 raw L2, depth 4: `0/10`, rem Hamming `42.9` | delta-top3 raw L2, depth 4: `0/10`, rem Hamming `48.1` |
+| `G2_initial_current_oracle_progress` | 40 | changed-cell raw L2, depth 4: `0/10`, rem Hamming `31.2` | delta-top5 raw L2, depth 64: `0/10`, rem Hamming `48.9` |
+| `DK2` | 65 | changed-cell raw L2, depth 32: `0/10`, rem Hamming `36.6` | delta-top3 raw L2, depth 16: `0/10`, rem Hamming `48.7` |
+| `DK4` | 65 | delta-top5 raw L2, depth 32: `0/10`, rem Hamming `45.1` | normalized predicted, hierarchical beam, depth 16: `0/10`, rem Hamming `48.8` |
+| `DK8` | 65 | changed-cell raw L2, depth 32: `0/10`, rem Hamming `38.8` | delta-top5 raw L2, depth 32: `0/10`, rem Hamming `47.6` |
+| `DK16` | 65 valid, 1 malformed | changed-cell raw L2, depth 64: `0/10`, rem Hamming `48.3` | changed-cell raw L2, depth 16: `0/10`, rem Hamming `48.0` |
+| `DK32` | 65 valid, 1 malformed | changed-cell raw L2, depth 64: `0/10`, rem Hamming `48.1` | normalized predicted, depth 4: `0/10`, rem Hamming `48.9` |
+
+Interpretation: the weekend next-wave did not improve the predicted-goal
+planner. Conditional predicted goals and the dense-horizon stage regressed
+relative to the previous `H1_hierarchy_dense_l4_l16` oracle-local result.
+The only exact solve was a single oracle-local `G0_context` board, not a
+predicted-goal success.
 
 Implemented and verified:
 
