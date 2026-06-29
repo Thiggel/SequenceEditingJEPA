@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
-#SBATCH --array=0-5%3
+#SBATCH --array=0-5%6
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
 
@@ -16,10 +16,10 @@ source ./scripts/env.sh
 VARIANTS=(
   K14816_LR1e4
   K14816_LR5e5
-  K14816_LR2e5
+  K14816_LR5e4
   K16_LR1e4
   K16_LR5e5
-  K16_LR2e5
+  K16_LR5e4
 )
 
 INDEX="${SLURM_ARRAY_TASK_ID:-0}"
@@ -29,7 +29,7 @@ if (( INDEX < 0 || INDEX >= ${#VARIANTS[@]} )); then
 fi
 
 VARIANT="${VARIANTS[$INDEX]}"
-RUN_NAME="grid_goal_h1_debug_${VARIANT}"
+RUN_NAME="${RUN_NAME_PREFIX:-grid_goal_h1_debug_seed5204}_${VARIANT}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/grid_goal_h1_debug/${RUN_NAME}"
 CHECKPOINT="${RUN_ROOT}/checkpoint.pt"
 if [[ ! -s "${CHECKPOINT}" ]]; then
