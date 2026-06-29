@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 13:08 CEST
+Last updated: 2026-06-29 13:20 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -124,8 +124,12 @@ Submitted H1-extra controlled wave:
 - Eval array `3795247`, `grid_goal_h1x_eval`, dependency
   `aftercorr:3795246`, array `0-11%12`, partitions `rtxpro6k,a100`, 24h.
   Element `3795247_11` was canceled after the train OOM.
-- Replacement hierarchy-dense train element `3795306_11` was submitted with
-  `BATCH_SIZE=4`; replacement eval element `3795307_11` depends on it.
+- First replacement hierarchy-dense train/eval elements
+  `3795306_11`/`3795307_11` used batch `4` with grad accumulation `1` and
+  were canceled for comparability.
+- Comparable replacement hierarchy-dense train/eval elements
+  `3795327_11`/`3795328_11` use batch `4` with grad accumulation `2`; the
+  train element logged effective batch size `8` at step `1`.
 - Common config: seed `5204`, batch `8`, 45k steps, LR `1e-4`,
   `affected_marker`, `predict_delta=false`, EMA+VICReg, no goal NCE,
   context-only goal predictor, temporal straightening on, dense base rollout

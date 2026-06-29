@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-29 13:08 CEST
+Last updated: 2026-06-29 13:20 CEST
 
 ## Next Wave: Staged Grid
 
@@ -181,9 +181,10 @@ H1-extra controlled wave:
 - Common config: fixed seed `5204`, batch `8`, 45k steps, LR `1e-4`,
   `predict_delta=false`, `affected_marker`, dense horizons `[1,4,8,16]`,
   EMA+VICReg, no goal NCE, context-only goal predictor.
-- Exception: `hier_l4_l16_hier_dense` OOMed at batch `8`; replacement
-  train/eval elements `3795306_11`/`3795307_11` run that one variant at
-  batch `4`.
+- Exception: `hier_l4_l16_hier_dense` OOMed at batch `8`; comparable
+  replacement train/eval elements `3795327_11`/`3795328_11` run that one
+  variant with batch `4` and grad accumulation `2`, preserving effective
+  batch size `8`.
 - Ranking variants: oracle/both/no progress rank; oracle/both/listwise/no
   action rank.
 - Hierarchy variants: `[4]`, `[4,16,32]`, shared `[4,16]` predictor, and
