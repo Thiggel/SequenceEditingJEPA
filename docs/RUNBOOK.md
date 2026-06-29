@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 11:58 CEST
+Last updated: 2026-06-29 12:01 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -91,6 +91,16 @@ because it used per-index seeds and included `2e-5` instead of `5e-4`.
 - Fixed config: batch `8`, 45k steps, hierarchy `[4,16]`, context-only goal
   predictor, `affected_marker`, delta predictor, EMA+VICReg, no goal NCE,
   fixed seed `5204` for every variant.
+
+Submitted a matching no-delta sweep:
+
+- Train array `3795143`, `grid_goal_h1dbg_train`, array `0-5%6`, partition
+  `rtxpro6k`, 24h. At 12:01 CEST all six train tasks are running.
+- Eval array `3795144`, `grid_goal_h1dbg_eval`, dependency
+  `aftercorr:3795143`, array `0-5%6`, partition `rtxpro6k`, 24h.
+- Same six horizon/LR variants and fixed seed `5204`, but
+  `model.predict_delta=false`.
+- Output prefix: `grid_goal_h1_debug_nodelta_seed5204`.
 
 Implemented and verified:
 
