@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-06-30 12:19 CEST
+Last updated: 2026-06-30 12:27 CEST
 
 Old-local-value fast wave is running.
 
@@ -8,6 +8,9 @@ Slurm:
 
 - Train array `3797928`, tasks `0-17%18`, all running on `rtxpro6k`.
 - Eval array `3797929`, tasks `0-17`, dependency-held on training.
+- Latest train progress: all tasks are alive; logged steps range from `500`
+  to `3000` of `5000` (`10-60%`). Short dense-horizon variants are furthest
+  along; listwise and hierarchy-heavy variants are slowest.
 
 It uses faithful old-style local value action conditioning
 (`old_local_value`), full-board raw latent MSE scoring, `5000` train steps, LR
