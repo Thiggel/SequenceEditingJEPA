@@ -743,35 +743,35 @@ class GridTokenGoalJEPA(nn.Module):
             dynamics_terms.append(state_latents.sum() * 0.0)
         if self.dense_rollout_all_steps and self.multi_step_horizons:
             max_horizon = min(max(self.multi_step_horizons), frames - 1)
-            for horizon in range(2, max_horizon + 1):
-                start_count = frames - horizon
-                if start_count <= 0:
-                    continue
+            start_count = frames - max_horizon
+            if start_count > 0:
                 rollout = state_latents[:, :start_count].reshape(batch * start_count, token_count, self.d_model)
                 ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
                     -1, token_count, self.d_model
                 )
-                for offset in range(horizon):
+                for offset in range(max_horizon):
                     act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
                     rollout = self.predict_next(rollout, act, ctx)
+                    dense_horizon = offset + 1
+                    if dense_horizon > 1:
+                        target = target_state_latents[:, dense_horizon : dense_horizon + start_count]
+                        valid = masks[:, :start_count] & masks[:, dense_horizon : dense_horizon + start_count]
+                        rollout_actions = actions[:, : dense_horizon + start_count - 1]
+                        dense_error = self._dynamics_error(
+                            rollout.reshape(batch, start_count, token_count, self.d_model),
+                            target,
+                            rollout_actions,
+                            rows=rows,
+                            cols=cols,
+                            horizon=dense_horizon,
+                        )
+                        dense_future_terms.append(_masked_mean(dense_error, valid) / (dense_horizon**0.5))
                     if (
                         self.rollout_detach_interval > 0
                         and (offset + 1) % self.rollout_detach_interval == 0
-                        and offset + 1 < horizon
+                        and offset + 1 < max_horizon
                     ):
                         rollout = rollout.detach()
-                target = target_state_latents[:, horizon : horizon + start_count]
-                valid = masks[:, :start_count] & masks[:, horizon : horizon + start_count]
-                rollout_actions = actions[:, : horizon + start_count - 1]
-                dense_error = self._dynamics_error(
-                    rollout.reshape(batch, start_count, token_count, self.d_model),
-                    target,
-                    rollout_actions,
-                    rows=rows,
-                    cols=cols,
-                    horizon=horizon,
-                )
-                dense_future_terms.append(_masked_mean(dense_error, valid) / (horizon**0.5))
         else:
             for horizon in self.multi_step_horizons:
                 if horizon <= 1 or frames <= horizon:

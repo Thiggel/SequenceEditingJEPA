@@ -355,13 +355,21 @@ def test_dense_rollout_all_steps_supervises_every_intermediate_horizon_once():
         multi_step_horizons=(4,),
     )
     seen_horizons = []
+    predict_calls = 0
     original = model._dynamics_error
+    original_predict_next = model.predict_next
 
     def wrapped_dynamics_error(*args, **kwargs):
         seen_horizons.append(int(kwargs.get("horizon", 1)))
         return original(*args, **kwargs)
 
+    def wrapped_predict_next(*args, **kwargs):
+        nonlocal predict_calls
+        predict_calls += 1
+        return original_predict_next(*args, **kwargs)
+
     model._dynamics_error = wrapped_dynamics_error
+    model.predict_next = wrapped_predict_next
 
     output = model(
         batch.boards,
@@ -380,6 +388,7 @@ def test_dense_rollout_all_steps_supervises_every_intermediate_horizon_once():
     assert seen_horizons.count(2) == 1
     assert seen_horizons.count(3) == 1
     assert seen_horizons.count(4) == 1
+    assert predict_calls == 5
 
 
 def test_hierarchy_uses_one_encoder_and_multiple_predictors():
