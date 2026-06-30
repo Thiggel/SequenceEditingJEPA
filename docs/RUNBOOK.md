@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-30 10:26 CEST
+Last updated: 2026-06-30 10:32 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -110,7 +110,7 @@ Latest H1 results:
   Hamming `33.8`.
 - Hierarchical beam is worse on these checkpoints: best remaining Hamming
   `28.8`.
-- H1-extra has 438 partial rows so far, no exact solves. Best partial row:
+- H1-extra has 443 partial rows so far, no exact solves. Best partial row:
   `rank_pairwise_both_action`, `mpc_beam`, oracle changed-cell raw L2,
   depth `4`, remaining Hamming `14.9`.
 
