@@ -12,6 +12,11 @@
   `docs/EXPERIMENT_PLAN.md` concise. They should point to the report repo and
   hold only the latest operational snapshot needed by an agent starting in this
   repo.
+- Keep a dedicated current-sweep summary in
+  `../sequence-editing-report/CURRENT_EXPERIMENTS.md`, with a compact mirror in
+  `docs/CURRENT_EXPERIMENTS.md`. When the user asks "how is it going?", answer
+  from this current-sweep summary: first summarize what this sweep is testing
+  and what it means, then give result tables, then give analysis/insights.
 - For Slurm work, include job IDs, config/run names, state, output roots,
   checkpoints, latest meaningful metrics, and failure reasons in the report repo
   and in the compact in-repo snapshot.
@@ -19,8 +24,13 @@
   Add new experiments when they are proposed, update their status when submitted
   or completed, and record the gate/decision that determines the next run.
 - Maintain `../sequence-editing-report/LOG.md` as a short chronological log of
-  useful events: submissions, cancellations, fixes, failures, final results, and
-  interpretation changes.
+  major events only: new experiment grids submitted, cancellations, important
+  fixes, failures, final results, and interpretation changes. Do not log routine
+  conversational Q&A or every status request.
+- Only aggregate results into `RESULTS.md`, `STATUS.md`, and
+  `CURRENT_EXPERIMENTS.md` when new data, new insights, major Slurm state
+  changes, or new experiment grids exist. Avoid churn from logging every
+  interaction.
 - During housekeeping of pending Slurm jobs, check whether other suitable GPU
   partitions appear freer. When appropriate, try broadening pending jobs with
   `scontrol update JobId=<jobid> Partition=<partition1,partition2>` to reduce
