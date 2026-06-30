@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-06-29 14:10 CEST
+Last updated: 2026-06-30 10:15 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -82,54 +82,37 @@ predicted-goal success.
 
 ## H1 Debug Sweep
 
-Submitted a small controlled sweep to isolate the gap between the earlier
-successful `H1_hierarchy_dense_l4_l16` run and the failed weekend `DK*` runs.
-The initial submission `3795111`/`3795112` was canceled after four minutes
-because it used per-index seeds and included `2e-5` instead of `5e-4`.
+The controlled H1 debug sweeps are complete; H1-extra evals are still running.
 
-- Corrected train array `3795127`, `grid_goal_h1dbg_train`, array `0-5%6`,
-  partition `rtxpro6k`, 24h. At 11:58 CEST all six train tasks are running.
-- Corrected eval array `3795128`, `grid_goal_h1dbg_eval`, dependency
-  `aftercorr:3795127`, array `0-5%6`, partition `rtxpro6k`, 24h.
-- Variants:
-  - `K14816_LR1e4`, `K14816_LR5e5`, `K14816_LR5e4`
-  - `K16_LR1e4`, `K16_LR5e5`, `K16_LR5e4`
-- Fixed config: batch `8`, 45k steps, hierarchy `[4,16]`, context-only goal
-  predictor, `affected_marker`, delta predictor, EMA+VICReg, no goal NCE,
-  fixed seed `5204` for every variant.
+Completed:
 
-Submitted a matching no-delta sweep:
+- H1 delta train/eval: `3795127`/`3795128`, six variants, batch `8`, 45k
+  steps, hierarchy `[4,16]`, context-only goal predictor, `affected_marker`,
+  delta predictor, EMA+VICReg, no goal NCE, fixed seed `5204`.
+- H1 no-delta train/eval: `3795143`/`3795144`, same six variants and seed,
+  but `model.predict_delta=false`.
+- H1 hierarchical-beam add-on evals: `3795248` and `3795249`.
+- H1-extra train: `3795246_0-10` plus replacement `3795327_11`. The original
+  `3795246_11` OOMed at batch `8`; the comparable replacement used batch `4`
+  with grad accumulation `2`, effective batch `8`.
 
-- Train array `3795143`, `grid_goal_h1dbg_train`, array `0-5%6`, partition
-  `rtxpro6k`, 24h. At 12:01 CEST all six train tasks are running.
-- Eval array `3795144`, `grid_goal_h1dbg_eval`, dependency
-  `aftercorr:3795143`, array `0-5%6`, partition `rtxpro6k`, 24h.
-- Same six horizon/LR variants and fixed seed `5204`, but
-  `model.predict_delta=false`.
-- Output prefix: `grid_goal_h1_debug_nodelta_seed5204`.
+Running:
 
-Submitted H1 hierarchical-beam add-on evals:
+- H1-extra evals `3795247_0-7,9,10` and replacement `3795328_11`.
+- `3795247_8` completed. `3795247_11` was canceled after the superseded OOM.
 
-- `3795248`, `grid_goal_h1hier_eval`, dependency `aftercorr:3795127`, adds
-  `hierarchical_beam` rows for the delta H1 debug sweep.
-- `3795249`, `grid_goal_h1hier_eval`, dependency `aftercorr:3795143`, adds
-  `hierarchical_beam` rows for the no-delta H1 debug sweep.
-- Both write to `planner_eval_h1_debug_hierarchical` under each run root.
+Latest H1 results:
 
-Submitted H1-extra controlled wave:
-
-- Train array `3795246`, `grid_goal_h1x_train`, array `0-11%12`,
-  partitions `rtxpro6k,a100`, 24h. Tasks `0-10` are running at batch 8.
-  Task `11` (`hier_l4_l16_hier_dense`) OOMed at batch 8.
-- Eval array `3795247`, `grid_goal_h1x_eval`, dependency
-  `aftercorr:3795246`, array `0-11%12`, partitions `rtxpro6k,a100`, 24h.
-  Element `3795247_11` was canceled after the train OOM.
-- First replacement hierarchy-dense train/eval elements
-  `3795306_11`/`3795307_11` used batch `4` with grad accumulation `1` and
-  were canceled for comparability.
-- Comparable replacement hierarchy-dense train/eval elements
-  `3795327_11`/`3795328_11` use batch `4` with grad accumulation `2`; the
-  train element logged effective batch size `8` at step `1`.
+- H1 exact solve rate is `0/10` across completed rows.
+- Best H1 `mpc_beam` row: no-delta `K16_LR5e4`, oracle changed-cell raw L2,
+  depth `4`, remaining Hamming `6.6`. Depths `16/32/64` are `6.9-7.0`.
+- Best predicted-goal changed-cell row on the same checkpoint is remaining
+  Hamming `33.8`.
+- Hierarchical beam is worse on these checkpoints: best remaining Hamming
+  `28.8`.
+- H1-extra has 434 partial rows so far, no exact solves. Best partial row:
+  `rank_pairwise_both_action`, `mpc_beam`, oracle changed-cell raw L2,
+  depth `4`, remaining Hamming `14.9`.
 
 Storage cleanup at 2026-06-29 14:10 CEST:
 
