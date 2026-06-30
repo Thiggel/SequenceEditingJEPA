@@ -50,7 +50,8 @@ def main() -> None:
         variant = VARIANTS[index]
         if checkpoint_exists(work_root, variant):
             continue
-        key = f"{variant}:oom_batch4_accum2"
+        batch_size, grad_accum, retry_label = recovery_settings(failure)
+        key = f"{variant}:{retry_label}"
         if key in marker:
             continue
         train = subprocess.check_output(
@@ -60,7 +61,7 @@ def main() -> None:
                 "--partition=rtxpro6k,a100",
                 f"--nodelist={SAFE_NODES}",
                 f"--array={index}",
-                "--export=ALL,BATCH_SIZE=4,GRADIENT_ACCUMULATION_STEPS=2",
+                f"--export=ALL,BATCH_SIZE={batch_size},GRADIENT_ACCUMULATION_STEPS={grad_accum}",
                 "scripts/slurm/run_grid_goal_h1_recipe_train.slurm",
             ],
             text=True,
@@ -83,6 +84,8 @@ def main() -> None:
             "index": index,
             "variant": variant,
             "failed_job": failure["job_id"],
+            "batch_size": batch_size,
+            "grad_accum": grad_accum,
             "train": train,
             "eval": eval_job,
         }
@@ -102,6 +105,12 @@ def load_marker(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
     return json.loads(path.read_text())
+
+
+def recovery_settings(failure: dict[str, Any]) -> tuple[int, int, str]:
+    if failure["array_job"] == "3800228":
+        return 2, 4, "oom_batch2_accum4"
+    return 4, 2, "oom_batch4_accum2"
 
 
 def checkpoint_exists(work_root: Path, variant: str) -> bool:
@@ -171,7 +180,8 @@ def update_report(report_root: Path, record: dict[str, Any]) -> None:
         for item in record["submissions"]:
             handle.write(
                 f"- Resubmitted `{item['variant']}` after OOM-like failure "
-                f"`{item['failed_job']}` with batch `4` and grad accumulation `2`: "
+                f"`{item['failed_job']}` with batch `{item['batch_size']}` "
+                f"and grad accumulation `{item['grad_accum']}`: "
                 f"train `{item['train']}`, eval `{item['eval']}`.\n"
             )
 

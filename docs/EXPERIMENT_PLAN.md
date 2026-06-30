@@ -79,8 +79,9 @@ Submitted implementation:
 - oversight job: `3800130`, dependency `afterany:3799697:3800229`, with
   `H1_RECIPE_SUBMIT_NEXT=1`
 - health job: `3800223`, begin time `2026-06-30 23:02 CEST`; checks for
-  OOM-like train failures, including retry `3800228`, and resubmits affected variants with microbatch `4`
-  and grad accumulation `2`
+  OOM-like train failures, including retry `3800228`; fresh OOMs are retried
+  with microbatch `4` and grad accumulation `2`, while an OOM of retry
+  `3800228` falls back to microbatch `2` and grad accumulation `4`
 - new score modes:
   `oracle_goal_affected_context_raw_euclidean_distance` and
   `predicted_goal_affected_context_raw_euclidean_distance`

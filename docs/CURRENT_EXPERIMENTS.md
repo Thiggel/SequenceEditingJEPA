@@ -20,7 +20,7 @@ Slurm:
 | `3799697` eval `0-3,5-16` | dependency-held | `aftercorr:3799696`; task `4` canceled because original train task failed |
 | `3800229` eval `4` | dependency-held | retry eval, `afterok:3800228`; stale `3799778_4` was canceled |
 | `3800130` oversight | dependency-held | dependency retargeted to `afterany:3799697:3800229`; may repair evals and submit Wave 2 |
-| `3800223` health | begin-held | starts `2026-06-30 23:02 CEST`; checks A100/RTX OOMs, including retry `3800228`, and resubmits OOM failures at batch 4 / grad accumulation 2 |
+| `3800223` health | begin-held | starts `2026-06-30 23:02 CEST`; checks A100/RTX OOMs, including retry `3800228`; retries fresh OOMs at batch 4 / grad accumulation 2, and an OOM of `3800228` at batch 2 / grad accumulation 4 |
 
 Operational note: original train task `3799696_4` failed immediately from a
 bf16/float dtype mismatch in `old_local_concat`. Code commit `69d5c78` fixes
@@ -36,8 +36,9 @@ and retry train/eval jobs `3800228_4`/`3800229_4` were submitted on
 accumulation `2`. The retry train is running on `a0934`. Pending original tasks
 `3799696_7-16` were briefly broadened too, but that worsened the grouped ETA;
 they were restored to RTX-only. Health job `3800223` will check in one hour for
-OOM-like failures, including retry `3800228`, and submit batch-4 /
-grad-accum-2 replacements if needed.
+OOM-like failures, including retry `3800228`. Fresh OOMs are resubmitted at
+batch `4` / grad accumulation `2`; if the already-reduced retry `3800228`
+OOMs, it is resubmitted at batch `2` / grad accumulation `4`.
 
 Oversight job `3800130` uses [H1_RECIPE_OVERSIGHT.md](H1_RECIPE_OVERSIGHT.md)
 as the handoff. It summarizes the sweep, chooses best action/dynamics variants
