@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 21:20 CEST
+Last updated: 2026-06-30 22:04 CEST
 
 ## H1-Anchored Recipe Search
 
@@ -76,6 +76,9 @@ Submitted implementation:
   `69d5c78`
 - oversight job: `3800130`, dependency `afterany:3799697:3799778`, with
   `H1_RECIPE_SUBMIT_NEXT=1`
+- health job: `3800223`, begin time `2026-06-30 23:02 CEST`; checks for
+  OOM-like train failures and resubmits affected variants with microbatch `4`
+  and grad accumulation `2`
 - new score modes:
   `oracle_goal_affected_context_raw_euclidean_distance` and
   `predicted_goal_affected_context_raw_euclidean_distance`
