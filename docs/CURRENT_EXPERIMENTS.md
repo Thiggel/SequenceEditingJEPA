@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-06-30 18:46 CEST
+Last updated: 2026-06-30 19:04 CEST
 
 ## H1 Recipe Sweep
 
@@ -13,8 +13,16 @@ Slurm:
 
 | Array | State | Notes |
 |---|---:|---|
-| `3799696` train `0-16%17` | pending | 17 H1-compatible single-factor variants on `rtxpro6k` |
-| `3799697` eval `0-16%17` | dependency-held | `aftercorr:3799696`, one eval per completed train task |
+| `3799696` train `0-3,5` | running | started between 18:59 and 19:01 CEST on `a2941` |
+| `3799696` train `6-16` | pending | Slurm ETA `2026-06-30 23:18 CEST`, reason `Resources` |
+| `3799777` train `4` | pending | replacement for failed `action_old_local_concat`; reason `Priority`, no ETA yet |
+| `3799697` eval `0-3,5-16` | dependency-held | `aftercorr:3799696`; task `4` canceled because original train task failed |
+| `3799778` eval `4` | dependency-held | replacement eval, `afterok:3799777` |
+
+Operational note: original train task `3799696_4` failed immediately from a
+bf16/float dtype mismatch in `old_local_concat`. Code commit `69d5c78` fixes
+the concat path and adds a regression test; replacement train/eval jobs
+`3799777_4`/`3799778_4` were submitted.
 
 Training basis for `anchor_h1`:
 

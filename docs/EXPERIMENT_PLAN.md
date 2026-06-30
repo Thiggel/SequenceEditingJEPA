@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 18:46 CEST
+Last updated: 2026-06-30 19:04 CEST
 
 ## H1-Anchored Recipe Search
 
@@ -71,6 +71,9 @@ Submitted implementation:
 - train array: `3799696`, `grid_goal_h1r_train`, `0-16%17`, `rtxpro6k`
 - eval array: `3799697`, `grid_goal_h1r_eval`, `aftercorr:3799696`,
   `0-16%17`, `rtxpro6k`
+- replacement for `action_old_local_concat`: train `3799777_4`, eval
+  `3799778_4`; original `3799696_4` hit a bf16 dtype bug fixed in code commit
+  `69d5c78`
 - new score modes:
   `oracle_goal_affected_context_raw_euclidean_distance` and
   `predicted_goal_affected_context_raw_euclidean_distance`
