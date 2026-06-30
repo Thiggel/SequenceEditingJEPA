@@ -1258,7 +1258,10 @@ class GridTokenGoalJEPA(nn.Module):
             raise ValueError("Expected state_latent [batch, tokens, dim] and actions [batch, 3].")
         batch_ids = torch.arange(state_latent.shape[0], device=state_latent.device)
         positions = _action_positions(action, rows=self.max_rows, cols=self.max_cols)
-        updated = self.old_local_concat(torch.cat([state_latent[batch_ids, positions], values], dim=-1))
+        local_input = torch.cat([state_latent[batch_ids, positions], values], dim=-1)
+        local_input = local_input.to(dtype=self.old_local_concat.weight.dtype)
+        updated = self.old_local_concat(local_input)
+        updated = updated.to(dtype=state_latent.dtype)
         conditioned = state_latent.clone()
         conditioned[batch_ids, positions] = updated
         return conditioned

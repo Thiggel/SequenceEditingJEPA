@@ -236,6 +236,16 @@ def test_old_local_concat_replaces_the_edited_cell_with_concat_projection():
     torch.testing.assert_close(conditioned[:, 40], state[:, 40])
 
 
+def test_old_local_concat_preserves_bfloat16_latent_dtype():
+    model = _small_model(action_conditioning="old_local_concat")
+    state = torch.zeros((1, 81, model.d_model), dtype=torch.bfloat16)
+    action = torch.tensor([[4, 5, 6]])
+
+    conditioned = model._condition_state_latents(state, action, None)
+
+    assert conditioned.dtype == torch.bfloat16
+
+
 def test_delta_predictor_returns_residual_over_current_latent():
     batch = _small_batch()
     base = _small_model(predict_delta=False)
