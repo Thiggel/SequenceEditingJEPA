@@ -7,7 +7,10 @@ Last updated: 2026-06-30 10:56 CEST
 The old Sudoku local-action result lives in the Grid3A/3B runs, especially
 `sudoku_jepa_5m_local_direct_weighted_rollout_n2`. The archived action path was
 `action_injection: local_value`: add the digit/value embedding to the selected
-cell latent. The 100% result was from oracle-goal symbolic re-encoding/reset
+cell latent. It trained for `5000` optimizer steps at LR `1e-4`, with batches
+of `768-1024` one-step transitions rather than full trajectories. The old
+model had `8.55M` params; common current H1 hierarchy configs are about
+`37.5M`. The 100% result was from oracle-goal symbolic re-encoding/reset
 planning (`64/64` and `128/128`), not uninterrupted latent rollout; no-reset
 latent planning on the same run solved only `4/64` to `7/128`.
 
