@@ -9,7 +9,7 @@ import torch
 
 from puzzle_jepa.data.grid_goal_sudoku import apply_fill_action, legal_fill_actions
 from puzzle_jepa.data.worlds import WorldAction
-from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
+from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights
 
 
 ScoreMode = Literal[
@@ -29,6 +29,8 @@ ScoreMode = Literal[
     "predicted_goal_raw_euclidean_progress",
     "oracle_goal_changed_cell_raw_euclidean_distance",
     "predicted_goal_changed_cell_raw_euclidean_distance",
+    "oracle_goal_affected_context_raw_euclidean_distance",
+    "predicted_goal_affected_context_raw_euclidean_distance",
     "oracle_goal_delta_top1_raw_euclidean_distance",
     "predicted_goal_delta_top1_raw_euclidean_distance",
     "oracle_goal_delta_top3_raw_euclidean_distance",
@@ -798,6 +800,12 @@ def _beam_plan_once_latent(
                 )
             elif _is_changed_cell_score(score_mode):
                 score_values = changed_cell_raw_euclidean_distances(next_latents, _expand_tokens_like(target_goal, next_latents), actions[start:end])
+            elif _is_affected_context_score(score_mode):
+                score_values = affected_context_raw_euclidean_distances(
+                    next_latents,
+                    _expand_tokens_like(target_goal, next_latents),
+                    actions[start:end],
+                )
             else:
                 score_values = latent_distance(model, next_latents, predicted_goal, oracle_goal, chunk_mask, score_mode)
             score_values = _apply_policy_prior_bias(
@@ -885,6 +893,12 @@ def _latent_beam_candidates(
                 )
             elif _is_changed_cell_score(score_mode):
                 score_values = changed_cell_raw_euclidean_distances(
+                    next_latents,
+                    _expand_tokens_like(target_goal, next_latents),
+                    actions[start:end],
+                )
+            elif _is_affected_context_score(score_mode):
+                score_values = affected_context_raw_euclidean_distances(
                     next_latents,
                     _expand_tokens_like(target_goal, next_latents),
                     actions[start:end],
@@ -999,6 +1013,8 @@ def _beam_plan_once_symbolic(
             score_values = torch.stack(
                 [changed_cell_raw_euclidean_distance(leaf_latents[i : i + 1], target_goal, action) for i, action in enumerate(actions)]
             ).reshape(-1)
+        elif _is_affected_context_score(score_mode):
+            score_values = affected_context_raw_euclidean_distances(leaf_latents, _expand_tokens_like(target_goal, leaf_latents), actions)
         else:
             score_values = latent_distance(model, leaf_latents, predicted_goal, oracle_goal, mask_t, score_mode)
         if _policy_prior_planning_weight(model) > 0.0:
@@ -1118,7 +1134,7 @@ def latent_distance(
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask) + raw_tokenwise_cosine_distance(latent, target_goal, mask)
     if metric == "projected_euclidean_distance":
         return projected_tokenwise_euclidean_distance(latent, target_goal, mask, model.distance_projector)
-    if metric == "changed_cell_raw_euclidean_distance":
+    if metric in {"changed_cell_raw_euclidean_distance", "affected_context_raw_euclidean_distance"}:
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
     if _is_delta_topk_score(score_mode):
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
@@ -1225,6 +1241,9 @@ def _score_cem_sequences(
     if _is_changed_cell_score(score_mode):
         final_actions = [ACTION_VOCAB[int(action_id)] for action_id in seq_ids[:, -1]]
         scores = changed_cell_raw_euclidean_distances(latents, _expand_tokens_like(target_goal, latents), final_actions)
+    elif _is_affected_context_score(score_mode):
+        final_actions = [ACTION_VOCAB[int(action_id)] for action_id in seq_ids[:, -1]]
+        scores = affected_context_raw_euclidean_distances(latents, _expand_tokens_like(target_goal, latents), final_actions)
     else:
         scores = latent_distance(model, latents, predicted_goal, oracle_goal, mask, score_mode)
     return scores.detach().cpu().numpy()
@@ -1249,6 +1268,10 @@ def _is_progress_score(score_mode: str) -> bool:
 
 def _is_changed_cell_score(score_mode: str) -> bool:
     return _score_metric_name(score_mode) == "changed_cell_raw_euclidean_distance"
+
+
+def _is_affected_context_score(score_mode: str) -> bool:
+    return _score_metric_name(score_mode) == "affected_context_raw_euclidean_distance"
 
 
 def _is_delta_topk_score(score_mode: str) -> bool:
@@ -1383,6 +1406,41 @@ def changed_cell_raw_euclidean_distances(a: torch.Tensor, b: torch.Tensor, actio
         raise ValueError(f"Action cell indices must be inside token count {a.shape[-2]}.")
     batch = torch.arange(a.shape[0], device=a.device)
     return (a[batch, indices, :].float() - b[batch, indices, :].float()).square().sum(dim=-1).sqrt()
+
+
+def affected_context_raw_euclidean_distances(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    actions: list[WorldAction],
+    *,
+    rows: int = 9,
+    cols: int = 9,
+    affected_weight: float = 8.0,
+    context_weight: float = 2.0,
+) -> torch.Tensor:
+    if a.shape != b.shape:
+        raise ValueError(f"Affected-context distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    if len(actions) != a.shape[0]:
+        raise ValueError(f"Expected one action per batch item, got {len(actions)} actions for batch size {a.shape[0]}.")
+    if a.shape[-2] != rows * cols:
+        raise ValueError(f"Expected {rows * cols} board tokens for a {rows}x{cols} grid, got {a.shape[-2]}.")
+    action_t = torch.as_tensor(
+        [[int(action.row), int(action.col), int(action.value)] for action in actions],
+        dtype=torch.long,
+        device=a.device,
+    )
+    weights = _affected_token_weights(
+        action_t,
+        token_count=rows * cols,
+        rows=rows,
+        cols=cols,
+        affected_weight=affected_weight,
+        context_weight=context_weight,
+        horizon=1,
+    ).to(dtype=a.dtype, device=a.device)
+    per_token = (a.float() - b.float()).square().sum(dim=-1).sqrt()
+    weights = weights.to(dtype=per_token.dtype)
+    return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
 
 
 def delta_topk_raw_euclidean_distances(

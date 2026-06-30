@@ -51,6 +51,7 @@ model:
   predict_delta: false
   dynamics_weighting: uniform
   affected_dynamics_weight: 32.0
+  context_dynamics_weight: 2.0
   regularizer: sigreg
   use_ema_target_encoder: false
   ema_decay: 0.995

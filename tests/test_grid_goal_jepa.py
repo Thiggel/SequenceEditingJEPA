@@ -10,6 +10,7 @@ from puzzle_jepa.data.grid_goal_sudoku import (
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights, _temporal_straightening_loss
 from puzzle_jepa.planning.grid_goal_planner import (
+    affected_context_raw_euclidean_distances,
     changed_cell_raw_euclidean_distance,
     changed_cell_raw_euclidean_distances,
     delta_topk_raw_euclidean_distances,
@@ -260,6 +261,27 @@ def test_affected_dynamics_weights_emphasize_action_cells():
     assert weights[0, 1, 8].item() == pytest.approx(11.0)
     assert weights[0, 1, 1].item() == pytest.approx(11.0)
     assert weights[0, 0, 0].item() == pytest.approx(1.0)
+
+
+def test_affected_context_dynamics_weights_mark_sudoku_row_col_and_block():
+    actions = torch.tensor([[4, 4, 5]])
+
+    weights = _affected_token_weights(
+        actions,
+        token_count=81,
+        rows=9,
+        cols=9,
+        affected_weight=8.0,
+        context_weight=2.0,
+        horizon=1,
+    )
+
+    assert weights.shape == (1, 81)
+    assert weights[0, 40].item() == pytest.approx(8.0)
+    assert weights[0, 36].item() == pytest.approx(2.0)
+    assert weights[0, 4].item() == pytest.approx(2.0)
+    assert weights[0, 30].item() == pytest.approx(2.0)
+    assert weights[0, 0].item() == pytest.approx(1.0)
 
 
 def test_forward_runs_with_affected_weighting_vicreg_and_ema_target_encoder():
@@ -627,6 +649,8 @@ def test_beam_mpc_runs_with_raw_oracle_euclidean_goal_distance():
         "predicted_goal_raw_euclidean_progress",
         "oracle_goal_changed_cell_raw_euclidean_distance",
         "predicted_goal_changed_cell_raw_euclidean_distance",
+        "oracle_goal_affected_context_raw_euclidean_distance",
+        "predicted_goal_affected_context_raw_euclidean_distance",
         "oracle_goal_projected_euclidean_distance",
         "predicted_goal_projected_euclidean_distance",
     ],
@@ -662,6 +686,7 @@ def test_beam_mpc_runs_with_oracle_metric_probe_scores(score_mode):
         "predicted_goal_raw_hybrid_distance",
         "oracle_goal_raw_euclidean_progress",
         "predicted_goal_changed_cell_raw_euclidean_distance",
+        "oracle_goal_affected_context_raw_euclidean_distance",
     ],
 )
 def test_latent_rollout_beam_mpc_runs_with_metric_probe_scores(score_mode):
@@ -880,6 +905,19 @@ def test_batched_changed_cell_distance_matches_single_item_distance():
 
     assert batched.tolist() == pytest.approx([5.0, 13.0])
     assert batched[0].item() == pytest.approx(changed_cell_raw_euclidean_distance(a[:1], b[:1], actions[0]).item())
+
+
+def test_affected_context_distance_uses_local_context_weights():
+    a = torch.zeros((1, 81, 1))
+    b = torch.zeros_like(a)
+    a[0, 40, 0] = 1.0
+    a[0, 36, 0] = 1.0
+    a[0, 0, 0] = 1.0
+    actions = [WorldAction(4, 4, 5)]
+
+    score = affected_context_raw_euclidean_distances(a, b, actions, affected_weight=8.0, context_weight=2.0)
+
+    assert score.item() == pytest.approx((8.0 + 2.0 + 1.0) / 108.0)
 
 
 def test_delta_topk_distance_scores_largest_predicted_changes():

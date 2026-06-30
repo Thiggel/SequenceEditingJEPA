@@ -258,6 +258,7 @@ class GridTokenGoalJEPA(nn.Module):
         predict_delta: bool = False,
         dynamics_weighting: str = "uniform",
         affected_dynamics_weight: float = 32.0,
+        context_dynamics_weight: float = 2.0,
         regularizer: str = "sigreg",
         use_ema_target_encoder: bool = False,
         ema_decay: float = 0.995,
@@ -400,14 +401,15 @@ class GridTokenGoalJEPA(nn.Module):
         }
         if action_conditioning not in allowed_action_conditioning:
             raise ValueError(f"action_conditioning must be one of {sorted(allowed_action_conditioning)}.")
-        if dynamics_weighting not in {"uniform", "affected"}:
-            raise ValueError("dynamics_weighting must be 'uniform' or 'affected'.")
+        if dynamics_weighting not in {"uniform", "affected", "affected_context"}:
+            raise ValueError("dynamics_weighting must be 'uniform', 'affected', or 'affected_context'.")
         if regularizer not in {"sigreg", "vicreg", "none"}:
             raise ValueError("regularizer must be 'sigreg', 'vicreg', or 'none'.")
         self.action_conditioning = str(action_conditioning)
         self.predict_delta = bool(predict_delta)
         self.dynamics_weighting = str(dynamics_weighting)
         self.affected_dynamics_weight = float(affected_dynamics_weight)
+        self.context_dynamics_weight = float(context_dynamics_weight)
         self.regularizer = str(regularizer)
         self.use_ema_target_encoder = bool(use_ema_target_encoder)
         self.ema_decay = float(ema_decay)
@@ -1287,12 +1289,14 @@ class GridTokenGoalJEPA(nn.Module):
         per_token = (predicted - target).square().mean(dim=-1)
         if self.dynamics_weighting == "uniform":
             return per_token.mean(dim=-1)
+        context_weight = self.context_dynamics_weight if self.dynamics_weighting == "affected_context" else None
         weights = _affected_token_weights(
             actions,
             token_count=rows * cols,
             rows=rows,
             cols=cols,
             affected_weight=self.affected_dynamics_weight,
+            context_weight=context_weight,
             horizon=horizon,
         ).to(dtype=per_token.dtype, device=per_token.device)
         return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
@@ -1372,11 +1376,14 @@ def _affected_token_weights(
     rows: int,
     cols: int,
     affected_weight: float,
+    context_weight: float | None = None,
     horizon: int,
 ) -> torch.Tensor:
     if actions.ndim == 2:
         weights = torch.ones((actions.shape[0], token_count), device=actions.device)
         batch_ids = torch.arange(actions.shape[0], device=actions.device)
+        if context_weight is not None:
+            _mark_action_context_weights(weights, actions, rows=rows, cols=cols, weight=float(context_weight))
         weights[batch_ids, _action_positions(actions, rows=rows, cols=cols)] = float(affected_weight)
         return weights
     if actions.ndim != 3:
@@ -1387,9 +1394,44 @@ def _affected_token_weights(
     batch_ids = torch.arange(batch, device=actions.device)[:, None].expand(batch, start_count)
     start_ids = torch.arange(start_count, device=actions.device)[None, :].expand(batch, start_count)
     for offset in range(horizon):
-        positions = _action_positions(actions[:, offset : offset + start_count], rows=rows, cols=cols)
+        window_actions = actions[:, offset : offset + start_count]
+        if context_weight is not None:
+            _mark_action_context_weights(
+                weights.reshape(batch * start_count, token_count),
+                window_actions.reshape(batch * start_count, 3),
+                rows=rows,
+                cols=cols,
+                weight=float(context_weight),
+            )
+        positions = _action_positions(window_actions, rows=rows, cols=cols)
         weights[batch_ids, start_ids, positions] = float(affected_weight)
     return weights
+
+
+def _mark_action_context_weights(
+    weights: torch.Tensor,
+    actions: torch.Tensor,
+    *,
+    rows: int,
+    cols: int,
+    weight: float,
+) -> None:
+    if weights.ndim != 2 or actions.ndim != 2:
+        raise ValueError("Expected weights [batch, tokens] and actions [batch, 3].")
+    batch_ids = torch.arange(actions.shape[0], device=actions.device)[:, None]
+    row = actions[:, 0].clamp(0, rows - 1)
+    col = actions[:, 1].clamp(0, cols - 1)
+    all_cols = torch.arange(cols, device=actions.device)[None, :]
+    row_positions = row[:, None] * cols + all_cols
+    weights[batch_ids.expand_as(row_positions), row_positions] = weight
+    all_rows = torch.arange(rows, device=actions.device)[None, :]
+    col_positions = all_rows * cols + col[:, None]
+    weights[batch_ids.expand_as(col_positions), col_positions] = weight
+    if rows == 9 and cols == 9:
+        block_rows = (row[:, None] // 3) * 3 + torch.arange(3, device=actions.device)[None, :]
+        block_cols = (col[:, None] // 3) * 3 + torch.arange(3, device=actions.device)[None, :]
+        block_positions = (block_rows[:, :, None] * cols + block_cols[:, None, :]).reshape(actions.shape[0], -1)
+        weights[batch_ids.expand_as(block_positions), block_positions] = weight
 
 
 def _progress_rank_loss(distances: torch.Tensor, masks: torch.Tensor, *, margin: float, temperature: float) -> torch.Tensor:

@@ -37,12 +37,32 @@ OLDLOCAL_VARIANTS = (
     "rank_no_action",
 )
 
+H1_RECIPE_VARIANTS = (
+    "anchor_h1",
+    "action_token",
+    "action_local_feature",
+    "action_old_local_value",
+    "action_old_local_concat",
+    "dynamics_affected",
+    "dynamics_affected_context",
+    "no_temporal",
+    "no_progress",
+    "no_action_rank",
+    "no_terminal_corrupt",
+    "no_vicreg",
+    "minimal_aux",
+    "hier_none",
+    "hier_l4",
+    "hier_l16",
+    "hier_l4_l16_l32",
+)
+
 
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
     work = tmp_path / "work"
     venv_bin = work / ".venv" / "bin"
-    venv_bin.mkdir(parents=True)
+    venv_bin.mkdir(parents=True, exist_ok=True)
     capture_file = tmp_path / "python_args.txt"
     fake_python = venv_bin / "python"
     fake_python.write_text(
@@ -105,7 +125,7 @@ def _capture_python_args(tmp_path: Path, *, script: str, array_index: int, check
     repo_root = Path(__file__).resolve().parents[1]
     work = tmp_path / "work"
     venv_bin = work / ".venv" / "bin"
-    venv_bin.mkdir(parents=True)
+    venv_bin.mkdir(parents=True, exist_ok=True)
     capture_file = tmp_path / f"{Path(script).stem}_{array_index}_args.txt"
     fake_python = venv_bin / "python"
     fake_python.write_text(
@@ -118,6 +138,49 @@ def _capture_python_args(tmp_path: Path, *, script: str, array_index: int, check
     if checkpoint:
         variant = OLDLOCAL_VARIANTS[array_index]
         run_root = work / "runs" / "grid_goal_oldlocal_fast" / f"grid_goal_oldlocal_fast_{variant}"
+        run_root.mkdir(parents=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "SLURM_ARRAY_TASK_ID": str(array_index),
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_h1_recipe_args(tmp_path: Path, *, script: str, array_index: int, checkpoint: bool = False) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{array_index}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        variant = H1_RECIPE_VARIANTS[array_index]
+        run_root = work / "runs" / "grid_goal_h1_recipe" / f"grid_goal_h1_recipe_{variant}"
         run_root.mkdir(parents=True)
         (run_root / "checkpoint.pt").write_bytes(b"placeholder")
 
@@ -205,3 +268,74 @@ def test_oldlocal_fast_eval_records_old_full_board_raw_mse_for_oracle_and_predic
     assert "predicted_goal_raw_mse_distance" in scores
     assert args[args.index("--beam-depths") + 1] == "1,4,16,32"
     assert args[args.index("--transitions") + 1] == "symbolic_reencode,latent_rollout"
+
+
+def test_h1_recipe_anchor_uses_h1_compatible_basis(tmp_path):
+    args = _capture_h1_recipe_args(tmp_path, script="scripts/slurm/run_grid_goal_h1_recipe_train.slurm", array_index=0)
+
+    assert "model.action_conditioning=affected_marker" in args
+    assert "model.predict_delta=true" in args
+    assert "model.dense_future_weight=1.0" in args
+    assert "model.multi_step_horizons=[1,4,8,16]" in args
+    assert "model.hierarchy_levels=[4,16]" in args
+    assert "model.goal_conditioning=context" in args
+    assert "model.goal_nce_weight=0.0" in args
+    assert "training.max_steps=45000" in args
+
+
+def test_h1_recipe_action_variants_are_single_factor_overrides(tmp_path):
+    value_args = _capture_h1_recipe_args(tmp_path, script="scripts/slurm/run_grid_goal_h1_recipe_train.slurm", array_index=3)
+    concat_args = _capture_h1_recipe_args(tmp_path, script="scripts/slurm/run_grid_goal_h1_recipe_train.slurm", array_index=4)
+
+    assert "model.action_conditioning=old_local_value" in value_args
+    assert "model.action_conditioning=old_local_concat" in concat_args
+    assert "model.hierarchy_levels=[4,16]" in value_args
+    assert "model.hierarchy_levels=[4,16]" in concat_args
+
+
+def test_h1_recipe_affected_context_variant_enables_local_context_weighting(tmp_path):
+    args = _capture_h1_recipe_args(tmp_path, script="scripts/slurm/run_grid_goal_h1_recipe_train.slurm", array_index=6)
+
+    assert "model.dynamics_weighting=affected_context" in args
+    assert "model.affected_dynamics_weight=8.0" in args
+    assert "model.context_dynamics_weight=2.0" in args
+
+
+def test_h1_recipe_auxiliary_ablation_removes_all_auxiliary_geometry_losses(tmp_path):
+    args = _capture_h1_recipe_args(tmp_path, script="scripts/slurm/run_grid_goal_h1_recipe_train.slurm", array_index=12)
+
+    assert "model.temporal_straightening_weight=0.0" in args
+    assert "model.progress_rank_target=none" in args
+    assert "model.progress_rank_weight=0.0" in args
+    assert "model.action_rank_mode=none" in args
+    assert "model.action_rank_weight=0.0" in args
+    assert "model.terminal_corrupt_weight=0.0" in args
+    assert "model.regularizer=none" in args
+
+
+def test_h1_recipe_eval_includes_local_context_scores_and_both_transition_modes(tmp_path):
+    args = _capture_h1_recipe_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_h1_recipe_eval.slurm",
+        array_index=0,
+        checkpoint=True,
+    )
+    scores = args[args.index("--scores") + 1].split(",")
+
+    assert "oracle_goal_affected_context_raw_euclidean_distance" in scores
+    assert "predicted_goal_affected_context_raw_euclidean_distance" in scores
+    assert "oracle_goal_raw_mse_distance" in scores
+    assert args[args.index("--transitions") + 1] == "symbolic_reencode,latent_rollout"
+    assert args[args.index("--beam-depths") + 1] == "4,16,32,64"
+    assert args[args.index("--planners") + 1] == "mpc_beam,hierarchical_beam"
+
+
+def test_h1_recipe_eval_skips_hierarchical_beam_without_hierarchy(tmp_path):
+    args = _capture_h1_recipe_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_h1_recipe_eval.slurm",
+        array_index=13,
+        checkpoint=True,
+    )
+
+    assert args[args.index("--planners") + 1] == "mpc_beam"
