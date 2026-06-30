@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-06-30 17:41 CEST
+Last updated: 2026-06-30 18:03 CEST
 
 ## Old-Local Fast Wave
 
@@ -17,7 +17,7 @@ Slurm:
 | `3797928` train `0-17` | completed | all 18 checkpoints written |
 | `3797929` eval `0-17` | running | all 18 tasks running on `rtxpro6k`; `.err` files empty |
 
-Eval is still partial: `351 / 1984` expected planner rows are written
+Eval is still partial: `373 / 1984` expected planner rows are written
 (`17.7%`). So far only `mpc_beam + symbolic_reencode` rows have appeared; no
 latent-rollout or hierarchical-beam rows have been reached yet.
 
@@ -115,3 +115,8 @@ Best rows overall so far:
   Hamming is 14.5.
 - We still cannot judge latent rollout or hierarchy-as-planner from this eval
   pass, because those rows have not been reached yet.
+- However, failure in the symbolic re-encode rows is already enough to say this
+  wave is not a faithful reproduction of the old Grid3 result. The old run used
+  independent transition batches, local/context-weighted one-step and rollout
+  MSE, no Grid-Token goal predictor or auxiliary geometry losses, and an
+  overwrite-capable re-encoded/reset oracle planner.

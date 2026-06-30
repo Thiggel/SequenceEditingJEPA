@@ -1,6 +1,43 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 12:00 CEST
+Last updated: 2026-06-30 18:03 CEST
+
+## Legacy Grid3 Reproduction Step
+
+The current old-local fast wave did not faithfully reproduce the old
+`sudoku_jepa_5m_local_direct_weighted_rollout_n2` experiment. Before adding
+more Grid-Token ablations, the next clean step should be a minimal legacy
+reproduction:
+
+- use the historical `ActionConditionedWorldModel` recipe, not the current
+  Grid-Token Goal-JEPA architecture
+- `action_injection=local_value`
+- train independent transition batches, not full trajectory batches:
+  batch `768`, plus rollout batch `512`
+- rollout horizon `2`, rollout weight `1.0`
+- local/context-weighted MSE: changed cell `8`, Sudoku row/column/block
+  context `2`, base `1`
+- no VICReg/SIGReg, no temporal straightening, no progress monotonicity loss,
+  no action-ranking loss, no goal predictor, no terminal corruption loss
+- target encoder EMA with momentum `0.99`
+- dropout `0`, weight decay `0.05`, LR `1e-4`, `5000` steps
+- diagnostic planner should include the old re-encoded/reset oracle-goal path:
+  overwrite mutable cells, allow conflicts, shallow lookahead horizons
+  `{1,2,4}`, branch size `4` or diagnostic branch size `8`
+
+If this exact legacy reproduction again solves re-encoded oracle planning, then
+run a small controlled bridge:
+
+| Run | Change from legacy | Question |
+|---|---|---|
+| L0 | exact legacy recipe | Can we reproduce `64/64` or `128/128`? |
+| L1 | current fill-only planner, same checkpoint | Did planner action semantics break the result? |
+| L2 | Grid-Token architecture, legacy losses only | Did architecture change break the result? |
+| L3 | L2 + full-trajectory batching | Did batching/data distribution break it? |
+| L4 | L3 + VICReg only | Does VICReg hurt the oracle geometry? |
+| L5 | L3 + temporal straightening only | Does straightening hurt the oracle geometry? |
+| L6 | L3 + progress monotonicity only | Does monotonicity hurt the oracle geometry? |
+| L7 | L3 + all three | Do the auxiliary objectives jointly break it? |
 
 ## Old-Local-Value Fast Wave
 
