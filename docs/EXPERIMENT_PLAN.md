@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 19:04 CEST
+Last updated: 2026-06-30 21:20 CEST
 
 ## H1-Anchored Recipe Search
 
@@ -74,6 +74,8 @@ Submitted implementation:
 - replacement for `action_old_local_concat`: train `3799777_4`, eval
   `3799778_4`; original `3799696_4` hit a bf16 dtype bug fixed in code commit
   `69d5c78`
+- oversight job: `3800130`, dependency `afterany:3799697:3799778`, with
+  `H1_RECIPE_SUBMIT_NEXT=1`
 - new score modes:
   `oracle_goal_affected_context_raw_euclidean_distance` and
   `predicted_goal_affected_context_raw_euclidean_distance`

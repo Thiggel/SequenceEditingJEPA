@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-06-30 19:04 CEST
+Last updated: 2026-06-30 21:20 CEST
 
 ## H1 Recipe Sweep
 
@@ -18,11 +18,17 @@ Slurm:
 | `3799777` train `4` | pending | replacement for failed `action_old_local_concat`; reason `Priority`, no ETA yet |
 | `3799697` eval `0-3,5-16` | dependency-held | `aftercorr:3799696`; task `4` canceled because original train task failed |
 | `3799778` eval `4` | dependency-held | replacement eval, `afterok:3799777` |
+| `3800130` oversight | dependency-held | runs after `3799697` and `3799778` end; may repair evals and submit Wave 2 |
 
 Operational note: original train task `3799696_4` failed immediately from a
 bf16/float dtype mismatch in `old_local_concat`. Code commit `69d5c78` fixes
 the concat path and adds a regression test; replacement train/eval jobs
 `3799777_4`/`3799778_4` were submitted.
+
+Oversight job `3800130` uses [H1_RECIPE_OVERSIGHT.md](H1_RECIPE_OVERSIGHT.md)
+as the handoff. It summarizes the sweep, chooses best action/dynamics variants
+from oracle-local latent-rollout rows, repairs missing evals, and conditionally
+submits an 8-run Wave 2 interaction probe.
 
 Training basis for `anchor_h1`:
 

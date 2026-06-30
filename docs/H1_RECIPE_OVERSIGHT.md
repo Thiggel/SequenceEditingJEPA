@@ -1,6 +1,6 @@
 # H1 Recipe Oversight Handoff
 
-Last updated: 2026-06-30 21:18 CEST
+Last updated: 2026-06-30 21:20 CEST
 
 ## Purpose
 
@@ -31,6 +31,7 @@ The new sweep should answer:
 - Main eval array: `3799697`
 - Replacement concat train: `3799777_4`
 - Replacement concat eval: `3799778_4`
+- After-eval oversight: `3800130`
 
 Original task `3799696_4` failed from a bf16 dtype mismatch in
 `old_local_concat`. This was fixed in commit `69d5c78`; replacement task
