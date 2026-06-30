@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 18:22 CEST
+Last updated: 2026-06-30 18:46 CEST
 
 ## H1-Anchored Recipe Search
 
@@ -64,6 +64,17 @@ Generalization rule: "changed-cell" should be implemented as
 affected-token scoring/weighting. Sudoku affected tokens are edited cells; maze
 move affected tokens are old and new agent cells; ARC atomic edits affect the
 edited cell, with optional local/object context masks.
+
+Submitted implementation:
+
+- code commit: `7ac15b3`
+- train array: `3799696`, `grid_goal_h1r_train`, `0-16%17`, `rtxpro6k`
+- eval array: `3799697`, `grid_goal_h1r_eval`, `aftercorr:3799696`,
+  `0-16%17`, `rtxpro6k`
+- new score modes:
+  `oracle_goal_affected_context_raw_euclidean_distance` and
+  `predicted_goal_affected_context_raw_euclidean_distance`
+- new training mode: `model.dynamics_weighting=affected_context`
 
 ## Legacy Grid3 Reproduction Step
 

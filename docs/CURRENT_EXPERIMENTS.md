@@ -1,6 +1,53 @@
 # Current Experiments
 
-Last updated: 2026-06-30 18:03 CEST
+Last updated: 2026-06-30 18:46 CEST
+
+## H1 Recipe Sweep
+
+This sweep uses `grid_goal_followup_H1_hierarchy_dense_l4_l16` as the
+latent-rollout anchor and changes one ingredient at a time. The goal is to stop
+mixing action conditioning, scoring, weighting, auxiliary losses, and hierarchy
+changes in the same run.
+
+Slurm:
+
+| Array | State | Notes |
+|---|---:|---|
+| `3799696` train `0-16%17` | pending | 17 H1-compatible single-factor variants on `rtxpro6k` |
+| `3799697` eval `0-16%17` | dependency-held | `aftercorr:3799696`, one eval per completed train task |
+
+Training basis for `anchor_h1`:
+
+- `action_conditioning=affected_marker`
+- `predict_delta=true`
+- dense rollout horizons `[1,4,8,16]`, dense weight `1.0`
+- hierarchy levels `[4,16]`, hierarchy loss `1.0`
+- context-only goal predictor, no goal NCE
+- EMA+VICReg, temporal straightening, progress rank, action rank, terminal
+  corruption
+- LR `1e-4`, batch `8`, no grad accumulation, `45000` optimizer steps
+
+Variants:
+
+| Group | Variants | Question |
+|---|---|---|
+| Anchor | `anchor_h1` | Can the current code reproduce the H1 latent-rollout signal? |
+| Action | `action_token`, `action_local_feature`, `action_old_local_value`, `action_old_local_concat` | Is the bottleneck action grounding? |
+| Dynamics weighting | `dynamics_affected`, `dynamics_affected_context` | Does local/row/column/block weighting improve transition geometry? |
+| Auxiliary losses | `no_temporal`, `no_progress`, `no_action_rank`, `no_terminal_corrupt`, `no_vicreg`, `minimal_aux` | Which geometry-shaping losses help or hurt? |
+| Hierarchy | `hier_none`, `hier_l4`, `hier_l16`, `hier_l4_l16_l32` | Does hierarchy itself improve geometry/planning? |
+
+Eval matrix per checkpoint:
+
+- planners: `mpc_beam`, plus `hierarchical_beam` when hierarchy exists
+- transitions: `symbolic_reencode,latent_rollout`
+- beam width `16`, depths `{4,16,32,64}`, 10 boards
+- oracle and predicted variants of normalized full-board distance, raw L2,
+  raw MSE, affected-token raw L2, and affected+context raw L2
+
+Implementation note: `affected_context` uses affected-cell weight `8`, Sudoku
+row/column/3x3-block context weight `2`, and base weight `1`. This is the
+Sudoku instance of the general affected-token/local-context recipe.
 
 ## Old-Local Fast Wave
 
