@@ -1242,7 +1242,7 @@ class GridTokenGoalJEPA(nn.Module):
 
     def _old_local_action_values(self, action: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
         values = self.local_action_digit(action[..., 2].clamp(0, 9)).to(dtype=dtype)
-        return F.layer_norm(values, (self.d_model,))
+        return F.layer_norm(values, (self.d_model,)).to(dtype=dtype)
 
     def _replace_action_cells_with_concat(
         self,

@@ -212,6 +212,16 @@ def test_old_local_value_injects_normalized_digit_only_into_edited_cell():
     assert conditioned[1].abs().sum().item() == pytest.approx(conditioned[1, 21].abs().sum().item())
 
 
+def test_old_local_value_preserves_bfloat16_latent_dtype():
+    model = _small_model(action_conditioning="old_local_value")
+    state = torch.zeros((1, 81, model.d_model), dtype=torch.bfloat16)
+    action = torch.tensor([[0, 1, 5]])
+
+    conditioned = model._condition_state_latents(state, action, None)
+
+    assert conditioned.dtype == torch.bfloat16
+
+
 def test_old_local_concat_replaces_the_edited_cell_with_concat_projection():
     model = _small_model(action_conditioning="old_local_concat")
     state = torch.randn((1, 81, model.d_model))
