@@ -1,6 +1,6 @@
 # H1 Recipe Oversight Handoff
 
-Last updated: 2026-06-30 21:20 CEST
+Last updated: 2026-06-30 22:07 CEST
 
 ## Purpose
 
@@ -29,13 +29,16 @@ The new sweep should answer:
 
 - Main train array: `3799696`
 - Main eval array: `3799697`
-- Replacement concat train: `3799777_4`
-- Replacement concat eval: `3799778_4`
+- Replacement concat train: `3799777_4` node-failed on A100 node `a0631`
+- Retry concat train: `3800228_4`, A100-80GB, excluding `a0631`, batch `4`,
+  grad accumulation `2`
+- Retry concat eval: `3800229_4`, `afterok:3800228`
 - After-eval oversight: `3800130`
 
 Original task `3799696_4` failed from a bf16 dtype mismatch in
-`old_local_concat`. This was fixed in commit `69d5c78`; replacement task
-`3799777_4` should be used for that variant.
+`old_local_concat`. This was fixed in commit `69d5c78`. First replacement task
+`3799777_4` node-failed on A100 node `a0631` without evidence of OOM, so
+`3800228_4`/`3800229_4` are the active retry jobs for that variant.
 
 ## First-Wave Variants
 

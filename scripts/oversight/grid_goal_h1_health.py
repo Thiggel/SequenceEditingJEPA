@@ -29,7 +29,11 @@ VARIANTS = (
 )
 
 SAFE_NODES = "a[0531-0537,0631-0633,0731,0831-0833,0931-0934,2041,2043,2141-2143,2841,2843,2941]"
-TRAIN_JOBS = ("3799696", "3799777")
+TRAIN_JOBS = tuple(
+    job_id
+    for job_id in os.environ.get("H1_HEALTH_TRAIN_JOBS", "3799696,3799777,3800228").split(",")
+    if job_id
+)
 
 
 def main() -> None:

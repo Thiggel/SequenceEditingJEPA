@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 22:04 CEST
+Last updated: 2026-06-30 22:07 CEST
 
 ## H1-Anchored Recipe Search
 
@@ -71,13 +71,15 @@ Submitted implementation:
 - train array: `3799696`, `grid_goal_h1r_train`, `0-16%17`, `rtxpro6k`
 - eval array: `3799697`, `grid_goal_h1r_eval`, `aftercorr:3799696`,
   `0-16%17`, `rtxpro6k`
-- replacement for `action_old_local_concat`: train `3799777_4`, eval
-  `3799778_4`; original `3799696_4` hit a bf16 dtype bug fixed in code commit
-  `69d5c78`
-- oversight job: `3800130`, dependency `afterany:3799697:3799778`, with
+- replacement for `action_old_local_concat`: train `3799777_4` node-failed on
+  A100 node `a0631`; retry train `3800228_4` is running on A100-80GB node
+  `a0934` with batch `4` and grad accumulation `2`; retry eval `3800229_4`
+  waits on `afterok:3800228`. Original `3799696_4` hit a bf16 dtype bug fixed
+  in code commit `69d5c78`
+- oversight job: `3800130`, dependency `afterany:3799697:3800229`, with
   `H1_RECIPE_SUBMIT_NEXT=1`
 - health job: `3800223`, begin time `2026-06-30 23:02 CEST`; checks for
-  OOM-like train failures and resubmits affected variants with microbatch `4`
+  OOM-like train failures, including retry `3800228`, and resubmits affected variants with microbatch `4`
   and grad accumulation `2`
 - new score modes:
   `oracle_goal_affected_context_raw_euclidean_distance` and
