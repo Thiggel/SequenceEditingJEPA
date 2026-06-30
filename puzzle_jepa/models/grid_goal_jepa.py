@@ -238,13 +238,14 @@ class GridTokenGoalJEPA(nn.Module):
         rank_temperature: float = 0.1,
         multi_step_horizons: tuple[int, ...] = (1, 4, 8, 16),
         dense_future_weight: float = 0.0,
+        dense_rollout_all_steps: bool = False,
         rollout_detach_interval: int = 0,
         hierarchy_levels: tuple[int, ...] = (),
         hierarchy_loss_weight: float = 0.0,
         hierarchy_dense_future_weight: float = 0.0,
         macro_action_encoder_layers: int = 1,
         shared_hierarchy_predictor: bool = False,
-        goal_conditioning: str = "context",
+        goal_conditioning: str = "initial_current",
         progress_rank_target: str = "predicted",
         action_rank_mode: str = "pairwise",
         action_rank_target: str = "predicted",
@@ -278,6 +279,7 @@ class GridTokenGoalJEPA(nn.Module):
         self.local_action_type = nn.Embedding(2, d_model)
         self.local_action_digit = nn.Embedding(10, d_model)
         self.action_film = nn.Sequential(nn.SiLU(), nn.Linear(d_model, 2 * d_model))
+        self.old_local_concat = nn.Linear(2 * d_model, d_model) if action_conditioning == "old_local_concat" else None
         self.predictor = BidirectionalTransformer(
             num_layers=predictor_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
         )
@@ -286,6 +288,7 @@ class GridTokenGoalJEPA(nn.Module):
         self.hierarchy_loss_weight = float(hierarchy_loss_weight)
         self.hierarchy_dense_future_weight = float(hierarchy_dense_future_weight)
         self.dense_future_weight = float(dense_future_weight)
+        self.dense_rollout_all_steps = bool(dense_rollout_all_steps)
         self.rollout_detach_interval = int(rollout_detach_interval)
         if self.rollout_detach_interval < 0:
             raise ValueError("rollout_detach_interval must be non-negative.")
@@ -390,6 +393,8 @@ class GridTokenGoalJEPA(nn.Module):
             "action_token",
             "affected_marker",
             "local_action_feature",
+            "old_local_value",
+            "old_local_concat",
             "action_cross_attention",
             "adaln_action",
         }
@@ -461,13 +466,19 @@ class GridTokenGoalJEPA(nn.Module):
             self.target_state_encoder.train(was_training)
 
     def predict_next(self, state_latent: torch.Tensor, action: torch.Tensor, context_latents: torch.Tensor) -> torch.Tensor:
-        action_token = self.action_token(action).unsqueeze(-2)
-        state_input = self._condition_state_latents(state_latent, action, action_token.squeeze(-2))
-        if self.action_conditioning == "action_cross_attention":
+        if self.action_conditioning in {"old_local_value", "old_local_concat"}:
+            state_input = self._condition_state_latents(state_latent, action, None)
+            y = self.predictor(state_input, context_latents)
+            predicted = self.predictor_out(y)
+        elif self.action_conditioning == "action_cross_attention":
+            action_token = self.action_token(action).unsqueeze(-2)
+            state_input = self._condition_state_latents(state_latent, action, action_token.squeeze(-2))
             action_context = torch.cat([action_token, context_latents], dim=-2)
             y = self.predictor(state_input, action_context)
             predicted = self.predictor_out(y)
         else:
+            action_token = self.action_token(action).unsqueeze(-2)
+            state_input = self._condition_state_latents(state_latent, action, action_token.squeeze(-2))
             y = torch.cat([action_token, state_input], dim=-2)
             y = self.predictor(y, context_latents)
             predicted = self.predictor_out(y[..., 1:, :])
@@ -493,7 +504,7 @@ class GridTokenGoalJEPA(nn.Module):
         level: int,
     ) -> torch.Tensor:
         macro_action = self.encode_macro_action(actions)
-        return self.predict_high_level_from_macro(state_latent, macro_action, context_latents, level=level)
+        return self.predict_high_level_from_macro(state_latent, macro_action, context_latents, level=level, actions=actions)
 
     def predict_high_level_from_macro(
         self,
@@ -502,6 +513,7 @@ class GridTokenGoalJEPA(nn.Module):
         context_latents: torch.Tensor,
         *,
         level: int,
+        actions: torch.Tensor | None = None,
     ) -> torch.Tensor:
         key = str(int(level))
         if self.shared_hierarchy_predictor:
@@ -520,7 +532,10 @@ class GridTokenGoalJEPA(nn.Module):
             )
             macro_action = macro_action + self.hierarchy_level_embed(level_ids).to(dtype=macro_action.dtype)
         action_token = macro_action.unsqueeze(-2)
-        y = torch.cat([action_token, state_latent], dim=-2)
+        state_input = state_latent
+        if actions is not None and self.action_conditioning in {"old_local_value", "old_local_concat"}:
+            state_input = self._condition_state_latents_with_macro_actions(state_input, actions)
+        y = torch.cat([action_token, state_input], dim=-2)
         if self.shared_hierarchy_predictor:
             y = self.shared_high_level_predictor(y, context_latents)
             predicted = self.shared_high_level_predictor_out(y[..., 1:, :])
@@ -726,49 +741,81 @@ class GridTokenGoalJEPA(nn.Module):
         else:
             predicted_next = state_latents[:, :0]
             dynamics_terms.append(state_latents.sum() * 0.0)
-        for horizon in self.multi_step_horizons:
-            if horizon <= 1 or frames <= horizon:
-                continue
-            start_count = frames - horizon
-            rollout = state_latents[:, :start_count].reshape(batch * start_count, token_count, self.d_model)
-            ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
-                -1, token_count, self.d_model
-            )
-            for offset in range(horizon):
-                act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
-                rollout = self.predict_next(rollout, act, ctx)
-                if self.dense_future_weight > 0.0:
-                    dense_horizon = offset + 1
-                    dense_target = target_state_latents[:, dense_horizon : dense_horizon + start_count]
-                    dense_valid = masks[:, :start_count] & masks[:, dense_horizon : dense_horizon + start_count]
-                    dense_actions = actions[:, : dense_horizon + start_count - 1]
-                    dense_error = self._dynamics_error(
-                        rollout.reshape(batch, start_count, token_count, self.d_model),
-                        dense_target,
-                        dense_actions,
-                        rows=rows,
-                        cols=cols,
-                        horizon=dense_horizon,
-                    )
-                    dense_future_terms.append(_masked_mean(dense_error, dense_valid) / (dense_horizon**0.5))
-                if (
-                    self.rollout_detach_interval > 0
-                    and (offset + 1) % self.rollout_detach_interval == 0
-                    and offset + 1 < horizon
-                ):
-                    rollout = rollout.detach()
-            target = target_state_latents[:, horizon : horizon + start_count]
-            valid = masks[:, :start_count] & masks[:, horizon : horizon + start_count]
-            rollout_actions = actions[:, :horizon + start_count - 1]
-            error = self._dynamics_error(
-                rollout.reshape(batch, start_count, token_count, self.d_model),
-                target,
-                rollout_actions,
-                rows=rows,
-                cols=cols,
-                horizon=horizon,
-            )
-            dynamics_terms.append(_masked_mean(error, valid) / (horizon**0.5))
+        if self.dense_rollout_all_steps and self.multi_step_horizons:
+            max_horizon = min(max(self.multi_step_horizons), frames - 1)
+            for horizon in range(2, max_horizon + 1):
+                start_count = frames - horizon
+                if start_count <= 0:
+                    continue
+                rollout = state_latents[:, :start_count].reshape(batch * start_count, token_count, self.d_model)
+                ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
+                    -1, token_count, self.d_model
+                )
+                for offset in range(horizon):
+                    act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
+                    rollout = self.predict_next(rollout, act, ctx)
+                    if (
+                        self.rollout_detach_interval > 0
+                        and (offset + 1) % self.rollout_detach_interval == 0
+                        and offset + 1 < horizon
+                    ):
+                        rollout = rollout.detach()
+                target = target_state_latents[:, horizon : horizon + start_count]
+                valid = masks[:, :start_count] & masks[:, horizon : horizon + start_count]
+                rollout_actions = actions[:, : horizon + start_count - 1]
+                dense_error = self._dynamics_error(
+                    rollout.reshape(batch, start_count, token_count, self.d_model),
+                    target,
+                    rollout_actions,
+                    rows=rows,
+                    cols=cols,
+                    horizon=horizon,
+                )
+                dense_future_terms.append(_masked_mean(dense_error, valid) / (horizon**0.5))
+        else:
+            for horizon in self.multi_step_horizons:
+                if horizon <= 1 or frames <= horizon:
+                    continue
+                start_count = frames - horizon
+                rollout = state_latents[:, :start_count].reshape(batch * start_count, token_count, self.d_model)
+                ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
+                    -1, token_count, self.d_model
+                )
+                for offset in range(horizon):
+                    act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
+                    rollout = self.predict_next(rollout, act, ctx)
+                    if self.dense_future_weight > 0.0:
+                        dense_horizon = offset + 1
+                        dense_target = target_state_latents[:, dense_horizon : dense_horizon + start_count]
+                        dense_valid = masks[:, :start_count] & masks[:, dense_horizon : dense_horizon + start_count]
+                        dense_actions = actions[:, : dense_horizon + start_count - 1]
+                        dense_error = self._dynamics_error(
+                            rollout.reshape(batch, start_count, token_count, self.d_model),
+                            dense_target,
+                            dense_actions,
+                            rows=rows,
+                            cols=cols,
+                            horizon=dense_horizon,
+                        )
+                        dense_future_terms.append(_masked_mean(dense_error, dense_valid) / (dense_horizon**0.5))
+                    if (
+                        self.rollout_detach_interval > 0
+                        and (offset + 1) % self.rollout_detach_interval == 0
+                        and offset + 1 < horizon
+                    ):
+                        rollout = rollout.detach()
+                target = target_state_latents[:, horizon : horizon + start_count]
+                valid = masks[:, :start_count] & masks[:, horizon : horizon + start_count]
+                rollout_actions = actions[:, :horizon + start_count - 1]
+                error = self._dynamics_error(
+                    rollout.reshape(batch, start_count, token_count, self.d_model),
+                    target,
+                    rollout_actions,
+                    rows=rows,
+                    cols=cols,
+                    horizon=horizon,
+                )
+                dynamics_terms.append(_masked_mean(error, valid) / (horizon**0.5))
         dynamics_loss = torch.stack(dynamics_terms).sum()
         if dense_future_terms:
             dense_future_loss = torch.stack(dense_future_terms).mean()
@@ -1164,12 +1211,25 @@ class GridTokenGoalJEPA(nn.Module):
             return rank_states.sum() * 0.0
         return torch.stack(losses).mean()
 
-    def _condition_state_latents(self, state_latent: torch.Tensor, action: torch.Tensor, action_embedding: torch.Tensor) -> torch.Tensor:
+    def _condition_state_latents(
+        self,
+        state_latent: torch.Tensor,
+        action: torch.Tensor,
+        action_embedding: torch.Tensor | None,
+    ) -> torch.Tensor:
         if self.action_conditioning == "action_token" or self.action_conditioning == "action_cross_attention":
             return state_latent
         if self.action_conditioning == "adaln_action":
+            if action_embedding is None:
+                raise ValueError("AdaLN action conditioning requires an action embedding.")
             scale, shift = self.action_film(action_embedding).chunk(2, dim=-1)
             return state_latent * (1.0 + scale.unsqueeze(-2)) + shift.unsqueeze(-2)
+        if self.action_conditioning == "old_local_value":
+            values = self._old_local_action_values(action, state_latent.dtype)
+            return _add_at_action_positions(state_latent, action, values, rows=self.max_rows, cols=self.max_cols)
+        if self.action_conditioning == "old_local_concat":
+            values = self._old_local_action_values(action, state_latent.dtype)
+            return self._replace_action_cells_with_concat(state_latent, action, values)
         values = self.affected_marker.to(dtype=state_latent.dtype, device=state_latent.device).expand_as(state_latent[:, 0])
         if self.action_conditioning == "local_action_feature":
             action_type = torch.ones_like(action[..., 0])
@@ -1179,6 +1239,40 @@ class GridTokenGoalJEPA(nn.Module):
                 + self.local_action_digit(action[..., 2].clamp(0, 9)).to(dtype=state_latent.dtype)
             )
         return _add_at_action_positions(state_latent, action, values, rows=self.max_rows, cols=self.max_cols)
+
+    def _old_local_action_values(self, action: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+        values = self.local_action_digit(action[..., 2].clamp(0, 9)).to(dtype=dtype)
+        return F.layer_norm(values, (self.d_model,))
+
+    def _replace_action_cells_with_concat(
+        self,
+        state_latent: torch.Tensor,
+        action: torch.Tensor,
+        values: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.old_local_concat is None:
+            raise RuntimeError("old_local_concat projection was not initialized.")
+        if state_latent.ndim != 3 or action.ndim != 2:
+            raise ValueError("Expected state_latent [batch, tokens, dim] and actions [batch, 3].")
+        batch_ids = torch.arange(state_latent.shape[0], device=state_latent.device)
+        positions = _action_positions(action, rows=self.max_rows, cols=self.max_cols)
+        updated = self.old_local_concat(torch.cat([state_latent[batch_ids, positions], values], dim=-1))
+        conditioned = state_latent.clone()
+        conditioned[batch_ids, positions] = updated
+        return conditioned
+
+    def _condition_state_latents_with_macro_actions(self, state_latent: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        if actions.ndim != 3 or actions.shape[-1] != 3:
+            raise ValueError(f"Macro local conditioning expects actions [batch, steps, 3], got {tuple(actions.shape)}.")
+        conditioned = state_latent
+        for offset in range(actions.shape[1]):
+            action = actions[:, offset]
+            values = self._old_local_action_values(action, state_latent.dtype)
+            if self.action_conditioning == "old_local_concat":
+                conditioned = self._replace_action_cells_with_concat(conditioned, action, values)
+            else:
+                conditioned = _add_at_action_positions(conditioned, action, values, rows=self.max_rows, cols=self.max_cols)
+        return conditioned
 
     def _dynamics_error(
         self,

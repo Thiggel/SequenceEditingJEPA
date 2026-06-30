@@ -19,6 +19,8 @@ ScoreMode = Literal[
     "predicted_goal_raw_euclidean_distance",
     "oracle_goal_raw_squared_euclidean_distance",
     "predicted_goal_raw_squared_euclidean_distance",
+    "oracle_goal_raw_mse_distance",
+    "predicted_goal_raw_mse_distance",
     "oracle_goal_raw_cosine_distance",
     "predicted_goal_raw_cosine_distance",
     "oracle_goal_raw_hybrid_distance",
@@ -1108,6 +1110,8 @@ def latent_distance(
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
     if metric == "raw_squared_euclidean_distance":
         return raw_tokenwise_squared_euclidean_distance(latent, target_goal, mask)
+    if metric == "raw_mse_distance":
+        return raw_full_board_mse_distance(latent, target_goal, mask)
     if metric == "raw_cosine_distance":
         return raw_tokenwise_cosine_distance(latent, target_goal, mask)
     if metric == "raw_hybrid_distance":
@@ -1320,6 +1324,18 @@ def raw_tokenwise_squared_euclidean_distance(a: torch.Tensor, b: torch.Tensor, m
     if mask.shape != a.shape[:-1]:
         raise ValueError(f"Raw squared distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
     per_token = (a.float() - b.float()).square().sum(dim=-1)
+    weights = mask.float()
+    return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
+
+
+def raw_full_board_mse_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    if a.shape != b.shape:
+        raise ValueError(f"Raw MSE distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], -1)
+    if mask.shape != a.shape[:-1]:
+        raise ValueError(f"Raw MSE distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
+    per_token = (a.float() - b.float()).square().mean(dim=-1)
     weights = mask.float()
     return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
 

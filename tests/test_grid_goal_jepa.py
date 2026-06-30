@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 import torch
+import torch.nn.functional as F
 
 from puzzle_jepa.data.grid_goal_sudoku import (
     collate_grid_goal_sudoku_trajectories,
@@ -13,6 +14,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     changed_cell_raw_euclidean_distances,
     delta_topk_raw_euclidean_distances,
     projected_tokenwise_euclidean_distance,
+    raw_full_board_mse_distance,
     raw_tokenwise_cosine_distance,
     raw_tokenwise_euclidean_distance,
     raw_tokenwise_squared_euclidean_distance,
@@ -103,7 +105,7 @@ def test_model_uses_full_grid_latent_without_cls_vector():
 
 def test_goal_predictor_depends_on_context_and_outputs_board_tokens():
     batch = _small_batch()
-    model = _small_model()
+    model = _small_model(goal_conditioning="context")
     context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
     predicted_goal = model.predict_goal(context, batch.active_mask)
     changed_context = model.encode_context(batch.goals, batch.clue_mask, batch.editable_mask, batch.active_mask)
@@ -136,6 +138,12 @@ def test_conditional_goal_predictor_depends_on_current_state_latent():
     assert not torch.allclose(initial_goal, current_goal)
 
 
+def test_goal_conditioning_defaults_to_initial_and_current_state():
+    model = _small_model()
+
+    assert model.goal_conditioning == "initial_current"
+
+
 def test_markov_predictor_accepts_current_board_latent_and_one_action_token():
     batch = _small_batch()
     model = _small_model()
@@ -151,7 +159,15 @@ def test_markov_predictor_accepts_current_board_latent_and_one_action_token():
 
 @pytest.mark.parametrize(
     "action_conditioning",
-    ["action_token", "affected_marker", "local_action_feature", "action_cross_attention", "adaln_action"],
+    [
+        "action_token",
+        "affected_marker",
+        "local_action_feature",
+        "old_local_value",
+        "old_local_concat",
+        "action_cross_attention",
+        "adaln_action",
+    ],
 )
 def test_action_conditioning_variants_predict_board_latents(action_conditioning):
     batch = _small_batch()
@@ -163,6 +179,50 @@ def test_action_conditioning_variants_predict_board_latents(action_conditioning)
 
     assert pred.shape == state.shape
     assert torch.isfinite(pred).all()
+
+
+def test_old_local_value_conditioning_does_not_require_action_token():
+    class ExplodingActionToken(torch.nn.Module):
+        def forward(self, actions):
+            raise AssertionError("old_local_value should not prepend or compute an action token")
+
+    batch = _small_batch()
+    model = _small_model(action_conditioning="old_local_value")
+    model.action_token = ExplodingActionToken()
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    pred = model.predict_next(state, batch.actions[:, 0], context)
+
+    assert pred.shape == state.shape
+
+
+def test_old_local_value_injects_normalized_digit_only_into_edited_cell():
+    model = _small_model(action_conditioning="old_local_value")
+    state = torch.zeros((2, 81, model.d_model))
+    actions = torch.tensor([[0, 1, 5], [2, 3, 7]])
+
+    conditioned = model._condition_state_latents(state, actions, None)
+    expected0 = F.layer_norm(model.local_action_digit(torch.tensor([5])), (model.d_model,))[0]
+    expected1 = F.layer_norm(model.local_action_digit(torch.tensor([7])), (model.d_model,))[0]
+
+    torch.testing.assert_close(conditioned[0, 1], expected0)
+    torch.testing.assert_close(conditioned[1, 21], expected1)
+    assert conditioned[0].abs().sum().item() == pytest.approx(conditioned[0, 1].abs().sum().item())
+    assert conditioned[1].abs().sum().item() == pytest.approx(conditioned[1, 21].abs().sum().item())
+
+
+def test_old_local_concat_replaces_the_edited_cell_with_concat_projection():
+    model = _small_model(action_conditioning="old_local_concat")
+    state = torch.randn((1, 81, model.d_model))
+    action = torch.tensor([[4, 5, 6]])
+    value = model._old_local_action_values(action, state.dtype)
+    expected = model.old_local_concat(torch.cat([state[:, 41], value], dim=-1))
+
+    conditioned = model._condition_state_latents(state, action, None)
+
+    torch.testing.assert_close(conditioned[:, 41], expected)
+    torch.testing.assert_close(conditioned[:, 40], state[:, 40])
 
 
 def test_delta_predictor_returns_residual_over_current_latent():
@@ -277,6 +337,41 @@ def test_dense_future_prediction_and_truncated_rollout_run():
     assert output.dense_future_loss.item() > 0.0
 
 
+def test_dense_rollout_all_steps_supervises_every_intermediate_horizon_once():
+    batch = _small_batch()
+    model = _small_model(
+        dense_future_weight=1.0,
+        dense_rollout_all_steps=True,
+        multi_step_horizons=(4,),
+    )
+    seen_horizons = []
+    original = model._dynamics_error
+
+    def wrapped_dynamics_error(*args, **kwargs):
+        seen_horizons.append(int(kwargs.get("horizon", 1)))
+        return original(*args, **kwargs)
+
+    model._dynamics_error = wrapped_dynamics_error
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.dense_future_loss.item() > 0.0
+    assert seen_horizons.count(1) == 1
+    assert seen_horizons.count(2) == 1
+    assert seen_horizons.count(3) == 1
+    assert seen_horizons.count(4) == 1
+
+
 def test_hierarchy_uses_one_encoder_and_multiple_predictors():
     batch = _small_batch()
     model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=0.5)
@@ -290,6 +385,35 @@ def test_hierarchy_uses_one_encoder_and_multiple_predictors():
     assert sorted(model.high_level_predictors.keys()) == ["2", "4"]
     assert pred_level2.shape == state.shape
     assert pred_level4.shape == state.shape
+
+
+def test_old_local_value_hierarchy_grounds_macro_actions_on_affected_cells():
+    model = _small_model(action_conditioning="old_local_value", hierarchy_levels=(2,), hierarchy_loss_weight=1.0)
+    state = torch.zeros((1, 81, model.d_model))
+    actions = torch.tensor([[[0, 1, 5], [2, 3, 7]]])
+
+    conditioned = model._condition_state_latents_with_macro_actions(state, actions)
+
+    assert conditioned[0, 1].abs().sum().item() > 0.0
+    assert conditioned[0, 21].abs().sum().item() > 0.0
+    inactive = conditioned.clone()
+    inactive[:, [1, 21]] = 0.0
+    assert inactive.abs().sum().item() == pytest.approx(0.0)
+
+
+def test_old_local_value_hierarchy_keeps_macro_token_and_adds_grounding_when_actions_are_known():
+    batch = _small_batch()
+    model = _small_model(action_conditioning="old_local_value", hierarchy_levels=(2,), hierarchy_loss_weight=1.0)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    actions = batch.actions[:, :2]
+    macro = model.encode_macro_action(actions)
+
+    without_grounding = model.predict_high_level_from_macro(state, macro, context, level=2)
+    with_grounding = model.predict_high_level(state, actions, context, level=2)
+
+    assert without_grounding.shape == with_grounding.shape == state.shape
+    assert not torch.allclose(without_grounding, with_grounding)
 
 
 def test_shared_hierarchy_predictor_uses_one_predictor_with_level_conditioning():
@@ -364,7 +488,7 @@ def test_policy_prior_scores_primitive_and_macro_actions():
     model = _small_model(hierarchy_levels=(2,), hierarchy_loss_weight=1.0, policy_prior_weight=1.0)
     context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
     state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
-    goal = model.predict_goal(context, batch.active_mask)
+    goal = model.predict_goal(context, batch.active_mask, initial_latents=state, current_latents=state)
     primitive_actions = torch.stack([batch.actions[:, 0], batch.actions[:, 1]], dim=1)
     macro_actions = batch.actions[:, :2].unsqueeze(1)
 
@@ -414,7 +538,7 @@ def test_mean_pooled_distance_mode_runs():
     model = _small_model(distance_mode="mean_pooled")
     context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
     state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
-    goal = model.predict_goal(context, batch.active_mask)
+    goal = model.predict_goal(context, batch.active_mask, initial_latents=state, current_latents=state)
     distance = model.distance(state, goal, batch.active_mask)
     assert distance.shape == (2,)
     assert torch.isfinite(distance).all()
@@ -474,6 +598,8 @@ def test_beam_mpc_runs_with_raw_oracle_euclidean_goal_distance():
     [
         "oracle_goal_raw_squared_euclidean_distance",
         "predicted_goal_raw_squared_euclidean_distance",
+        "oracle_goal_raw_mse_distance",
+        "predicted_goal_raw_mse_distance",
         "oracle_goal_raw_cosine_distance",
         "predicted_goal_raw_cosine_distance",
         "oracle_goal_raw_hybrid_distance",
@@ -720,6 +846,7 @@ def test_metric_probe_distance_variants_are_task_agnostic_token_metrics():
 
     assert raw_tokenwise_euclidean_distance(a, b, mask).item() == pytest.approx(5.0)
     assert raw_tokenwise_squared_euclidean_distance(a, b, mask).item() == pytest.approx(25.0)
+    assert raw_full_board_mse_distance(a, b, mask).item() == pytest.approx(12.5)
     assert raw_tokenwise_cosine_distance(a, b, mask).item() == pytest.approx(1.0)
     assert projected_tokenwise_euclidean_distance(a, b, mask, projector).item() == pytest.approx(5.0)
     assert changed_cell_raw_euclidean_distance(a, b, action).item() == pytest.approx(5.0)

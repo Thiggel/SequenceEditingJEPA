@@ -1,6 +1,45 @@
 # Experiment Plan
 
-Last updated: 2026-06-29 13:20 CEST
+Last updated: 2026-06-30 12:00 CEST
+
+## Old-Local-Value Fast Wave
+
+Prepared scripts:
+
+```bash
+scripts/experiments/submit_grid_goal_oldlocal_fast.sh
+```
+
+Training variants:
+
+- dense rollout horizons `K={1,4,8,16,32}` without hierarchy
+- hierarchy levels `[4]`, `[4,16]`, `[4,16,32]`
+- shared predictor hierarchy `[4,16]`
+- hierarchy-dense `[4,16]`
+- ranking variants for oracle/both/no progress and pairwise/listwise/no action
+  ranking
+
+Common settings:
+
+- `action_conditioning=old_local_value`
+- `goal_conditioning=initial_current`
+- `dense_rollout_all_steps=true`
+- `regularizer=vicreg`, `use_ema_target_encoder=true`
+- `predict_delta=false`
+- `training.max_steps=5000`, LR `1e-4`, batch `8`
+
+Eval axes:
+
+- planners: `mpc_beam`; plus `hierarchical_beam` for hierarchy-trained runs
+- transitions: `symbolic_reencode,latent_rollout`
+- beam width `16`, depths `{1,4,16,32}`, 10 boards
+- oracle and predicted variants of full-board raw MSE, normalized distance,
+  raw L2, and changed-cell raw L2
+
+Gate: oracle symbolic re-encode with full-board raw MSE should quickly recover
+a strong Sudoku signal. If not, the old result is not reproduced by the
+remembered action conditioning/score alone. If yes, latent-rollout and
+predicted-goal rows isolate dynamics drift vs goal-prediction failures.
 
 ## Next Wave: Staged Grid
 
