@@ -1,6 +1,69 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 18:03 CEST
+Last updated: 2026-06-30 18:22 CEST
+
+## H1-Anchored Recipe Search
+
+Current best latent-rollout anchor:
+`grid_goal_followup_H1_hierarchy_dense_l4_l16`.
+
+H1 settings:
+
+- `action_conditioning=affected_marker`
+- `predict_delta=true`
+- dense base rollout horizons `[1,4,8,16]`
+- hierarchy levels `[4,16]`, hierarchy loss `1.0`
+- EMA+VICReg, temporal straightening, progress rank, action rank, terminal
+  corruption
+- context-only goal predictor from the pre-conditional-goal code path
+- best eval: `mpc_beam`, `latent_rollout`, oracle changed-cell raw L2,
+  beam width `16`, depth `16`, `6/10` solved
+
+Before broadening, reproduce an H1-compatible baseline in the current code path
+or train/eval from the historical H1 commit. Once that anchor is recovered, run
+single-factor ablations:
+
+| Stage | Run | Change From H1 | Question |
+|---|---|---|---|
+| A | A0 | exact H1-compatible baseline | Can the current code reproduce the anchor? |
+| A | A1 | action token only | Is the affected marker necessary? |
+| A | A2 | affected marker | H1 action-conditioning reference |
+| A | A3 | local action feature | Does putting action value at affected token help? |
+| A | A4 | old local value | Does Grid3-style value injection beat marker+token? |
+| A | A5 | old local concat | Does concat+linear at affected token help? |
+| B | W0 | uniform dynamics loss | H1 dynamics-loss reference |
+| B | W1 | affected-token weighted loss | Does changed-token weighting improve dynamics? |
+| B | W2 | affected + local-context weighted loss | Does Grid3-style local context weighting improve geometry? |
+| C | S0 | full-board normalized distance | Baseline JEPA distance |
+| C | S1 | full-board raw L2/MSE | Does unprojected global distance help? |
+| C | S2 | affected-token raw L2 | Does local scoring remain necessary? |
+| C | S3 | affected + local-context raw L2 | Does local context score improve over single cell? |
+| D | D0 | keep all H1 auxiliary losses | H1 objective reference |
+| D | D1 | remove temporal straightening | Is curvature regularization necessary/harmful? |
+| D | D2 | remove progress monotonicity | Is monotone energy shaping necessary/harmful? |
+| D | D3 | remove action rank | Is branch discrimination coming from action rank? |
+| D | D4 | remove terminal corruption | Does near-goal rejection matter? |
+| D | D5 | remove VICReg only | Does VICReg help or hurt? |
+| D | D6 | remove all D1-D5 | Minimal H1 without auxiliary geometry losses |
+| E | H0 | no hierarchy | Quantify hierarchy contribution |
+| E | H1 | `[4]` only | One-level hierarchy |
+| E | H2 | `[16]` only | Long single-level hierarchy |
+| E | H3 | `[4,16]` | H1 hierarchy reference |
+
+Every training run should use the same eval matrix:
+
+- transitions: `symbolic_reencode,latent_rollout`
+- goals: oracle and predicted
+- scores: normalized full-board, raw full-board L2/MSE, affected-token raw L2,
+  affected+context raw L2
+- planner: `mpc_beam`; add hierarchical beam only for hierarchy-trained runs
+- beam width `16`, depths `{4,16,32,64}`, initially 10 boards, then 64/128
+  boards for any nonzero solve row
+
+Generalization rule: "changed-cell" should be implemented as
+affected-token scoring/weighting. Sudoku affected tokens are edited cells; maze
+move affected tokens are old and new agent cells; ARC atomic edits affect the
+edited cell, with optional local/object context masks.
 
 ## Legacy Grid3 Reproduction Step
 
