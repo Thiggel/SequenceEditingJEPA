@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-06-30 10:15 CEST
+Last updated: 2026-06-30 10:26 CEST
 
 ## H1 Debug / H1 Extra Snapshot
 
@@ -11,7 +11,7 @@ H1 debug training/eval is complete; H1-extra eval is still running.
 | H1 delta | train `3795127`, eval `3795128` | complete | `0/10` exact solves |
 | H1 no-delta | train `3795143`, eval `3795144` | complete | no-delta `K16_LR5e4`, `mpc_beam`, oracle changed-cell raw L2, depth 4: `0/10`, rem Hamming `6.6` |
 | H1 hierarchical add-ons | eval `3795248`, `3795249` | complete | best hierarchical row: `0/10`, rem Hamming `28.8` |
-| H1-extra | train `3795246_0-10`, replacement `3795327_11`; eval `3795247`, replacement `3795328_11` | train complete, eval running | 434 partial rows, best `rank_pairwise_both_action`: `0/10`, rem Hamming `14.9` |
+| H1-extra | train `3795246_0-10`, replacement `3795327_11`; eval `3795247`, replacement `3795328_11` | train complete, eval running | 438 partial rows, best `rank_pairwise_both_action`: `0/10`, rem Hamming `14.9` |
 
 Predicted-goal planning remains poor in the controlled H1 reruns: the best
 predicted changed-cell row for the best no-delta checkpoint is still remaining
