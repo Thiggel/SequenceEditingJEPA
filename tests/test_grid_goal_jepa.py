@@ -350,9 +350,133 @@ def test_forward_computes_all_requested_losses():
     assert output.predicted_next_latents.shape[2:] == (81, 32)
     assert output.progress_rank_loss.ndim == 0
     assert output.action_rank_loss.ndim == 0
+    assert output.goal_distance_field_loss.ndim == 0
     assert output.policy_prior_loss.ndim == 0
     assert output.temporal_straightening_loss.ndim == 0
     assert output.terminal_corrupt_loss.ndim == 0
+
+
+def test_goal_online_no_stopgrad_uses_online_encoder_for_goal_target():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_conditioning="context",
+        goal_target_mode="online_no_stopgrad",
+        use_ema_target_encoder=True,
+        regularizer="none",
+        goal_nce_weight=0.0,
+        dense_future_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="none",
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+    )
+    output.loss.backward()
+
+    online_grad = sum(
+        0.0 if parameter.grad is None else float(parameter.grad.detach().abs().sum().item())
+        for parameter in model.state_encoder.parameters()
+    )
+    target_grad = sum(
+        0.0 if parameter.grad is None else float(parameter.grad.detach().abs().sum().item())
+        for parameter in model.target_state_encoder.parameters()
+    )
+    assert online_grad > 0.0
+    assert target_grad == pytest.approx(0.0)
+
+
+def test_goal_target_stopgrad_does_not_backprop_goal_loss_to_online_state_encoder():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_conditioning="context",
+        goal_target_mode="target_stopgrad",
+        use_ema_target_encoder=True,
+        regularizer="none",
+        goal_nce_weight=0.0,
+        dense_future_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="none",
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+    )
+    output.loss.backward()
+
+    online_grad = sum(
+        0.0 if parameter.grad is None else float(parameter.grad.detach().abs().sum().item())
+        for parameter in model.state_encoder.parameters()
+    )
+    assert online_grad == pytest.approx(0.0)
+
+
+def test_goal_distance_field_distillation_loss_is_active_when_requested():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_distance_field_weight=1.0,
+        regularizer="none",
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="none",
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert torch.isfinite(output.goal_distance_field_loss)
+    assert output.goal_distance_field_loss.item() >= 0.0
+
+
+def test_regularizer_can_combine_sigreg_and_vicreg():
+    batch = _small_batch()
+    model = _small_model(regularizer="both")
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.sigreg_loss.item() > 0.0
 
 
 def test_dense_future_prediction_and_truncated_rollout_run():

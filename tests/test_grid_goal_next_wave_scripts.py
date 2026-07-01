@@ -57,6 +57,38 @@ H1_RECIPE_VARIANTS = (
     "hier_l4_l16_l32",
 )
 
+MINAUX_VARIANTS = (
+    "base",
+    "reg_vicreg",
+    "reg_sigreg",
+    "reg_no_ema",
+    "reg_vicreg_no_ema",
+    "reg_sigreg_no_ema",
+    "reg_vicreg_sigreg",
+    "reg_vicreg_sigreg_no_ema",
+    "rank_pairwise_pred_action",
+    "rank_listwise_pred_action",
+    "rank_pairwise_oracle_action",
+    "rank_listwise_oracle_action",
+    "geom_temporal",
+    "geom_pred_progress",
+    "geom_oracle_progress",
+    "dense_k1",
+    "dense_k2",
+    "dense_k4",
+    "dense_k8",
+    "dense_k16",
+    "hier_none",
+    "hier_l4",
+    "hier_l16",
+    "hier_l4_l16",
+    "hier_l4_l16_l32",
+    "goal_initial_current",
+    "goal_no_stopgrad",
+    "goal_initial_current_no_stopgrad",
+    "goal_distance_field_distill",
+)
+
 
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
@@ -181,6 +213,49 @@ def _capture_h1_recipe_args(tmp_path: Path, *, script: str, array_index: int, ch
     if checkpoint:
         variant = H1_RECIPE_VARIANTS[array_index]
         run_root = work / "runs" / "grid_goal_h1_recipe" / f"grid_goal_h1_recipe_{variant}"
+        run_root.mkdir(parents=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "SLURM_ARRAY_TASK_ID": str(array_index),
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_minaux_args(tmp_path: Path, *, script: str, array_index: int, checkpoint: bool = False) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{array_index}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        variant = MINAUX_VARIANTS[array_index]
+        run_root = work / "runs" / "grid_goal_minaux_wave" / f"grid_goal_minaux_wave_{variant}"
         run_root.mkdir(parents=True)
         (run_root / "checkpoint.pt").write_bytes(b"placeholder")
 
@@ -335,6 +410,86 @@ def test_h1_recipe_eval_skips_hierarchical_beam_without_hierarchy(tmp_path):
         tmp_path,
         script="scripts/slurm/run_grid_goal_h1_recipe_eval.slurm",
         array_index=13,
+        checkpoint=True,
+    )
+
+    assert args[args.index("--planners") + 1] == "mpc_beam"
+
+
+def test_minaux_wave_base_is_5k_minimal_aux_with_hierarchy(tmp_path):
+    args = _capture_minaux_args(tmp_path, script="scripts/slurm/run_grid_goal_minaux_wave_train.slurm", array_index=0)
+
+    assert "training.max_steps=5000" in args
+    assert "model.action_conditioning=affected_marker" in args
+    assert "model.predict_delta=true" in args
+    assert "model.regularizer=none" in args
+    assert "model.use_ema_target_encoder=true" in args
+    assert "model.temporal_straightening_weight=0.0" in args
+    assert "model.progress_rank_target=none" in args
+    assert "model.action_rank_mode=none" in args
+    assert "model.terminal_corrupt_weight=0.0" in args
+    assert "model.hierarchy_levels=[4,16]" in args
+    assert "model.goal_conditioning=context" in args
+
+
+def test_minaux_wave_regularizer_and_no_ema_variants_are_single_factor_args(tmp_path):
+    both_args = _capture_minaux_args(tmp_path, script="scripts/slurm/run_grid_goal_minaux_wave_train.slurm", array_index=6)
+    no_ema_args = _capture_minaux_args(tmp_path, script="scripts/slurm/run_grid_goal_minaux_wave_train.slurm", array_index=7)
+
+    assert "model.regularizer=both" in both_args
+    assert "model.use_ema_target_encoder=true" in both_args
+    assert "model.regularizer=both" in no_ema_args
+    assert "model.use_ema_target_encoder=false" in no_ema_args
+
+
+def test_minaux_wave_goal_no_stopgrad_uses_online_goal_target_mode(tmp_path):
+    args = _capture_minaux_args(tmp_path, script="scripts/slurm/run_grid_goal_minaux_wave_train.slurm", array_index=26)
+
+    assert "model.goal_target_mode=online_no_stopgrad" in args
+    assert "model.use_ema_target_encoder=true" in args
+    assert "model.goal_conditioning=context" in args
+
+
+def test_minaux_wave_initial_current_no_stopgrad_combines_both_goal_changes(tmp_path):
+    args = _capture_minaux_args(tmp_path, script="scripts/slurm/run_grid_goal_minaux_wave_train.slurm", array_index=27)
+
+    assert "model.goal_conditioning=initial_current" in args
+    assert "model.goal_target_mode=online_no_stopgrad" in args
+
+
+def test_minaux_wave_distance_field_distillation_enables_goal_field_loss(tmp_path):
+    args = _capture_minaux_args(tmp_path, script="scripts/slurm/run_grid_goal_minaux_wave_train.slurm", array_index=28)
+
+    assert "model.goal_distance_field_weight=1.0" in args
+
+
+def test_minaux_wave_fast_eval_uses_latent_rollout_depths_4_16_and_global_scores(tmp_path):
+    args = _capture_minaux_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_wave_eval.slurm",
+        array_index=0,
+        checkpoint=True,
+    )
+    scores = args[args.index("--scores") + 1].split(",")
+
+    assert args[args.index("--transitions") + 1] == "latent_rollout"
+    assert args[args.index("--beam-widths") + 1] == "16"
+    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert args[args.index("--examples") + 1] == "8"
+    assert scores == [
+        "oracle_goal_distance",
+        "predicted_goal_distance",
+        "oracle_goal_raw_euclidean_distance",
+        "predicted_goal_raw_euclidean_distance",
+    ]
+    assert args[args.index("--planners") + 1] == "mpc_beam,hierarchical_beam"
+
+
+def test_minaux_wave_fast_eval_skips_hierarchical_beam_for_no_hierarchy_variant(tmp_path):
+    args = _capture_minaux_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_wave_eval.slurm",
+        array_index=20,
         checkpoint=True,
     )
 

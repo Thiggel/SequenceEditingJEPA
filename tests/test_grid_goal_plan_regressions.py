@@ -480,6 +480,10 @@ def test_diagnostics_include_rollout_and_goal_alignment_metrics(tmp_path):
         "latent_rollout_action_top1",
         "goal_prediction_token_mse",
         "predicted_vs_oracle_goal_distance",
+        "goal_fill_000_pred_oracle_distance",
+        "goal_fill_050_q_step_rmse",
+        "goal_fill_100_state_pred_distance",
+        "q_to_goal_mse",
         "distance_hamming_spearman",
     }
     assert required <= set(metrics)

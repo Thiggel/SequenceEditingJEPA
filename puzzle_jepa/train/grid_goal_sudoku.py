@@ -147,6 +147,7 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 "train_sigreg_loss": _output_scalar(output, "sigreg_loss"),
                 "train_goal_mse_loss": _output_scalar(output, "goal_mse_loss"),
                 "train_goal_nce_loss": _output_scalar(output, "goal_nce_loss"),
+                "train_goal_distance_field_loss": _output_scalar(output, "goal_distance_field_loss"),
                 "train_progress_rank_loss": _output_scalar(output, "progress_rank_loss"),
                 "train_action_rank_loss": _output_scalar(output, "action_rank_loss"),
                 "train_policy_prior_loss": _output_scalar(output, "policy_prior_loss"),

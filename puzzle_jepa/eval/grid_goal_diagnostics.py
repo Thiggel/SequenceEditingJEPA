@@ -35,6 +35,7 @@ def run_grid_goal_diagnostics(
     metrics.update(_latent_rollout_action_rank_metrics(model, examples[:max_examples], device=device))
     metrics.update(_rollout_drift_metrics(model, examples[:max_examples], device=device))
     metrics.update(_goal_alignment_metrics(model, examples[:max_examples], device=device))
+    metrics.update(_goal_by_fill_depth_metrics(model, examples[:max_examples], device=device))
     metrics.update(_distance_hamming_spearman_metrics(model, examples[:max_examples], device=device))
     metrics.update(_action_margin_by_depth_metrics(model, examples[:max_examples], device=device))
     metrics.update(_terminal_corruption_metrics(model, examples[:max_examples], rng, device=device))
@@ -334,6 +335,80 @@ def _goal_alignment_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExamp
         "goal_prediction_token_mse": float(np.mean(mses)) if mses else 0.0,
         "predicted_oracle_goal_token_cosine_mean": float(np.mean(cosines)) if cosines else 0.0,
     }
+
+
+def _goal_by_fill_depth_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExample], *, device: torch.device) -> dict[str, float]:
+    fractions = (0.0, 0.25, 0.5, 0.75, 1.0)
+    by_fraction: dict[float, dict[str, list[float]]] = {
+        fraction: {"distance": [], "mse": [], "cosine": [], "q_step_rmse": [], "state_pred_distance": [], "state_oracle_distance": []}
+        for fraction in fractions
+    }
+    q_to_refs = {"q_to_initial_mse": [], "q_to_half_mse": [], "q_to_goal_mse": []}
+    for example in examples:
+        clue_mask = example.state != 0
+        editable_mask = ~clue_mask
+        active_mask = np.ones((9, 9), dtype=bool)
+        context, _, oracle_goal, initial_latents = _prepare_goal_latents(
+            model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+        )
+        active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+        clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device)
+        edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
+        empty = np.argwhere(example.state == 0)
+        previous_q: torch.Tensor | None = None
+        encoded_refs: dict[float, torch.Tensor] = {}
+        for fraction in fractions:
+            board = example.state.copy()
+            fill_count = min(len(empty), int(round(len(empty) * fraction)))
+            for row, col in empty[:fill_count]:
+                board[int(row), int(col)] = int(example.goal[int(row), int(col)])
+            predicted_goal = _predict_goal_for_board(
+                model,
+                board,
+                context,
+                initial_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
+            )
+            board_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
+            state_latent = model.encode_state(board_t, context, clue_t, edit_t, active_t)
+            encoded_refs[fraction] = state_latent
+            values = by_fraction[fraction]
+            values["distance"].append(float(model.distance(predicted_goal, oracle_goal, active_t).item()))
+            values["mse"].append(float((predicted_goal - oracle_goal).square().mean().item()))
+            values["cosine"].append(float(torch.nn.functional.cosine_similarity(predicted_goal, oracle_goal, dim=-1).mean().item()))
+            values["q_step_rmse"].append(
+                0.0 if previous_q is None else float((predicted_goal - previous_q).square().mean().sqrt().item())
+            )
+            values["state_pred_distance"].append(float(model.distance(state_latent, predicted_goal, active_t).item()))
+            values["state_oracle_distance"].append(float(model.distance(state_latent, oracle_goal, active_t).item()))
+            previous_q = predicted_goal
+        q0 = _predict_goal_for_board(
+            model,
+            example.state,
+            context,
+            initial_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            device=device,
+        )
+        q_to_refs["q_to_initial_mse"].append(float((q0 - encoded_refs[0.0]).square().mean().item()))
+        q_to_refs["q_to_half_mse"].append(float((q0 - encoded_refs[0.5]).square().mean().item()))
+        q_to_refs["q_to_goal_mse"].append(float((q0 - oracle_goal).square().mean().item()))
+    metrics: dict[str, float] = {}
+    for fraction, values in by_fraction.items():
+        label = f"{int(round(100 * fraction)):03d}"
+        metrics[f"goal_fill_{label}_pred_oracle_distance"] = float(np.mean(values["distance"])) if values["distance"] else 0.0
+        metrics[f"goal_fill_{label}_pred_oracle_mse"] = float(np.mean(values["mse"])) if values["mse"] else 0.0
+        metrics[f"goal_fill_{label}_pred_oracle_cosine"] = float(np.mean(values["cosine"])) if values["cosine"] else 0.0
+        metrics[f"goal_fill_{label}_q_step_rmse"] = float(np.mean(values["q_step_rmse"])) if values["q_step_rmse"] else 0.0
+        metrics[f"goal_fill_{label}_state_pred_distance"] = float(np.mean(values["state_pred_distance"])) if values["state_pred_distance"] else 0.0
+        metrics[f"goal_fill_{label}_state_oracle_distance"] = float(np.mean(values["state_oracle_distance"])) if values["state_oracle_distance"] else 0.0
+    metrics.update({key: float(np.mean(items)) if items else 0.0 for key, items in q_to_refs.items()})
+    return metrics
 
 
 def _distance_hamming_spearman_metrics(
