@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-06-30 22:07 CEST
+Last updated: 2026-07-01 09:15 CEST
 
 ## H1 Recipe Sweep
 
@@ -13,14 +13,15 @@ Slurm:
 
 | Array | State | Notes |
 |---|---:|---|
-| `3799696` train `0-3,5,6` | running | started between 18:59 and 19:06 CEST on `a2941` |
-| `3799696` train `7-16` | pending | restored to `rtxpro6k`; detailed Slurm ETA for task 7 was `2026-07-01 03:53 CEST` before grouped ETA became unavailable |
+| `3799696` train `0-3,5,6` | completed | all six wrote checkpoints and metrics |
+| `3799696` train `7-16` | running | started around 03:26-04:01 CEST on RTX Pro 6000 nodes |
 | `3799777` train `4` | node failed | replacement for failed `action_old_local_concat`; A100-80GB node `a0631` failed after about 3 minutes, not an OOM |
 | `3800228` train `4` | running | A100-80GB retry for `action_old_local_concat`, excluding `a0631`, batch `4`, grad accumulation `2`; running on `a0934` |
-| `3799697` eval `0-3,5-16` | dependency-held | `aftercorr:3799696`; task `4` canceled because original train task failed |
+| `3799697` eval `0-3,5,6` | running | partial rows are being written |
+| `3799697` eval `7-16` | dependency-held | waiting on running train tasks |
 | `3800229` eval `4` | dependency-held | retry eval, `afterok:3800228`; stale `3799778_4` was canceled |
 | `3800130` oversight | dependency-held | dependency retargeted to `afterany:3799697:3800229`; may repair evals and submit Wave 2 |
-| `3800223` health | begin-held | starts `2026-06-30 23:02 CEST`; checks A100/RTX OOMs, including retry `3800228`; retries fresh OOMs at batch 4 / grad accumulation 2, and an OOM of `3800228` at batch 2 / grad accumulation 4 |
+| `3800223` health | completed | found only the known dtype failure and made no new submissions |
 
 Operational note: original train task `3799696_4` failed immediately from a
 bf16/float dtype mismatch in `old_local_concat`. Code commit `69d5c78` fixes
@@ -40,10 +41,11 @@ OOM-like failures, including retry `3800228`. Fresh OOMs are resubmitted at
 batch `4` / grad accumulation `2`; if the already-reduced retry `3800228`
 OOMs, it is resubmitted at batch `2` / grad accumulation `4`.
 
-Oversight job `3800130` uses [H1_RECIPE_OVERSIGHT.md](H1_RECIPE_OVERSIGHT.md)
-as the handoff. It summarizes the sweep, chooses best action/dynamics variants
-from oracle-local latent-rollout rows, repairs missing evals, and conditionally
-submits an 8-run Wave 2 interaction probe.
+Oversight job `3800130` has not run yet, so no Wave 2 has been submitted. It
+uses [H1_RECIPE_OVERSIGHT.md](H1_RECIPE_OVERSIGHT.md) as the handoff. It
+summarizes the sweep, chooses best action/dynamics variants from oracle-local
+latent-rollout rows, repairs missing evals, and conditionally submits an 8-run
+Wave 2 interaction probe.
 
 Training basis for `anchor_h1`:
 
@@ -91,11 +93,14 @@ Slurm:
 | Array | State | Notes |
 |---|---:|---|
 | `3797928` train `0-17` | completed | all 18 checkpoints written |
-| `3797929` eval `0-17` | running | all 18 tasks running on `rtxpro6k`; `.err` files empty |
+| `3797929` eval `0-4` | completed | dense-horizon variants are fully evaluated |
+| `3797929` eval `5-17` | running | hierarchy and ranking variants are still writing rows; `.err` files empty |
 
-Eval is still partial: `373 / 1984` expected planner rows are written
-(`17.7%`). So far only `mpc_beam + symbolic_reencode` rows have appeared; no
-latent-rollout or hierarchical-beam rows have been reached yet.
+Eval is still partial: `1456 / 1984` expected planner rows are written
+(`73.3%`). The first nonzero solve signal is now present:
+`rank_listwise_both_action` reaches `6/10` with symbolic re-encode and `2/10`
+with latent rollout under oracle changed-cell raw L2. Predicted-goal rows
+remain at `0/10` and about `48-49` remaining Hamming.
 
 ## Variants
 
@@ -130,39 +135,32 @@ latent-rollout or hierarchical-beam rows have been reached yet.
 
 ## Partial Planner Results
 
-All partial rows have `0/10` solves so far. Best rows are measured by lowest
-remaining Hamming among the rows currently written.
+H1 recipe rows are too partial to judge latent rollout: current rows are only
+early symbolic re-encode rows from variants `0-3,5,6`.
 
-| Variant | Rows | Expected | Best remaining Hamming | Best setting |
-|---|---:|---:|---:|---|
-| dense_k1 | 22 | 64 | 37.6 | oracle raw Euclidean, depth 32 |
-| dense_k4 | 22 | 64 | 40.0 | oracle raw Euclidean, depth 16 |
-| dense_k8 | 22 | 64 | 39.1 | oracle raw Euclidean, depth 4 |
-| dense_k16 | 19 | 64 | 41.0 | oracle raw Euclidean, depth 16 |
-| dense_k32 | 19 | 64 | 41.4 | oracle raw Euclidean, depth 16 |
-| hier_l4 | 19 | 128 | 36.9 | oracle raw MSE, depth 16 |
-| hier_l4_l16 | 19 | 128 | 39.9 | oracle raw Euclidean, depth 16 |
-| hier_l4_l16_l32 | 19 | 128 | 38.1 | oracle raw MSE, depth 4 |
-| hier_l4_l16_shared | 19 | 128 | 37.0 | oracle raw MSE, depth 16 |
-| hier_l4_l16_hier_dense | 19 | 128 | 40.3 | oracle raw MSE, depth 32 |
-| rank_oracle_progress | 19 | 128 | 14.5 | oracle raw MSE, depth 16 |
-| rank_both_progress | 19 | 128 | 27.3 | oracle raw Euclidean, depth 16 |
-| rank_no_progress | 19 | 128 | 36.3 | oracle raw MSE, depth 32 |
-| rank_pairwise_oracle_action | 19 | 128 | 15.4 | oracle normalized distance, depth 4 |
-| rank_pairwise_both_action | 19 | 128 | 25.4 | oracle normalized distance, depth 32 |
-| rank_listwise_pred_action | 19 | 128 | 20.6 | oracle raw Euclidean, depth 16 |
-| rank_listwise_both_action | 19 | 128 | 20.0 | oracle raw MSE, depth 32 |
-| rank_no_action | 19 | 128 | 41.0 | oracle raw MSE, depth 16 |
+| H1 recipe variant | Rows | Expected | Best current row |
+|---|---:|---:|---|
+| `anchor_h1` | 14 | 160 | `0/10`, rem Hamming `45.9`, symbolic, oracle normalized, depth 16 |
+| `action_token` | 14 | 160 | `0/10`, rem Hamming `7.8`, symbolic, oracle normalized, depth 32 |
+| `action_local_feature` | 11 | 160 | `0/10`, rem Hamming `17.4`, symbolic, oracle raw L2, depth 16 |
+| `action_old_local_value` | 14 | 160 | `0/10`, rem Hamming `46.2`, symbolic, oracle raw L2, depth 16 |
+| `dynamics_affected` | 2 | 160 | `0/10`, rem Hamming `20.9`, symbolic, oracle normalized, depth 4 |
+| `dynamics_affected_context` | 2 | 160 | `0/10`, rem Hamming `28.1`, symbolic, oracle normalized, depth 16 |
 
-Best rows overall so far:
+Old-local fast best rows so far:
 
-| Rank | Variant | Remaining Hamming | Score | Depth |
-|---:|---|---:|---|---:|
-| 1 | rank_oracle_progress | 14.5 | oracle raw MSE | 16 |
-| 2 | rank_oracle_progress | 14.8 | oracle raw MSE | 32 |
-| 3 | rank_pairwise_oracle_action | 15.4 | oracle normalized distance | 4 |
-| 4 | rank_oracle_progress | 15.5 | oracle raw MSE | 4 |
-| 5 | rank_pairwise_oracle_action | 16.0 | oracle normalized distance | 16 |
+| Variant | Rows | Expected | Best symbolic oracle | Best latent oracle | Best latent predicted |
+|---|---:|---:|---|---|---|
+| `dense_k1` | 64 | 64 | `0/10`, h `37.6` | `0/10`, h `44.4` | `0/10`, h `48.9` |
+| `dense_k4` | 64 | 64 | `0/10`, h `40.0` | `0/10`, h `41.4` | `0/10`, h `48.9` |
+| `dense_k8` | 64 | 64 | `0/10`, h `38.5` | `0/10`, h `42.8` | `0/10`, h `48.9` |
+| `dense_k16` | 64 | 64 | `0/10`, h `38.7` | `0/10`, h `45.2` | `0/10`, h `49.0` |
+| `dense_k32` | 64 | 64 | `0/10`, h `41.4` | `0/10`, h `41.8` | `0/10`, h `49.3` |
+| `rank_oracle_progress` | 86 | 128 | `0/10`, h `13.1` | `0/10`, h `3.1` | `0/10`, h `48.3` |
+| `rank_pairwise_oracle_action` | 86 | 128 | `0/10`, h `5.5` | `0/10`, h `3.8` | `0/10`, h `47.5` |
+| `rank_listwise_pred_action` | 86 | 128 | `0/10`, h `4.8` | `0/10`, h `5.4` | `0/10`, h `49.1` |
+| `rank_listwise_both_action` | 86 | 128 | `6/10`, h `0.4` | `2/10`, h `2.4` | `0/10`, h `48.5` |
+| `rank_no_action` | 86 | 128 | `0/10`, h `6.1` | `0/10`, h `15.8` | `0/10`, h `49.5` |
 
 ## Early Diagnostics
 
@@ -179,20 +177,15 @@ Best rows overall so far:
 
 ## Interpretation
 
-- The jobs are operationally healthy: training completed for all 18 variants,
-  checkpoints exist, and all eval jobs are still running.
-- The partial eval signal is negative on exact solving: `0/10` across all rows
-  written so far, including oracle-goal symbolic re-encode rows.
-- The ranking losses matter much more than dense horizon or hierarchy alone in
-  the partial rows. Oracle-progress and oracle-action ranking are the only
-  variants that get remaining Hamming below about 20.
-- Predicted-goal planning is not competitive yet in the partial rows; best
-  predicted-goal remaining Hamming is about 48, while best oracle-goal remaining
-  Hamming is 14.5.
-- We still cannot judge latent rollout or hierarchy-as-planner from this eval
-  pass, because those rows have not been reached yet.
-- However, failure in the symbolic re-encode rows is already enough to say this
-  wave is not a faithful reproduction of the old Grid3 result. The old run used
-  independent transition batches, local/context-weighted one-step and rollout
-  MSE, no Grid-Token goal predictor or auxiliary geometry losses, and an
-  overwrite-capable re-encoded/reset oracle planner.
+- The H1 recipe post-eval oversight has not run and no Wave 2 was scheduled
+  because the first-wave evals are still incomplete.
+- The health oversight did run and made no submissions. It saw only the known
+  non-OOM dtype failure from `3799696_4`.
+- Dense rollout horizon alone does not recover the old local-action signal:
+  `dense_k1` through `dense_k32` are complete and all solve `0/10`.
+- The strongest current signal is ranking plus old-local action conditioning:
+  `rank_listwise_both_action` solves `6/10` with symbolic re-encode and `2/10`
+  with latent rollout under oracle changed-cell scoring.
+- This supports the view that local action grounding plus stronger branch
+  discrimination is doing most of the work. It still does not validate the
+  predicted-goal planner, because predicted-goal rows remain near random.

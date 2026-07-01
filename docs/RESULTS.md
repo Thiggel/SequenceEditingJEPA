@@ -1,6 +1,26 @@
 # Results
 
-Last updated: 2026-06-30 10:56 CEST
+Last updated: 2026-07-01 09:15 CEST
+
+## Current H1 Recipe / Old-Local Fast Wave
+
+H1 recipe first wave is still incomplete. Health oversight `3800223` ran and
+made no submissions. Post-eval oversight `3800130` has not run yet, so no Wave
+2 has been submitted.
+
+Old-local fast currently has `1456 / 1984` eval rows. Dense variants are fully
+evaluated and solve `0/10`. The first nonzero solve signal is
+`rank_listwise_both_action`:
+
+- symbolic re-encode, oracle changed-cell raw L2, depth 1: `6/10`, remaining
+  Hamming `0.4`
+- latent rollout, oracle changed-cell raw L2, depth 4: `2/10`, remaining
+  Hamming `2.4`
+- latent rollout, predicted-goal best: `0/10`, remaining Hamming about `48.5`
+
+Interpretation: dense horizon alone is not enough. The useful signal is coming
+from old-local action conditioning plus stronger action ranking, while the
+predicted-goal planner remains unusable in this partial pass.
 
 ## Historical Local-Value Audit
 
