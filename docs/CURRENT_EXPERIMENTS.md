@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 16:50 CEST
+Last updated: 2026-07-01 17:07 CEST
 
 ## H1 Recipe Sweep
 
@@ -143,16 +143,18 @@ remain at `0/10` and about `48-49` remaining Hamming.
 
 ## Partial Planner Results
 
-H1 recipe broad rows are still mostly symbolic re-encode, but the depth-32
-triage has a strong new latent result: `minimal_aux` solved `10/10` with
-`hierarchical_beam + latent_rollout` under oracle global normalized/raw L2
-distance at depth 32. The same variant solves `10/10` with
-`mpc_beam + symbolic_reencode` under oracle global distance in broad and
-triage rows. Predicted-goal rows remain `0/10`.
+H1 recipe now has `505` partial planner rows. The depth-32 triage has a strong
+latent result: `minimal_aux` solved `10/10` with `hierarchical_beam +
+latent_rollout` under oracle global normalized/raw L2 distance at depth 32.
+The same variant solves `10/10` with `mpc_beam + symbolic_reencode` under
+oracle global distance in broad and triage rows. The `mpc_beam +
+latent_rollout` rows for `minimal_aux` have not appeared yet, so the
+non-hierarchical latent-rollout comparison is still unknown. Predicted-goal
+rows remain `0/10`.
 
 | H1 recipe variant | Rows | Expected | Best current row |
 |---|---:|---:|---|
-| `minimal_aux` | 11 broad + 11 triage | 160 broad + 18 triage | `10/10`, h `0.0`, hierarchical latent, oracle global, depth 32 |
+| `minimal_aux` | 12 broad + 12 triage | 160 broad + 18 triage | `10/10`, h `0.0`, hierarchical latent, oracle global, depth 32 |
 | `dynamics_affected_context` | 21 broad + 18 triage | 160 broad + 18 triage | `1/10`, h `4.4`, mpc latent, oracle raw L2, depth 32 |
 | `dynamics_affected` | 21 broad + 18 triage | 160 broad + 18 triage | `1/10`, h `4.9`, symbolic, oracle changed-cell, depth 32 |
 | `hier_l4_l16_l32` | 10 broad + 9 triage | 160 broad + 18 triage | `1/10`, h `5.9`, symbolic, oracle changed-cell, depth 32 |
@@ -200,3 +202,12 @@ Old-local fast best rows so far:
   auxiliary losses can produce very strong oracle global geometry, including
   hierarchical latent-rollout planning. It still does not validate the
   predicted-goal planner, because predicted-goal rows remain poor.
+- `minimal_aux` removes temporal straightening, progress ranking, action
+  ranking, terminal corruption, and VICReg. It still keeps the core dynamics
+  loss, dense rollout loss, hierarchy loss, goal MSE, EMA target encoder, and
+  context-only goal predictor.
+- The successful H1 `minimal_aux` predicted-goal head is context-only
+  `q(c)`, so recomputing it at each planner step does not make it depend on
+  the current board. The current-conditioned `q(c,H0,Ht)` behavior belongs to
+  the old-local fast wave and next-wave configs, where predicted-goal planning
+  is still failing.
