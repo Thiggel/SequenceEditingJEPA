@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 09:50 CEST
+Last updated: 2026-07-01 10:09 CEST
 
 ## H1 Recipe Sweep
 
@@ -22,6 +22,9 @@ Slurm:
 | `3800229` eval `4` | dependency-held | retry eval, `afterok:3800228`; stale `3799778_4` was canceled |
 | `3800130` oversight | canceled | canceled at user request; no Wave 2 will be auto-submitted from this job |
 | `3800223` health | completed | found only the known dtype failure and made no new submissions |
+| `3801426` / `3801427` depth-32 triage `0-3,5,6` | running | `mpc_beam` symbolic+latent and `hierarchical_beam` latent, depth 32 |
+| `3801461` / `3801460` depth-32 triage `7-16` | dependency-held | waits on remaining original train array via `afterany:3799696` |
+| `3801428` / `3801429` depth-32 triage `4` | dependency-held | waits on A100 retry train `3800228` |
 
 Operational note: original train task `3799696_4` failed immediately from a
 bf16/float dtype mismatch in `old_local_concat`. Code commit `69d5c78` fixes
@@ -73,6 +76,13 @@ Eval matrix per checkpoint:
 - beam width `16`, depths `{4,16,32,64}`, 10 boards
 - oracle and predicted variants of normalized full-board distance, raw L2,
   raw MSE, affected-token raw L2, and affected+context raw L2
+
+Fast depth-32 triage was added to get useful H1 signal before the full matrix
+finishes. It evaluates three mode families first: `mpc_beam+symbolic_reencode`,
+`mpc_beam+latent_rollout`, and `hierarchical_beam+latent_rollout`. Scores are
+oracle/predicted global normalized distance, global raw L2, and changed-cell
+raw L2. Output dirs are `planner_eval_h1_triage_d32_mpc` and
+`planner_eval_h1_triage_d32_hier`.
 
 Implementation note: `affected_context` uses affected-cell weight `8`, Sudoku
 row/column/3x3-block context weight `2`, and base weight `1`. This is the

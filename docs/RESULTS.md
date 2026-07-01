@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-01 09:50 CEST
+Last updated: 2026-07-01 10:09 CEST
 
 ## Current H1 Recipe / Old-Local Fast Wave
 
@@ -11,6 +11,12 @@ so no Wave 2 has been submitted.
 Eval jobs cannot be extended past the 24h partition max. The matrix runner now
 resumes safely, so future repair jobs can append missing rows after current
 evals finish or time out.
+
+Depth-32 H1 triage jobs were added: `3801426`/`3801427` are running for
+completed checkpoints `0-3,5,6`; `3801461`/`3801460` wait on remaining train
+tasks `7-16`; `3801428`/`3801429` wait on retry train `3800228_4`. These jobs
+test `mpc_beam` symbolic+latent and `hierarchical_beam` latent at depth 32
+with global normalized, global raw L2, and changed-cell raw L2 scores.
 
 Old-local fast currently has `1474 / 1984` eval rows. Dense variants are fully
 evaluated and solve `0/10`. The first nonzero solve signal is
