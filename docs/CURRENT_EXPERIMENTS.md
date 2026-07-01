@@ -1,6 +1,74 @@
 # Current Experiments
 
-Last updated: 2026-07-01 17:07 CEST
+Last updated: 2026-07-01 18:07 CEST
+
+## Minimal-Aux 5k Single-Factor Wave
+
+This is now the active clean sweep. It uses the H1 `minimal_aux` result as the
+base and changes one ingredient at a time, with all runs trained for `5000`
+optimizer steps. The goal is to preserve the strong oracle global geometry
+from `minimal_aux` while identifying which single addition helps predicted-goal
+planning.
+
+Slurm:
+
+| Array | State | Notes |
+|---|---:|---|
+| `3803494` train `0-28%29` | running | all 29 tasks are running on RTX Pro 6000 and have logged step 1; stderr files are empty |
+| `3803495` eval `0-28%29` | dependency-pending | dependency-held after train; fast latent-rollout eval |
+
+Implementation:
+
+- code commit `617ad95`
+- added `model.goal_target_mode=online_no_stopgrad`, which uses the online
+  encoder for the true goal latent and does not detach the goal target
+- added `model.goal_distance_field_weight`, which trains `D(f(s),q)` to match
+  the oracle distance field from `D(f(s),f(g*))`
+- added combined `regularizer=both`
+- added fill-depth goal diagnostics:
+  `goal_fill_{000,025,050,075,100}_*`, `q_to_initial_mse`,
+  `q_to_half_mse`, and `q_to_goal_mse`
+- verification: `source scripts/env.sh && pytest -q tests/` passed;
+  `compileall` and shell syntax checks passed
+
+Training base:
+
+- `action_conditioning=affected_marker`
+- `predict_delta=true`
+- `regularizer=none`
+- `use_ema_target_encoder=true`
+- `goal_conditioning=context`
+- `goal_target_mode=target_stopgrad`
+- dense rollout weight `1.0`, horizons `[1,4,8,16]`
+- hierarchy levels `[4,16]`, hierarchy loss `1.0`
+- no temporal straightening, no progress rank, no action rank, no terminal
+  corruption, no goal NCE
+- LR `1e-4`, batch `8`, no grad accumulation, `5000` steps
+
+Variants:
+
+| Group | Variants |
+|---|---|
+| Calibration | `base` |
+| Regularization/EMA | `reg_vicreg`, `reg_sigreg`, `reg_no_ema`, `reg_vicreg_no_ema`, `reg_sigreg_no_ema`, `reg_vicreg_sigreg`, `reg_vicreg_sigreg_no_ema` |
+| Ranking | `rank_pairwise_pred_action`, `rank_listwise_pred_action`, `rank_pairwise_oracle_action`, `rank_listwise_oracle_action` |
+| Geometry | `geom_temporal`, `geom_pred_progress`, `geom_oracle_progress` |
+| Dense rollout | `dense_k1`, `dense_k2`, `dense_k4`, `dense_k8`, `dense_k16` |
+| Hierarchy | `hier_none`, `hier_l4`, `hier_l16`, `hier_l4_l16`, `hier_l4_l16_l32` |
+| Goal prediction | `goal_initial_current`, `goal_no_stopgrad`, `goal_initial_current_no_stopgrad`, `goal_distance_field_distill` |
+
+Eval matrix:
+
+- transition: `latent_rollout`
+- planners: `mpc_beam`, plus `hierarchical_beam` for all hierarchy-trained
+  variants
+- beam width `16`, depths `{4,16}`
+- `8` boards
+- scores: oracle/predicted global normalized distance and oracle/predicted
+  global raw L2
+
+Superseded H1 eval jobs canceled to free GPUs:
+`3799697`, `3801461`, `3801460`, `3801428`, `3801429`, and `3800229_4`.
 
 ## H1 Recipe Sweep
 
@@ -17,14 +85,13 @@ Slurm:
 | `3799696` train `7-16` | completed | all original non-retry tasks finished by 13:16 CEST |
 | `3799777` train `4` | node failed | replacement for failed `action_old_local_concat`; A100-80GB node `a0631` failed after about 3 minutes, not an OOM |
 | `3800228` train `4` | completed | A100-80GB retry for `action_old_local_concat`, batch `4`, grad accumulation `2`; completed at 15:19 CEST |
-| `3799697` eval `0-3,5,6` | running | partial rows are being written |
-| `3799697` eval `7-16` | running | broad eval rows are starting for the late variants |
-| `3800229` eval `4` | pending | retry broad eval, estimated start 20:55 CEST |
+| `3799697` eval | canceled | superseded by the minimal-aux 5k wave |
+| `3800229` eval `4` | canceled | superseded by the minimal-aux 5k wave |
 | `3800130` oversight | canceled | canceled at user request; no Wave 2 will be auto-submitted from this job |
 | `3800223` health | completed | found only the known dtype failure and made no new submissions |
 | `3801426` / `3801427` depth-32 triage `0-3,5,6` | mostly completed | early checkpoint depth-32 triage rows written |
-| `3801461` / `3801460` depth-32 triage `7-16` | running/partial | late depth-32 triage active; `3801460_13` failed because `hier_none` has no hierarchy |
-| `3801428` / `3801429` depth-32 triage `4` | running | retry checkpoint depth-32 triage started at 15:19 CEST |
+| `3801461` / `3801460` depth-32 triage `7-16` | canceled/partial | superseded by the minimal-aux 5k wave; `3801460_13` had already failed because `hier_none` has no hierarchy |
+| `3801428` / `3801429` depth-32 triage `4` | canceled/partial | superseded by the minimal-aux 5k wave |
 
 Operational note: original train task `3799696_4` failed immediately from a
 bf16/float dtype mismatch in `old_local_concat`. Code commit `69d5c78` fixes
