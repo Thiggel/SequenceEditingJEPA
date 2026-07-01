@@ -1,6 +1,64 @@
 # Experiment Plan
 
-Last updated: 2026-06-30 22:07 CEST
+Last updated: 2026-07-01 17:45 CEST
+
+## Proposed Minimal-Aux Single-Factor Wave
+
+Use the current H1 `minimal_aux` result as the anchor. This anchor removes
+temporal straightening, progress ranking, action ranking, terminal corruption,
+and VICReg, but keeps dynamics, dense rollout, hierarchy loss, goal MSE, EMA,
+and context-only goal prediction. Current evidence: oracle global distance can
+solve with symbolic re-encode and hierarchical latent rollout, while predicted
+goal planning is still `0/10`.
+
+Do not submit until explicitly approved. If approved, cancel the superseded H1
+eval jobs first to free RTX Pro 6000 slots.
+
+Fast training setting:
+
+- one seed
+- LR `1e-4`
+- batch `8`
+- fast wave `5000-8000` optimizer steps; run a base fast reproduction first
+  because the known `minimal_aux` checkpoint used `45000` steps
+- promote only useful rows to longer 45k training
+
+Fast eval setting:
+
+- latent rollout only
+- beam width `16`
+- depths `{4,16}`
+- `6-8` boards for the first pass
+- scores: oracle/predicted global normalized distance and oracle/predicted
+  global raw L2
+- planners: `mpc_beam`; add `hierarchical_beam` only for trained hierarchy
+  variants
+- no changed-cell score in the first pass, because the successful
+  `minimal_aux` row uses global oracle distance
+
+Proposed variants:
+
+| Group | Runs | Question |
+| --- | --- | --- |
+| Calibration | `base_fast_5k`, optionally `base_fast_8k` | Does the fast training budget preserve the `minimal_aux` signal? |
+| Regularization/EMA | `+vicreg`, `+sigreg`, `-ema`, `+vicreg-ema`, `+sigreg-ema`, `+vicreg+sigreg`, `+vicreg+sigreg-ema` | Which anti-collapse/stabilization choices help or hurt the minimal recipe? |
+| Ranking | `+pairwise_pred_action`, `+listwise_pred_action`, `+pairwise_oracle_action`, `+listwise_oracle_action` | Does branch discrimination improve without the rest of the auxiliary stack? |
+| Progress/geometry | `+temporal_straightening`, `+predicted_progress`, `+oracle_progress` | Which geometry-shaping loss is individually useful? |
+| Dense rollout | dense-all-steps `K={1,2,4,8,16}` | How much dense prediction horizon is needed when other auxiliaries are absent? |
+| Hierarchy | hierarchy `[]`, `[4]`, `[16]`, `[4,16]`, `[4,16,32]` | Is hierarchy itself responsible for the latent-rollout solve, or only the geometry it induces? |
+| Goal prediction | `q(c,H0,Ht)`, `goal_no_stopgrad`, `q(c,H0,Ht)+goal_no_stopgrad`, `distance_field_distill` | Can predicted-goal planning be repaired without sacrificing oracle geometry? |
+
+Diagnostics to add before broad eval:
+
+- predicted-goal vs encoded-goal distance by fill depth
+- whether `q(c,H0,Ht)` changes as the board fills
+- predicted-goal action top-1 by fill depth
+- terminal-corruption ranking by corruption size
+- q-token norm/rank/nearest-real-goal statistics
+
+Distance-field distillation means training q so that `D(f(s), q)` preserves
+oracle state/action rankings induced by `D(f(s), f(g*))`; it does not require
+`q == f(g*)`.
 
 ## H1-Anchored Recipe Search
 
