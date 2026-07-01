@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 13:30 CEST
+Last updated: 2026-07-01 16:50 CEST
 
 ## H1 Recipe Sweep
 
@@ -16,15 +16,15 @@ Slurm:
 | `3799696` train `0-3,5,6` | completed | all six wrote checkpoints and metrics |
 | `3799696` train `7-16` | completed | all original non-retry tasks finished by 13:16 CEST |
 | `3799777` train `4` | node failed | replacement for failed `action_old_local_concat`; A100-80GB node `a0631` failed after about 3 minutes, not an OOM |
-| `3800228` train `4` | running | A100-80GB retry for `action_old_local_concat`, excluding `a0631`, batch `4`, grad accumulation `2`; running on `a0934` |
+| `3800228` train `4` | completed | A100-80GB retry for `action_old_local_concat`, batch `4`, grad accumulation `2`; completed at 15:19 CEST |
 | `3799697` eval `0-3,5,6` | running | partial rows are being written |
 | `3799697` eval `7-16` | running | broad eval rows are starting for the late variants |
-| `3800229` eval `4` | dependency-held | retry eval, `afterok:3800228`; stale `3799778_4` was canceled |
+| `3800229` eval `4` | pending | retry broad eval, estimated start 20:55 CEST |
 | `3800130` oversight | canceled | canceled at user request; no Wave 2 will be auto-submitted from this job |
 | `3800223` health | completed | found only the known dtype failure and made no new submissions |
-| `3801426` / `3801427` depth-32 triage `0-3,5,6` | running | `mpc_beam` symbolic+latent and `hierarchical_beam` latent, depth 32 |
-| `3801461` / `3801460` depth-32 triage `7-16` | running | late depth-32 triage now active; `3801460_13` failed because `hier_none` has no hierarchy |
-| `3801428` / `3801429` depth-32 triage `4` | dependency-held | waits on A100 retry train `3800228` |
+| `3801426` / `3801427` depth-32 triage `0-3,5,6` | mostly completed | early checkpoint depth-32 triage rows written |
+| `3801461` / `3801460` depth-32 triage `7-16` | running/partial | late depth-32 triage active; `3801460_13` failed because `hier_none` has no hierarchy |
+| `3801428` / `3801429` depth-32 triage `4` | running | retry checkpoint depth-32 triage started at 15:19 CEST |
 
 Operational note: original train task `3799696_4` failed immediately from a
 bf16/float dtype mismatch in `old_local_concat`. Code commit `69d5c78` fixes
@@ -143,19 +143,20 @@ remain at `0/10` and about `48-49` remaining Hamming.
 
 ## Partial Planner Results
 
-H1 recipe rows are too partial to judge latent rollout: broad rows are still
-mostly early symbolic re-encode rows. The main new result is that
-`minimal_aux` solved `10/10` with `mpc_beam + symbolic_reencode` under oracle
-global normalized distance at depths 4 and 16.
+H1 recipe broad rows are still mostly symbolic re-encode, but the depth-32
+triage has a strong new latent result: `minimal_aux` solved `10/10` with
+`hierarchical_beam + latent_rollout` under oracle global normalized/raw L2
+distance at depth 32. The same variant solves `10/10` with
+`mpc_beam + symbolic_reencode` under oracle global distance in broad and
+triage rows. Predicted-goal rows remain `0/10`.
 
 | H1 recipe variant | Rows | Expected | Best current row |
 |---|---:|---:|---|
-| `anchor_h1` | 15 | 160 | `0/10`, rem Hamming `45.9`, symbolic, oracle normalized, depth 16 |
-| `action_token` | 15 | 160 | `0/10`, rem Hamming `7.8`, symbolic, oracle normalized, depth 32 |
-| `action_local_feature` | 13 | 160 | `0/10`, rem Hamming `17.4`, symbolic, oracle raw L2, depth 16 |
-| `action_old_local_value` | 15 | 160 | `0/10`, rem Hamming `46.2`, symbolic, oracle raw L2, depth 16 |
-| `dynamics_affected` | 2 | 160 | `0/10`, rem Hamming `20.9`, symbolic, oracle normalized, depth 4 |
-| `dynamics_affected_context` | 2 | 160 | `0/10`, rem Hamming `28.1`, symbolic, oracle normalized, depth 16 |
+| `minimal_aux` | 11 broad + 11 triage | 160 broad + 18 triage | `10/10`, h `0.0`, hierarchical latent, oracle global, depth 32 |
+| `dynamics_affected_context` | 21 broad + 18 triage | 160 broad + 18 triage | `1/10`, h `4.4`, mpc latent, oracle raw L2, depth 32 |
+| `dynamics_affected` | 21 broad + 18 triage | 160 broad + 18 triage | `1/10`, h `4.9`, symbolic, oracle changed-cell, depth 32 |
+| `hier_l4_l16_l32` | 10 broad + 9 triage | 160 broad + 18 triage | `1/10`, h `5.9`, symbolic, oracle changed-cell, depth 32 |
+| `action_token` | 30 broad + 18 triage | 160 broad + 18 triage | `0/10`, h `2.5`, mpc latent, oracle raw L2, depth 32 |
 
 Old-local fast best rows so far:
 
@@ -195,6 +196,7 @@ Old-local fast best rows so far:
 - The strongest current signal is ranking plus old-local action conditioning:
   `rank_listwise_both_action` solves `6/10` with symbolic re-encode and `2/10`
   with latent rollout under oracle changed-cell scoring.
-- This supports the view that local action grounding plus stronger branch
-  discrimination is doing most of the work. It still does not validate the
-  predicted-goal planner, because predicted-goal rows remain near random.
+- The H1 `minimal_aux` result changes the read: removing a large block of
+  auxiliary losses can produce very strong oracle global geometry, including
+  hierarchical latent-rollout planning. It still does not validate the
+  predicted-goal planner, because predicted-goal rows remain poor.

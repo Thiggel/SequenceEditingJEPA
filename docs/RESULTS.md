@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-01 13:30 CEST
+Last updated: 2026-07-01 16:50 CEST
 
 ## Current H1 Recipe / Old-Local Fast Wave
 
@@ -18,12 +18,12 @@ tasks `7-16`; `3801428`/`3801429` wait on retry train `3800228_4`. These jobs
 test `mpc_beam` symbolic+latent and `hierarchical_beam` latent at depth 32
 with global normalized, global raw L2, and changed-cell raw L2 scores.
 
-Update at 13:30 CEST: original H1 train tasks `7-16` completed and their broad
-and depth-32 triage evals are running. Retry train `3800228_4` is still
-running at step `40000/45000`. Old-local eval stopped at `1628/1984` rows after
-24h timeouts. The strongest new H1 broad row is `minimal_aux`,
-`mpc_beam + symbolic_reencode`, oracle global normalized distance: `10/10` at
-depths 4 and 16. No H1 latent-rollout solve has appeared yet.
+Update at 16:50 CEST: retry train `3800228_4` completed and its depth-32
+triage evals are running. Old-local eval stopped at `1628/1984` rows after 24h
+timeouts. The strongest new H1 result is `minimal_aux`: `10/10` with
+`mpc_beam + symbolic_reencode` under oracle global distance, and also `10/10`
+with `hierarchical_beam + latent_rollout` under oracle global normalized/raw
+L2 distance at depth 32. Predicted-goal planning remains `0/10`.
 
 Old-local fast stopped with `1628 / 1984` eval rows. Dense variants are fully
 evaluated and solve `0/10`. The first nonzero solve signal is
