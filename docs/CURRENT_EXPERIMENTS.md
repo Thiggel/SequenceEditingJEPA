@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 10:09 CEST
+Last updated: 2026-07-01 13:30 CEST
 
 ## H1 Recipe Sweep
 
@@ -14,16 +14,16 @@ Slurm:
 | Array | State | Notes |
 |---|---:|---|
 | `3799696` train `0-3,5,6` | completed | all six wrote checkpoints and metrics |
-| `3799696` train `7-16` | running | started around 03:26-04:01 CEST on RTX Pro 6000 nodes |
+| `3799696` train `7-16` | completed | all original non-retry tasks finished by 13:16 CEST |
 | `3799777` train `4` | node failed | replacement for failed `action_old_local_concat`; A100-80GB node `a0631` failed after about 3 minutes, not an OOM |
 | `3800228` train `4` | running | A100-80GB retry for `action_old_local_concat`, excluding `a0631`, batch `4`, grad accumulation `2`; running on `a0934` |
 | `3799697` eval `0-3,5,6` | running | partial rows are being written |
-| `3799697` eval `7-16` | dependency-held | waiting on running train tasks |
+| `3799697` eval `7-16` | running | broad eval rows are starting for the late variants |
 | `3800229` eval `4` | dependency-held | retry eval, `afterok:3800228`; stale `3799778_4` was canceled |
 | `3800130` oversight | canceled | canceled at user request; no Wave 2 will be auto-submitted from this job |
 | `3800223` health | completed | found only the known dtype failure and made no new submissions |
 | `3801426` / `3801427` depth-32 triage `0-3,5,6` | running | `mpc_beam` symbolic+latent and `hierarchical_beam` latent, depth 32 |
-| `3801461` / `3801460` depth-32 triage `7-16` | dependency-held | waits on remaining original train array via `afterany:3799696` |
+| `3801461` / `3801460` depth-32 triage `7-16` | running | late depth-32 triage now active; `3801460_13` failed because `hier_none` has no hierarchy |
 | `3801428` / `3801429` depth-32 triage `4` | dependency-held | waits on A100 retry train `3800228` |
 
 Operational note: original train task `3799696_4` failed immediately from a
@@ -104,8 +104,8 @@ Slurm:
 | `3797929` eval `0-4` | completed | dense-horizon variants are fully evaluated |
 | `3797929` eval `5-17` | running | hierarchy and ranking variants are still writing rows; `.err` files empty |
 
-Eval is still partial: `1474 / 1984` expected planner rows are written
-(`74.3%`). The first nonzero solve signal is now present:
+Eval stopped at `1628 / 1984` expected planner rows (`82.1%`). Tasks `6-17`
+hit the 24h wall. The first nonzero solve signal is still:
 `rank_listwise_both_action` reaches `6/10` with symbolic re-encode and `2/10`
 with latent rollout under oracle changed-cell raw L2. Predicted-goal rows
 remain at `0/10` and about `48-49` remaining Hamming.
@@ -143,8 +143,10 @@ remain at `0/10` and about `48-49` remaining Hamming.
 
 ## Partial Planner Results
 
-H1 recipe rows are too partial to judge latent rollout: current rows are only
-early symbolic re-encode rows from variants `0-3,5,6`.
+H1 recipe rows are too partial to judge latent rollout: broad rows are still
+mostly early symbolic re-encode rows. The main new result is that
+`minimal_aux` solved `10/10` with `mpc_beam + symbolic_reencode` under oracle
+global normalized distance at depths 4 and 16.
 
 | H1 recipe variant | Rows | Expected | Best current row |
 |---|---:|---:|---|
