@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 18:07 CEST
+Last updated: 2026-07-01 18:52 CEST
 
 ## Minimal-Aux 5k Single-Factor Wave
 
@@ -14,8 +14,8 @@ Slurm:
 
 | Array | State | Notes |
 |---|---:|---|
-| `3803494` train `0-28%29` | running | all 29 tasks are running on RTX Pro 6000 and have logged step 1; stderr files are empty |
-| `3803495` eval `0-28%29` | dependency-pending | dependency-held after train; fast latent-rollout eval |
+| `3803494` train `0-28%29` | running/partial complete | 24 tasks running on RTX Pro 6000; tasks `15-19` completed with exit `0:0`; sampled running logs are around steps `3000-3500`; stderr files are empty |
+| `3803495` eval `0-28%29` | dependency-pending | still held on `aftercorr:3803494`; no planner rows yet |
 
 Implementation:
 
