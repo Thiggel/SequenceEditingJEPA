@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 18:52 CEST
+Last updated: 2026-07-01 20:17 CEST
 
 ## Minimal-Aux 5k Single-Factor Wave
 
@@ -14,8 +14,34 @@ Slurm:
 
 | Array | State | Notes |
 |---|---:|---|
-| `3803494` train `0-28%29` | running/partial complete | 24 tasks running on RTX Pro 6000; tasks `15-19` completed with exit `0:0`; sampled running logs are around steps `3000-3500`; stderr files are empty |
-| `3803495` eval `0-28%29` | dependency-pending | still held on `aftercorr:3803494`; no planner rows yet |
+| `3803494` train `0-28%29` | completed | all 29 tasks completed with exit `0:0`; durations were about `17-74` minutes |
+| `3803495` eval `0-28%29` | running | all 29 eval tasks are running across A100 and RTX Pro 6000; sampled stderr files are empty |
+
+Partial eval snapshot at 20:17 CEST:
+
+- `141 / 456` expected planner rows written so far.
+- Current rows are from `mpc_beam` only; `hierarchical_beam` rows have not
+  appeared yet.
+- Oracle global latent-rollout planning is already strong in some 5k variants.
+  Predicted-goal planning remains `0/8` in every partial row.
+
+Best partial oracle rows:
+
+| Variant | Planner | Score | Depth | Result |
+|---|---|---|---:|---|
+| `goal_distance_field_distill` | `mpc_beam` | oracle raw L2 | 4 | `8/8`, h `0.0` |
+| `reg_sigreg` | `mpc_beam` | oracle normalized | 4 | `8/8`, h `0.0` |
+| `base` | `mpc_beam` | oracle normalized | 4 | `7/8`, h `0.125` |
+| `hier_l4_l16` | `mpc_beam` | oracle raw L2 | 4 | `7/8`, h `0.125` |
+| `hier_l4` | `mpc_beam` | oracle raw L2 | 16 | `5/8`, h `0.375` |
+
+Best partial predicted-goal rows:
+
+| Variant | Planner | Score | Depth | Result |
+|---|---|---|---:|---|
+| `reg_vicreg` | `mpc_beam` | predicted normalized | 4 | `0/8`, h `34.6` |
+| `reg_sigreg` | `mpc_beam` | predicted normalized | 4 | `0/8`, h `36.6` |
+| `reg_vicreg_sigreg` | `mpc_beam` | predicted normalized | 4 | `0/8`, h `37.1` |
 
 Implementation:
 

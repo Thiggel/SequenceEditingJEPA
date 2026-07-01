@@ -1,10 +1,29 @@
 # Results
 
-Last updated: 2026-07-01 16:50 CEST
+Last updated: 2026-07-01 20:17 CEST
 
 ## Current H1 Recipe / Old-Local Fast Wave
 
-H1 recipe first wave is still incomplete. Health oversight `3800223` ran and
+Minimal-aux 5k single-factor wave is now the active source of results. Train
+array `3803494` completed all 29 variants cleanly. Eval array `3803495` is
+running all 29 tasks and has written `141 / 456` expected rows so far. Current
+rows are `mpc_beam` only; `hierarchical_beam` rows have not appeared yet.
+
+Best partial rows:
+
+| Variant | Goal/score | Depth | Result |
+| --- | --- | ---: | --- |
+| `goal_distance_field_distill` | oracle raw L2 | 4 | `8/8`, h `0.0` |
+| `reg_sigreg` | oracle normalized | 4 | `8/8`, h `0.0` |
+| `base` | oracle normalized | 4 | `7/8`, h `0.125` |
+| `hier_l4_l16` | oracle raw L2 | 4 | `7/8`, h `0.125` |
+| `reg_vicreg` | predicted normalized | 4 | `0/8`, h `34.6` |
+
+Interpretation: the 5k minimal-aux recipe already recovers strong oracle
+global latent-rollout planning. Predicted-goal planning remains the bottleneck:
+all partial predicted-goal rows are still `0/8`.
+
+The H1 recipe first wave is superseded. Health oversight `3800223` ran and
 made no submissions. Post-eval oversight `3800130` was canceled before it ran,
 so no Wave 2 has been submitted.
 
