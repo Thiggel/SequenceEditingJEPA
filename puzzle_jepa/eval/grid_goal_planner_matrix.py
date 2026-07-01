@@ -78,13 +78,18 @@ def run_planner_matrix(
     high_cem_std: float = 1.0,
 ) -> list[dict[str, Any]]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    completed = _read_completed_matrix_keys(output_path)
     records: list[dict[str, Any]] = []
-    with output_path.open("w") as handle:
+    _ensure_append_starts_on_new_line(output_path)
+    with output_path.open("a") as handle:
         for planner in planners:
             for transition in transitions:
                 for score in scores:
                     for beam_width in beam_widths:
                         for beam_depth in beam_depths:
+                            key = (planner, transition, score, beam_width, beam_depth)
+                            if key in completed:
+                                continue
                             solved = 0
                             remaining = []
                             steps = []
@@ -178,7 +183,46 @@ def run_planner_matrix(
                             handle.write(json.dumps(record, sort_keys=True) + "\n")
                             handle.flush()
                             records.append(record)
+                            completed.add(key)
     return records
+
+
+def _ensure_append_starts_on_new_line(path: Path) -> None:
+    if not path.is_file() or path.stat().st_size == 0:
+        return
+    with path.open("rb") as handle:
+        handle.seek(-1, 2)
+        last = handle.read(1)
+    if last != b"\n":
+        with path.open("ab") as handle:
+            handle.write(b"\n")
+
+
+def _read_completed_matrix_keys(path: Path) -> set[tuple[str, str, str, int, int]]:
+    if not path.is_file():
+        return set()
+    completed: set[tuple[str, str, str, int, int]] = set()
+    with path.open() as handle:
+        for line in handle:
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                record = json.loads(text)
+                completed.add(_matrix_key(record))
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+    return completed
+
+
+def _matrix_key(record: dict[str, Any]) -> tuple[str, str, str, int, int]:
+    return (
+        str(record["planner"]),
+        str(record["transition_mode"]),
+        str(record["score_mode"]),
+        int(record["beam_width"]),
+        int(record["beam_depth"]),
+    )
 
 
 def main() -> None:

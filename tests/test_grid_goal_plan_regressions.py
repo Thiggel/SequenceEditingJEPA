@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -384,6 +385,81 @@ def test_planner_matrix_records_beam_and_cem_rows(tmp_path):
 
     assert [record["planner"] for record in records] == ["mpc_beam", "categorical_cem"]
     assert (tmp_path / "planner_matrix.jsonl").read_text().count("\n") == 2
+    rerun = run_planner_matrix(
+        model,
+        [tiny],
+        output_path=tmp_path / "planner_matrix.jsonl",
+        device=torch.device("cpu"),
+        beam_widths=(2,),
+        beam_depths=(1,),
+        scores=("oracle_goal_distance",),
+        transitions=("latent_rollout",),
+        planners=("mpc_beam", "categorical_cem"),
+        max_examples=1,
+        max_steps=1,
+        cem_samples=3,
+        cem_iters=1,
+        cem_elites=1,
+    )
+    assert rerun == []
+    assert (tmp_path / "planner_matrix.jsonl").read_text().count("\n") == 2
+
+
+def test_planner_matrix_resume_appends_only_missing_cells(tmp_path):
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    tiny = type(example)(state, example.goal)
+    output_path = tmp_path / "planner_matrix.jsonl"
+    output_path.write_text(
+        json.dumps(
+            {
+                "planner": "mpc_beam",
+                "transition_mode": "latent_rollout",
+                "score_mode": "oracle_goal_distance",
+                "beam_width": 2,
+                "beam_depth": 1,
+                "examples": 1,
+                "solved": 0,
+                "solve_rate": 0.0,
+                "remaining_hamming_mean": 1.0,
+                "steps_mean": 1.0,
+                "action_evals_mean": 1.0,
+                "elapsed_seconds_mean": 0.0,
+            },
+            sort_keys=True,
+        )
+        + "\n"
+        + '{"planner": '
+    )
+
+    records = run_planner_matrix(
+        _small_model(),
+        [tiny],
+        output_path=output_path,
+        device=torch.device("cpu"),
+        beam_widths=(2,),
+        beam_depths=(1,),
+        scores=("oracle_goal_distance",),
+        transitions=("latent_rollout",),
+        planners=("mpc_beam", "categorical_cem"),
+        max_examples=1,
+        max_steps=1,
+        cem_samples=3,
+        cem_iters=1,
+        cem_elites=1,
+    )
+
+    assert [record["planner"] for record in records] == ["categorical_cem"]
+    parseable = []
+    malformed = 0
+    for line in output_path.read_text().splitlines():
+        try:
+            parseable.append(json.loads(line))
+        except json.JSONDecodeError:
+            malformed += 1
+    assert [record["planner"] for record in parseable] == ["mpc_beam", "categorical_cem"]
+    assert malformed == 1
 
 
 def test_diagnostics_include_rollout_and_goal_alignment_metrics(tmp_path):

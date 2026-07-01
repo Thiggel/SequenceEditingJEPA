@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 09:15 CEST
+Last updated: 2026-07-01 09:50 CEST
 
 ## H1 Recipe Sweep
 
@@ -20,7 +20,7 @@ Slurm:
 | `3799697` eval `0-3,5,6` | running | partial rows are being written |
 | `3799697` eval `7-16` | dependency-held | waiting on running train tasks |
 | `3800229` eval `4` | dependency-held | retry eval, `afterok:3800228`; stale `3799778_4` was canceled |
-| `3800130` oversight | dependency-held | dependency retargeted to `afterany:3799697:3800229`; may repair evals and submit Wave 2 |
+| `3800130` oversight | canceled | canceled at user request; no Wave 2 will be auto-submitted from this job |
 | `3800223` health | completed | found only the known dtype failure and made no new submissions |
 
 Operational note: original train task `3799696_4` failed immediately from a
@@ -36,16 +36,14 @@ and retry train/eval jobs `3800228_4`/`3800229_4` were submitted on
 `a100 --constraint=a100_80 --exclude=a0631` with batch `4` and grad
 accumulation `2`. The retry train is running on `a0934`. Pending original tasks
 `3799696_7-16` were briefly broadened too, but that worsened the grouped ETA;
-they were restored to RTX-only. Health job `3800223` will check in one hour for
-OOM-like failures, including retry `3800228`. Fresh OOMs are resubmitted at
-batch `4` / grad accumulation `2`; if the already-reduced retry `3800228`
-OOMs, it is resubmitted at batch `2` / grad accumulation `4`.
+they were restored to RTX-only. Health job `3800223` completed without
+submitting repairs; it saw only the known non-OOM dtype failure.
 
-Oversight job `3800130` has not run yet, so no Wave 2 has been submitted. It
-uses [H1_RECIPE_OVERSIGHT.md](H1_RECIPE_OVERSIGHT.md) as the handoff. It
-summarizes the sweep, chooses best action/dynamics variants from oracle-local
-latent-rollout rows, repairs missing evals, and conditionally submits an 8-run
-Wave 2 interaction probe.
+Oversight job `3800130` was canceled at user request before it ran, so no Wave
+2 has been submitted. Eval jobs are too large to finish all rows within the
+24h partition max; `grid_goal_planner_matrix.py` now resumes safely by
+skipping completed matrix cells and appending after truncated JSONL tails, so
+future repair jobs can continue partial eval matrices without overwriting rows.
 
 Training basis for `anchor_h1`:
 
@@ -96,8 +94,8 @@ Slurm:
 | `3797929` eval `0-4` | completed | dense-horizon variants are fully evaluated |
 | `3797929` eval `5-17` | running | hierarchy and ranking variants are still writing rows; `.err` files empty |
 
-Eval is still partial: `1456 / 1984` expected planner rows are written
-(`73.3%`). The first nonzero solve signal is now present:
+Eval is still partial: `1474 / 1984` expected planner rows are written
+(`74.3%`). The first nonzero solve signal is now present:
 `rank_listwise_both_action` reaches `6/10` with symbolic re-encode and `2/10`
 with latent rollout under oracle changed-cell raw L2. Predicted-goal rows
 remain at `0/10` and about `48-49` remaining Hamming.
@@ -140,10 +138,10 @@ early symbolic re-encode rows from variants `0-3,5,6`.
 
 | H1 recipe variant | Rows | Expected | Best current row |
 |---|---:|---:|---|
-| `anchor_h1` | 14 | 160 | `0/10`, rem Hamming `45.9`, symbolic, oracle normalized, depth 16 |
-| `action_token` | 14 | 160 | `0/10`, rem Hamming `7.8`, symbolic, oracle normalized, depth 32 |
-| `action_local_feature` | 11 | 160 | `0/10`, rem Hamming `17.4`, symbolic, oracle raw L2, depth 16 |
-| `action_old_local_value` | 14 | 160 | `0/10`, rem Hamming `46.2`, symbolic, oracle raw L2, depth 16 |
+| `anchor_h1` | 15 | 160 | `0/10`, rem Hamming `45.9`, symbolic, oracle normalized, depth 16 |
+| `action_token` | 15 | 160 | `0/10`, rem Hamming `7.8`, symbolic, oracle normalized, depth 32 |
+| `action_local_feature` | 13 | 160 | `0/10`, rem Hamming `17.4`, symbolic, oracle raw L2, depth 16 |
+| `action_old_local_value` | 15 | 160 | `0/10`, rem Hamming `46.2`, symbolic, oracle raw L2, depth 16 |
 | `dynamics_affected` | 2 | 160 | `0/10`, rem Hamming `20.9`, symbolic, oracle normalized, depth 4 |
 | `dynamics_affected_context` | 2 | 160 | `0/10`, rem Hamming `28.1`, symbolic, oracle normalized, depth 16 |
 
@@ -177,8 +175,7 @@ Old-local fast best rows so far:
 
 ## Interpretation
 
-- The H1 recipe post-eval oversight has not run and no Wave 2 was scheduled
-  because the first-wave evals are still incomplete.
+- The H1 recipe post-eval oversight was canceled and no Wave 2 was scheduled.
 - The health oversight did run and made no submissions. It saw only the known
   non-OOM dtype failure from `3799696_4`.
 - Dense rollout horizon alone does not recover the old local-action signal:

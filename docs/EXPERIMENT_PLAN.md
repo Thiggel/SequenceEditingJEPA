@@ -76,8 +76,8 @@ Submitted implementation:
   `a0934` with batch `4` and grad accumulation `2`; retry eval `3800229_4`
   waits on `afterok:3800228`. Original `3799696_4` hit a bf16 dtype bug fixed
   in code commit `69d5c78`
-- oversight job: `3800130`, dependency `afterany:3799697:3800229`, with
-  `H1_RECIPE_SUBMIT_NEXT=1`
+- oversight job: `3800130` was canceled before running; no Wave 2 was
+  submitted from this job
 - health job: `3800223`, begin time `2026-06-30 23:02 CEST`; checks for
   OOM-like train failures, including retry `3800228`; fresh OOMs are retried
   with microbatch `4` and grad accumulation `2`, while an OOM of retry

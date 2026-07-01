@@ -1,14 +1,18 @@
 # Results
 
-Last updated: 2026-07-01 09:15 CEST
+Last updated: 2026-07-01 09:50 CEST
 
 ## Current H1 Recipe / Old-Local Fast Wave
 
 H1 recipe first wave is still incomplete. Health oversight `3800223` ran and
-made no submissions. Post-eval oversight `3800130` has not run yet, so no Wave
-2 has been submitted.
+made no submissions. Post-eval oversight `3800130` was canceled before it ran,
+so no Wave 2 has been submitted.
 
-Old-local fast currently has `1456 / 1984` eval rows. Dense variants are fully
+Eval jobs cannot be extended past the 24h partition max. The matrix runner now
+resumes safely, so future repair jobs can append missing rows after current
+evals finish or time out.
+
+Old-local fast currently has `1474 / 1984` eval rows. Dense variants are fully
 evaluated and solve `0/10`. The first nonzero solve signal is
 `rank_listwise_both_action`:
 
