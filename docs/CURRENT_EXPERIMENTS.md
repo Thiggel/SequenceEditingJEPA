@@ -174,7 +174,7 @@ ETA if queues remain similar: bf16 trains should finish around
 dependency-held evals should finish around `21:30-22:30 CEST` if they start
 promptly.
 
-Status at 18:45 CEST:
+Status at 18:55 CEST:
 
 - Main factorization evals completed for every finite checkpoint. The original
   dropout-off refactor train failed; its eval is `DependencyNeverSatisfied`.
@@ -192,14 +192,18 @@ Best rows so far:
 | `A_anchor_repro` | `8/8`, h `0.0`, `mpc_beam` d16 | `0/8`, h `44.2` |
 | `A_no_predict_delta` | `8/8`, h `0.0`, `mpc_beam` d16 | `0/8`, h `41.4` |
 | `A_refactor_equiv_14816` | `5/8`, h `0.375`, `mpc_beam` d4 | `0/8`, h `40.4` |
+| `A_refactor_equiv_14816_dropout_off_fp32_b4_gated` | `8/8`, h `0.0`, `mpc_beam` d4, partial | pending |
 | `A_refactor_equiv_14816_dropout_off_gated_l1e4` | `4/8`, h `0.625`, `mpc_beam` d16, partial | `0/8`, h `41.0`, partial |
 | `A_no_hierarchy` | `3/8`, h `0.875`, `mpc_beam` d4 | `0/8`, h `44.8` |
 | `A_old_path_h8_only` | `0/8`, h `1.75`, `mpc_beam` d16 | `0/8`, h `42.6` |
 
 Interpretation: the anchor reproduced the good oracle solve result. Disabled
 loss gating fixed dropout-off NaNs. Dropout-off LR `1e-4` looks promising
-partway through eval; LR `1e-5` is stable but planning-random. Predicted-goal
-planning remains `0/8` everywhere.
+partway through eval, and fp32 batch-4 dropout-off refactor has a first row at
+`8/8`. LR `1e-5` is stable but planning-random. Predicted-goal planning
+remains `0/8` everywhere. Dropout-off has not yet been crossed with the
+alternative loss schemes such as uniform, inverse-sqrt K16, gamma K16, smooth
+count weighting, or H8/H16-only.
 
 Eval per checkpoint is an independent dependency-held job:
 
