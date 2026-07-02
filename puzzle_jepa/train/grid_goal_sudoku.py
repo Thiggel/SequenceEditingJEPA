@@ -121,9 +121,14 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                     negative_actions=negative_actions,
                     corrupt_goals=corrupt_goals,
                 )
+            if not torch.isfinite(output.loss.detach()):
+                raise FloatingPointError(f"Non-finite loss at step {step}: {float(output.loss.detach().cpu())}")
             (output.loss / gradient_accumulation_steps).backward()
             outputs.append(output)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        grad_norm_value = float(grad_norm.detach().cpu())
+        if not np.isfinite(grad_norm_value):
+            raise FloatingPointError(f"Non-finite gradient norm at step {step}: {grad_norm_value}")
         lr = _scheduled_lr(
             step=step,
             max_steps=max_steps,
@@ -157,6 +162,8 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 "peak_learning_rate": peak_lr,
                 "warmup_steps": warmup_steps,
                 "min_lr_ratio": min_lr_ratio,
+                "grad_clip": grad_clip,
+                "grad_norm_pre_clip": grad_norm_value,
                 "micro_batch_size": batch_size,
                 "gradient_accumulation_steps": gradient_accumulation_steps,
                 "effective_batch_size": batch_size * gradient_accumulation_steps,

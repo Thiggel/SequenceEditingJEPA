@@ -31,6 +31,10 @@ VARIANTS=(
   A_refactor_equiv_14816_dropout_off_fp32
   A_anchor_dropout_off_lr5e5
   A_refactor_equiv_14816_dropout_off_lr5e5
+  A_anchor_dropout_off_lr1e5
+  A_refactor_equiv_14816_dropout_off_lr1e5
+  A_anchor_dropout_off_fp32_b4
+  A_refactor_equiv_14816_dropout_off_fp32_b4
 )
 
 if [[ -n "${VARIANT:-}" ]]; then
@@ -177,6 +181,40 @@ case "${SELECTED_VARIANT}" in
       "model.dense_rollout_refactor_mode=legacy_equivalent"
       "model.dropout=0.0"
       "training.learning_rate=5.0e-5"
+    )
+    ;;
+  A_anchor_dropout_off_lr1e5)
+    EXTRA_OVERRIDES=(
+      "model.dropout=0.0"
+      "training.learning_rate=1.0e-5"
+      "training.eval_every_steps=100"
+    )
+    ;;
+  A_refactor_equiv_14816_dropout_off_lr1e5)
+    EXTRA_OVERRIDES=(
+      "model.dense_rollout_refactor_mode=legacy_equivalent"
+      "model.dropout=0.0"
+      "training.learning_rate=1.0e-5"
+      "training.eval_every_steps=100"
+    )
+    ;;
+  A_anchor_dropout_off_fp32_b4)
+    EXTRA_OVERRIDES=(
+      "model.dropout=0.0"
+      "training.bf16=false"
+      "training.batch_size=4"
+      "training.gradient_accumulation_steps=2"
+      "training.eval_every_steps=100"
+    )
+    ;;
+  A_refactor_equiv_14816_dropout_off_fp32_b4)
+    EXTRA_OVERRIDES=(
+      "model.dense_rollout_refactor_mode=legacy_equivalent"
+      "model.dropout=0.0"
+      "training.bf16=false"
+      "training.batch_size=4"
+      "training.gradient_accumulation_steps=2"
+      "training.eval_every_steps=100"
     )
     ;;
   *)

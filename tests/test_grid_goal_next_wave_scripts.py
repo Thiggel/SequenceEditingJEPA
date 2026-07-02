@@ -141,6 +141,10 @@ MINAUX_FACTOR_VARIANTS = (
     "A_refactor_equiv_14816_dropout_off_fp32",
     "A_anchor_dropout_off_lr5e5",
     "A_refactor_equiv_14816_dropout_off_lr5e5",
+    "A_anchor_dropout_off_lr1e5",
+    "A_refactor_equiv_14816_dropout_off_lr1e5",
+    "A_anchor_dropout_off_fp32_b4",
+    "A_refactor_equiv_14816_dropout_off_fp32_b4",
 )
 
 
@@ -920,8 +924,8 @@ def test_clean17_eval_uses_raw_oracle_only_for_g_none_and_adds_predicted_for_goa
 
 
 def test_minaux_factor_has_expected_unique_variant_count():
-    assert len(MINAUX_FACTOR_VARIANTS) == 18
-    assert len(set(MINAUX_FACTOR_VARIANTS)) == 18
+    assert len(MINAUX_FACTOR_VARIANTS) == 22
+    assert len(set(MINAUX_FACTOR_VARIANTS)) == 22
 
 
 def test_minaux_factor_anchor_reproduces_minimal_aux_basis(tmp_path):
@@ -1106,6 +1110,46 @@ def test_minaux_factor_dropout_off_controls_pin_precision_or_learning_rate(tmp_p
     assert "training.learning_rate=5.0e-5" in refactor_lr
     assert "training.bf16=true" in refactor_lr
     assert "model.dense_rollout_refactor_mode=legacy_equivalent" in refactor_lr
+
+
+def test_minaux_factor_dropout_off_low_lr_and_fp32_b4_controls_are_comparable(tmp_path):
+    anchor_lr = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=18,
+    )
+    refactor_lr = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=19,
+    )
+    anchor_fp32_b4 = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=20,
+    )
+    refactor_fp32_b4 = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=21,
+    )
+
+    assert "model.dropout=0.0" in anchor_lr
+    assert "training.learning_rate=1.0e-5" in anchor_lr
+    assert "training.eval_every_steps=100" in anchor_lr
+    assert "model.dense_rollout_refactor_mode=none" in anchor_lr
+    assert "model.dropout=0.0" in refactor_lr
+    assert "training.learning_rate=1.0e-5" in refactor_lr
+    assert "training.eval_every_steps=100" in refactor_lr
+    assert "model.dense_rollout_refactor_mode=legacy_equivalent" in refactor_lr
+    for args in (anchor_fp32_b4, refactor_fp32_b4):
+        assert "model.dropout=0.0" in args
+        assert "training.bf16=false" in args
+        assert "training.batch_size=4" in args
+        assert "training.gradient_accumulation_steps=2" in args
+        assert "training.eval_every_steps=100" in args
+    assert "model.dense_rollout_refactor_mode=none" in anchor_fp32_b4
+    assert "model.dense_rollout_refactor_mode=legacy_equivalent" in refactor_fp32_b4
 
 
 def test_minaux_factor_eval_is_independent_fast_latent_matrix(tmp_path):

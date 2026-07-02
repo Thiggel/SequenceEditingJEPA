@@ -23,6 +23,10 @@ VARIANTS=(
   A_refactor_equiv_14816_dropout_off_fp32
   A_anchor_dropout_off_lr5e5
   A_refactor_equiv_14816_dropout_off_lr5e5
+  A_anchor_dropout_off_lr1e5
+  A_refactor_equiv_14816_dropout_off_lr1e5
+  A_anchor_dropout_off_fp32_b4
+  A_refactor_equiv_14816_dropout_off_fp32_b4
 )
 
 for variant in "${VARIANTS[@]}"; do
