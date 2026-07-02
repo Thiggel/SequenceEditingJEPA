@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 17:01 CEST
+Last updated: 2026-07-02 17:06 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -129,6 +129,16 @@ Follow-up at 17:01 CEST:
 | `A_refactor_equiv_14816_dropout_off_lr1e5` | refactor, dropout off, bf16, LR `1e-5`, log every 100 steps | `3806112` | `3806113` | train running |
 | `A_anchor_dropout_off_fp32_b4` | old path, dropout off, fp32, batch 4, grad accum 2 | `3806114` | `3806115` | train running |
 | `A_refactor_equiv_14816_dropout_off_fp32_b4` | refactor, dropout off, fp32, batch 4, grad accum 2 | `3806116` | `3806117` | train running |
+
+Status at 17:06 CEST:
+
+- All four newly submitted dropout-off controls failed immediately with
+  `Non-finite gradient norm at step 1: nan`; their eval jobs are
+  `DependencyNeverSatisfied`.
+- This confirms the earlier dropout-off runs did not merely diverge late from
+  LR. They have a finite step-1 loss but non-finite gradients before clipping.
+- The main non-dropout-off factorization evals have `96` planner rows so far
+  and remain the useful result source.
 
 Eval per checkpoint is an independent dependency-held job:
 
