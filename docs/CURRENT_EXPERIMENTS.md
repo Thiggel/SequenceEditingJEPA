@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-01 20:17 CEST
+Last updated: 2026-07-02 08:34 CEST
 
 ## Minimal-Aux 5k Single-Factor Wave
 
@@ -15,33 +15,43 @@ Slurm:
 | Array | State | Notes |
 |---|---:|---|
 | `3803494` train `0-28%29` | completed | all 29 tasks completed with exit `0:0`; durations were about `17-74` minutes |
-| `3803495` eval `0-28%29` | running | all 29 eval tasks are running across A100 and RTX Pro 6000; sampled stderr files are empty |
+| `3803495` eval `0-28%29` | completed | all 29 tasks completed with exit `0:0`; durations were about `2-6.2` hours |
 
-Partial eval snapshot at 20:17 CEST:
+Final eval snapshot:
 
-- `141 / 456` expected planner rows written so far.
-- Current rows are from `mpc_beam` only; `hierarchical_beam` rows have not
-  appeared yet.
-- Oracle global latent-rollout planning is already strong in some 5k variants.
-  Predicted-goal planning remains `0/8` in every partial row.
+- `456 / 456` planner rows written, with no malformed rows.
+- Eval used latent rollout only, beam width `16`, depths `{4,16}`, `8` boards.
+- Oracle global latent-rollout planning is strong in several 5k variants.
+- Predicted-goal planning remains `0/8` for every variant and score.
 
-Best partial oracle rows:
+Best oracle rows:
 
 | Variant | Planner | Score | Depth | Result |
 |---|---|---|---:|---|
+| `geom_oracle_progress` | `mpc_beam` | oracle raw L2 | 4 | `8/8`, h `0.0` |
 | `goal_distance_field_distill` | `mpc_beam` | oracle raw L2 | 4 | `8/8`, h `0.0` |
-| `reg_sigreg` | `mpc_beam` | oracle normalized | 4 | `8/8`, h `0.0` |
-| `base` | `mpc_beam` | oracle normalized | 4 | `7/8`, h `0.125` |
+| `rank_pairwise_oracle_action` | `mpc_beam` | oracle raw L2 | 4 | `8/8`, h `0.0` |
+| `reg_sigreg` | `mpc_beam` | oracle raw L2 | 4 | `8/8`, h `0.0` |
+| `base` | `mpc_beam` | oracle raw L2 | 4 | `7/8`, h `0.125` |
 | `hier_l4_l16` | `mpc_beam` | oracle raw L2 | 4 | `7/8`, h `0.125` |
-| `hier_l4` | `mpc_beam` | oracle raw L2 | 16 | `5/8`, h `0.375` |
 
-Best partial predicted-goal rows:
+Best predicted-goal rows:
 
 | Variant | Planner | Score | Depth | Result |
 |---|---|---|---:|---|
-| `reg_vicreg` | `mpc_beam` | predicted normalized | 4 | `0/8`, h `34.6` |
-| `reg_sigreg` | `mpc_beam` | predicted normalized | 4 | `0/8`, h `36.6` |
-| `reg_vicreg_sigreg` | `mpc_beam` | predicted normalized | 4 | `0/8`, h `37.1` |
+| `reg_vicreg` | `mpc_beam` | predicted raw L2 | 16 | `0/8`, h `32.6` |
+| `reg_vicreg_sigreg` | `hierarchical_beam` | predicted raw L2 | 4 | `0/8`, h `33.8` |
+| `reg_sigreg` | `mpc_beam` | predicted raw L2 | 16 | `0/8`, h `35.2` |
+
+Interpretation:
+
+- The base `minimal_aux` recipe is viable: `7/8` under oracle global latent
+  rollout after only 5k steps.
+- SIGReg, oracle progress ranking, oracle pairwise action ranking, and
+  distance-field distillation each reached `8/8` under oracle global scores.
+- Predicted goals remain the bottleneck; no predicted-goal row solved.
+- Dense horizon changes, no-stopgrad goal targets, and q(c,H0,Ht) were harmful
+  in this pass.
 
 Implementation:
 
