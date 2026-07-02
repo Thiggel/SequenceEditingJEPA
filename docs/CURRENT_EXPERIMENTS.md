@@ -1,21 +1,48 @@
 # Current Experiments
 
-Last updated: 2026-07-02 08:34 CEST
+Last updated: 2026-07-02 10:08 CEST
 
-## Minimal-Aux 5k Single-Factor Wave
+## Active: Clean17 Exact K=8 Goal/Hierarchy Sweep
 
-This is now the active clean sweep. It uses the H1 `minimal_aux` result as the
-base and changes one ingredient at a time, with all runs trained for `5000`
-optimizer steps. The goal is to preserve the strong oracle global geometry
-from `minimal_aux` while identifying which single addition helps predicted-goal
-planning.
+Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+This active sweep tests exact variable-start K=8 dense rollout with different
+horizon weights and hierarchy levels, then tests predicted-goal objectives on
+the deduped `inv_sqrt + [4,16] + G_none` anchor.
 
 Slurm:
 
-| Array | State | Notes |
-|---|---:|---|
-| `3803494` train `0-28%29` | completed | all 29 tasks completed with exit `0:0`; durations were about `17-74` minutes |
-| `3803495` eval `0-28%29` | completed | all 29 tasks completed with exit `0:0`; durations were about `2-6.2` hours |
+| Group | Train jobs | Eval jobs | State |
+|---|---|---|---|
+| First submission | `3804721`-`3804753` odd IDs | `3804722`-`3804754` even IDs | train failed immediately from invalid custom `ablation`; stale evals canceled |
+| Corrected submission | `3804755`-`3804787` odd IDs | `3804756`-`3804788` even IDs | all 17 train jobs running on `rtxpro6k`; evals dependency-held |
+
+Health check at 10:11 CEST: sampled corrected jobs `3804755`, `3804767`, and
+`3804787` reached step `500`; sampled stderr files were empty.
+
+Common settings: seed `5204`, LR `1e-4`, batch `8`, `5000` steps,
+`affected_marker`, `predict_delta=true`, EMA dynamics target, no aux geometry
+losses, exact variable-start dense rollout with `multi_step_horizons=[8]`.
+
+Variants:
+
+| Group | Variants |
+|---|---|
+| Rollout weights | uniform, `1/sqrt(i)`, `0.8^(i-1)` |
+| Hierarchy | `[]`, `[4]`, `[4,16]`, `[4,16,32]` |
+| Goal modes on `inv_sqrt+[4,16]` | detached `q(c,H0,Ht)`, non-detached `q(c,H0,Ht)`, online no-stopgrad target, field+MSE, field-only |
+
+Eval: latent rollout, beam width `16`, depths `{4,16}`, `8` boards, oracle
+raw L2 for all jobs, predicted raw L2 only for goal jobs, and
+`hierarchical_beam` only for hierarchy-trained checkpoints.
+
+Expected timing: train roughly `1-2` hours; eval roughly `0.5-2` hours per job
+after dependency release. First results should appear in about `2-3` hours if
+the currently running RTX jobs stay healthy.
+
+## Completed: Minimal-Aux 5k Single-Factor Wave
+
+Train array `3803494` and eval array `3803495` completed all 29 tasks cleanly.
 
 Final eval snapshot:
 

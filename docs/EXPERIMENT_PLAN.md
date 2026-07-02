@@ -1,6 +1,28 @@
 # Experiment Plan
 
-Last updated: 2026-07-02 08:34 CEST
+Last updated: 2026-07-02 10:08 CEST
+
+## Active Submitted Grid: Clean17
+
+Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+Submitted corrected train jobs `3804755`-`3804787` and individual
+dependency-held eval jobs `3804756`-`3804788`.
+
+This grid replaces the standalone dense-exact probe as the active next step:
+
+- exact variable-start K=8 dense rollout
+- rollout weights: uniform, `1/sqrt(i)`, geometric gamma `0.8`
+- hierarchy levels: `[]`, `[4]`, `[4,16]`, `[4,16,32]`
+- goal modes on the deduped `inv_sqrt + [4,16]` anchor:
+  detached `q(c,H0,Ht)`, non-detached `q(c,H0,Ht)`,
+  online no-stopgrad target, distance-field + MSE, and field-only
+- eval: latent rollout, beam width `16`, depths `{4,16}`, 8 boards, oracle raw
+  L2 everywhere, predicted raw L2 only for goal jobs
+
+Gate: first identify whether any exact K=8 rollout/hierarchy recipe preserves
+oracle raw-L2 solves; then judge predicted-goal improvements only against
+goal jobs that preserve oracle geometry.
 
 ## Prepared Dense-Exact Probe
 

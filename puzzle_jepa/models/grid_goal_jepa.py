@@ -229,6 +229,7 @@ class GridTokenGoalJEPA(nn.Module):
         mlp_ratio: float = 4.0,
         dropout: float = 0.0,
         sigreg_weight: float = 0.1,
+        goal_mse_weight: float = 1.0,
         goal_nce_weight: float = 0.1,
         goal_distance_field_weight: float = 0.0,
         goal_target_mode: str = "target_stopgrad",
@@ -252,6 +253,7 @@ class GridTokenGoalJEPA(nn.Module):
         macro_action_encoder_layers: int = 1,
         shared_hierarchy_predictor: bool = False,
         goal_conditioning: str = "initial_current",
+        goal_conditioning_detach_state: bool = False,
         progress_rank_target: str = "predicted",
         action_rank_mode: str = "pairwise",
         action_rank_target: str = "predicted",
@@ -392,12 +394,14 @@ class GridTokenGoalJEPA(nn.Module):
         self.policy_action = nn.Linear(d_model, d_model, bias=False)
         self.distance_projector = nn.Linear(d_model, distance_dim)
         self.sigreg_weight = float(sigreg_weight)
+        self.goal_mse_weight = float(goal_mse_weight)
         self.goal_nce_weight = float(goal_nce_weight)
         self.goal_distance_field_weight = float(goal_distance_field_weight)
         allowed_goal_target_modes = {"target_stopgrad", "online_no_stopgrad"}
         if goal_target_mode not in allowed_goal_target_modes:
             raise ValueError(f"goal_target_mode must be one of {sorted(allowed_goal_target_modes)}.")
         self.goal_target_mode = str(goal_target_mode)
+        self.goal_conditioning_detach_state = bool(goal_conditioning_detach_state)
         self.progress_rank_weight = float(progress_rank_weight)
         self.action_rank_weight = float(action_rank_weight)
         self.temporal_straightening_weight = float(temporal_straightening_weight)
@@ -732,11 +736,15 @@ class GridTokenGoalJEPA(nn.Module):
             initial_for_goal = state_latents[:, :1].expand(batch, frames, token_count, self.d_model).reshape(
                 batch * frames, token_count, self.d_model
             )
+            current_for_goal = state_latents.reshape(batch * frames, token_count, self.d_model)
+            if self.goal_conditioning_detach_state:
+                initial_for_goal = initial_for_goal.detach()
+                current_for_goal = current_for_goal.detach()
             predicted_goal_sequence = self.predict_goal(
                 flat_context,
                 flat_active,
                 initial_latents=initial_for_goal,
-                current_latents=state_latents.reshape(batch * frames, token_count, self.d_model),
+                current_latents=current_for_goal,
             ).reshape(batch, frames, token_count, self.d_model)
             predicted_goal = predicted_goal_sequence[:, 0]
         else:
@@ -1108,7 +1116,7 @@ class GridTokenGoalJEPA(nn.Module):
             + self.dense_future_weight * dense_future_loss
             + self.hierarchy_loss_weight * hierarchy_loss
             + self.sigreg_weight * sigreg_loss
-            + goal_mse_loss
+            + self.goal_mse_weight * goal_mse_loss
             + self.goal_nce_weight * goal_nce_loss
             + self.goal_distance_field_weight * goal_distance_field_loss
             + self.progress_rank_weight * progress_rank_loss

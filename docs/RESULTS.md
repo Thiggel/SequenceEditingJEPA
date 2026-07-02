@@ -1,6 +1,14 @@
 # Results
 
-Last updated: 2026-07-02 08:34 CEST
+Last updated: 2026-07-02 10:08 CEST
+
+## Active Clean17 Sweep
+
+Submitted corrected train jobs `3804755`-`3804787` and dependency-held eval jobs
+`3804756`-`3804788`. No planner results are available yet. See
+`docs/CURRENT_EXPERIMENTS.md` and
+`../sequence-editing-report/CURRENT_EXPERIMENTS.md` for the active grid and
+job map.
 
 ## Current H1 Recipe / Old-Local Fast Wave
 

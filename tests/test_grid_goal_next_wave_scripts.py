@@ -95,6 +95,26 @@ DENSE_EXACT_VARIANTS = (
     "dense_exact_k8_gamma",
 )
 
+CLEAN17_VARIANTS = (
+    "W_uniform_H0_G_none",
+    "W_uniform_H4_G_none",
+    "W_uniform_H4_16_G_none",
+    "W_uniform_H4_16_32_G_none",
+    "W_inv_sqrt_H0_G_none",
+    "W_inv_sqrt_H4_G_none",
+    "W_inv_sqrt_H4_16_G_none",
+    "W_inv_sqrt_H4_16_32_G_none",
+    "W_gamma_H0_G_none",
+    "W_gamma_H4_G_none",
+    "W_gamma_H4_16_G_none",
+    "W_gamma_H4_16_32_G_none",
+    "G_ic_detached",
+    "G_ic_non_detached",
+    "G_ic_online_no_stopgrad",
+    "G_ic_field_plus_mse",
+    "G_ic_field_only",
+)
+
 
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
@@ -310,6 +330,50 @@ def _capture_dense_exact_args(tmp_path: Path, *, script: str, array_index: int, 
 
     env = os.environ.copy()
     env.pop("PLANNERS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "SLURM_ARRAY_TASK_ID": str(array_index),
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_clean17_args(tmp_path: Path, *, script: str, array_index: int, checkpoint: bool = False) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{array_index}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        variant = CLEAN17_VARIANTS[array_index]
+        run_root = work / "runs" / "grid_goal_clean17" / f"grid_goal_clean17_{variant}"
+        run_root.mkdir(parents=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
     env.update(
         {
             "WORK": str(work),
@@ -604,3 +668,127 @@ def test_dense_exact_eval_matches_fast_latent_global_matrix(tmp_path):
         "oracle_goal_raw_euclidean_distance",
         "predicted_goal_raw_euclidean_distance",
     ]
+
+
+def test_clean17_has_expected_unique_variant_count():
+    assert len(CLEAN17_VARIANTS) == 17
+    assert len(set(CLEAN17_VARIANTS)) == 17
+
+
+def test_clean17_anchor_is_deduped_inv_sqrt_h4_l16_g_none(tmp_path):
+    args = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=6,
+    )
+
+    assert "ablation=M0_full" in args
+    assert "+experiment_variant=W_inv_sqrt_H4_16_G_none" in args
+    assert "training.max_steps=5000" in args
+    assert "model.dense_rollout_variable_starts=true" in args
+    assert "model.multi_step_horizons=[8]" in args
+    assert "model.dense_rollout_weighting=inverse_sqrt" in args
+    assert "model.hierarchy_levels=[4,16]" in args
+    assert "model.hierarchy_loss_weight=1.0" in args
+    assert "model.goal_mse_weight=0.0" in args
+    assert "model.goal_conditioning=context" in args
+    assert "model.progress_rank_target=none" in args
+    assert "model.action_rank_mode=none" in args
+
+
+def test_clean17_rollout_hierarchy_grid_only_changes_weight_and_hierarchy(tmp_path):
+    no_hier = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=0,
+    )
+    deep_hier = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=11,
+    )
+
+    assert "model.dense_rollout_weighting=uniform" in no_hier
+    assert "model.hierarchy_levels=[]" in no_hier
+    assert "model.hierarchy_loss_weight=0.0" in no_hier
+    assert "model.dense_rollout_weighting=geometric" in deep_hier
+    assert "model.dense_rollout_gamma=0.8" in deep_hier
+    assert "model.hierarchy_levels=[4,16,32]" in deep_hier
+    assert "model.hierarchy_loss_weight=1.0" in deep_hier
+    assert "model.goal_mse_weight=0.0" in no_hier
+    assert "model.goal_mse_weight=0.0" in deep_hier
+
+
+def test_clean17_goal_variants_are_separate_goal_objectives(tmp_path):
+    detached = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=12,
+    )
+    non_detached = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=13,
+    )
+    online = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=14,
+    )
+    field_plus_mse = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=15,
+    )
+    field_only = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_train.slurm",
+        array_index=16,
+    )
+
+    assert "model.goal_conditioning=initial_current" in detached
+    assert "model.goal_conditioning_detach_state=true" in detached
+    assert "model.goal_mse_weight=1.0" in detached
+    assert "model.goal_distance_field_weight=0.0" in detached
+    assert "model.goal_conditioning_detach_state=false" in non_detached
+    assert "model.goal_target_mode=online_no_stopgrad" in online
+    assert "model.goal_conditioning_detach_state=false" in online
+    assert "model.goal_mse_weight=1.0" in field_plus_mse
+    assert "model.goal_distance_field_weight=1.0" in field_plus_mse
+    assert "model.goal_mse_weight=0.0" in field_only
+    assert "model.goal_distance_field_weight=1.0" in field_only
+    for args in (detached, non_detached, online, field_plus_mse, field_only):
+        assert "model.dense_rollout_weighting=inverse_sqrt" in args
+        assert "model.hierarchy_levels=[4,16]" in args
+
+
+def test_clean17_eval_uses_raw_oracle_only_for_g_none_and_adds_predicted_for_goal_jobs(tmp_path):
+    no_hier = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_eval.slurm",
+        array_index=0,
+        checkpoint=True,
+    )
+    hier_anchor = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_eval.slurm",
+        array_index=6,
+        checkpoint=True,
+    )
+    goal_job = _capture_clean17_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_clean17_eval.slurm",
+        array_index=12,
+        checkpoint=True,
+    )
+
+    assert no_hier[no_hier.index("--planners") + 1] == "mpc_beam"
+    assert no_hier[no_hier.index("--scores") + 1] == "oracle_goal_raw_euclidean_distance"
+    assert hier_anchor[hier_anchor.index("--planners") + 1] == "mpc_beam,hierarchical_beam"
+    assert hier_anchor[hier_anchor.index("--scores") + 1] == "oracle_goal_raw_euclidean_distance"
+    assert goal_job[goal_job.index("--planners") + 1] == "mpc_beam,hierarchical_beam"
+    assert goal_job[goal_job.index("--scores") + 1] == (
+        "oracle_goal_raw_euclidean_distance,predicted_goal_raw_euclidean_distance"
+    )
+    assert goal_job[goal_job.index("--transitions") + 1] == "latent_rollout"
+    assert goal_job[goal_job.index("--beam-depths") + 1] == "4,16"

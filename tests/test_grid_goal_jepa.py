@@ -10,6 +10,7 @@ from puzzle_jepa.data.grid_goal_sudoku import (
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights, _temporal_straightening_loss
 from puzzle_jepa.planning.grid_goal_planner import (
+    _predict_goal_for_board,
     affected_context_raw_euclidean_distances,
     changed_cell_raw_euclidean_distance,
     changed_cell_raw_euclidean_distances,
@@ -464,6 +465,112 @@ def test_initial_current_goal_conditioning_backprops_goal_loss_to_state_encoder(
         for parameter in model.state_encoder.parameters()
     )
     assert online_grad > 0.0
+
+
+def test_detached_initial_current_goal_conditioning_keeps_goal_loss_out_of_state_encoder():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_conditioning="initial_current",
+        goal_conditioning_detach_state=True,
+        goal_target_mode="target_stopgrad",
+        use_ema_target_encoder=True,
+        regularizer="none",
+        goal_nce_weight=0.0,
+        dense_future_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="none",
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+    )
+    output.loss.backward()
+
+    online_grad = sum(
+        0.0 if parameter.grad is None else float(parameter.grad.detach().abs().sum().item())
+        for parameter in model.state_encoder.parameters()
+    )
+    assert online_grad == pytest.approx(0.0)
+
+
+def test_goal_mse_weight_can_disable_token_goal_mse_objective():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_conditioning="context",
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        goal_distance_field_weight=0.0,
+        regularizer="none",
+        dense_future_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="none",
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+    )
+
+    assert output.goal_mse_loss.item() > 0.0
+    assert output.loss.item() == pytest.approx(0.0, abs=1.0e-6)
+
+
+def test_planner_goal_recompute_uses_current_board_for_initial_current_goal_conditioning():
+    example = _example()
+    model = _small_model(goal_conditioning="initial_current")
+    device = torch.device("cpu")
+    clue_mask = example.state != 0
+    editable_mask = ~clue_mask
+    active_mask = np.ones((9, 9), dtype=bool)
+    context_t = torch.as_tensor(example.state[None], dtype=torch.long, device=device)
+    clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device)
+    edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
+    active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+    context = model.encode_context(context_t, clue_t, edit_t, active_t)
+    initial = model.encode_state(context_t, context, clue_t, edit_t, active_t)
+    current = example.state.copy()
+    first_blank = tuple(np.argwhere(current == 0)[0])
+    current[first_blank] = example.goal[first_blank]
+
+    direct_current = model.encode_state(
+        torch.as_tensor(current[None], dtype=torch.long, device=device),
+        context,
+        clue_t,
+        edit_t,
+        active_t,
+    )
+    expected = model.predict_goal(context, active_t, initial_latents=initial, current_latents=direct_current)
+    recomputed = _predict_goal_for_board(
+        model,
+        current,
+        context,
+        initial,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        device=device,
+    )
+
+    torch.testing.assert_close(recomputed, expected)
 
 
 def test_goal_distance_field_distillation_loss_is_active_when_requested():

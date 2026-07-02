@@ -245,6 +245,7 @@ def main() -> None:
     parser.add_argument("--high-cem-elites", type=int, default=16)
     parser.add_argument("--high-cem-momentum", type=float, default=0.7)
     parser.add_argument("--high-cem-std", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--skip-diagnostics", action="store_true")
     args = parser.parse_args()
 
@@ -253,7 +254,8 @@ def main() -> None:
     examples = load_eval_examples(config, limit=args.examples)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if not args.skip_diagnostics:
-        diagnostics = run_grid_goal_diagnostics(model, examples, args.output_dir, device=device, seed=int(config.get("seed", 0)) + 900)
+        diagnostic_seed = int(config.get("seed", 0)) + 900 if args.seed is None else int(args.seed) + 900
+        diagnostics = run_grid_goal_diagnostics(model, examples, args.output_dir, device=device, seed=diagnostic_seed)
         print(json.dumps({"diagnostics": diagnostics}, sort_keys=True), flush=True)
     records = run_planner_matrix(
         model,
