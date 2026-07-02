@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 15:03 CEST
+Last updated: 2026-07-02 15:42 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -70,6 +70,17 @@ Status at 15:03 CEST:
   rows are expected around `16:00-16:30 CEST`; the full finite-result matrix is
   expected around `17:00-18:00 CEST` if the eval jobs start promptly after
   dependencies clear.
+
+Status at 15:42 CEST:
+
+- `9/14` train jobs completed successfully; `5/14` are still running.
+- `A_refactor_equiv_14816_dropout_off` failed from NaN latents during final
+  diagnostics; its eval dependency is `DependencyNeverSatisfied`.
+- `8` eval jobs are running and have started writing planner rows.
+- Partial first-row signal: `A_refactor_equiv_14816`, `mpc_beam`, oracle raw
+  L2, depth 4 solved `5/8`, h `0.375`. `A_smooth_14816_like` has an early
+  `1/8` row. Current K16/K8 single-rollout and old-path H8/H16 first rows are
+  `0/8`.
 
 Eval per checkpoint is an independent dependency-held job:
 
