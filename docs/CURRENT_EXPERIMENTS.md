@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 17:16 CEST
+Last updated: 2026-07-02 17:17 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -159,9 +159,9 @@ Follow-up at 17:14 CEST:
 | `A_refactor_equiv_14816_dropout_off_fp32_b4_gated` | `3806188` | `3806189` | running |
 
 Initial health: all four gated controls passed the old step-1 failure point.
-The bf16 LR `1e-5` anchor/refactor reached step `100` with finite pre-clip
-grad norms around `58.7`; the fp32 batch-4 controls logged finite step-1 grad
-norms around `151.9`.
+The bf16 LR `1e-5` anchor/refactor reached step `200`/`300` with finite
+pre-clip grad norms; the fp32 batch-4 controls reached step `100` with finite
+pre-clip grad norms around `33.0`.
 
 Eval per checkpoint is an independent dependency-held job:
 
