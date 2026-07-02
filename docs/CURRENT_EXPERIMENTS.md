@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 14:50 CEST
+Last updated: 2026-07-02 14:52 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -42,20 +42,20 @@ Planned train/eval jobs:
 
 | Variant | Change from anchor | Train | Eval | State |
 |---|---|---:|---:|---|
-| `A_anchor_repro` | exact anchor | pending | pending | not submitted yet |
-| `A_refactor_equiv_14816` | single shared rollout, old term structure | pending | pending | not submitted yet |
-| `A_refactor_equiv_14816_dropout_off` | exact refactor, dropout `0.0` | pending | pending | not submitted yet |
-| `A_smooth_14816_like` | count-weighted smooth approximation | pending | pending | not submitted yet |
-| `A_uniform_k16` | one rollout to 16, uniform all-step weights | pending | pending | not submitted yet |
-| `A_inv_sqrt_k16` | one rollout to 16, `1/sqrt(i)` weights | pending | pending | not submitted yet |
-| `A_gamma_k16` | one rollout to 16, gamma `0.8^(i-1)` | pending | pending | not submitted yet |
-| `A_inv_sqrt_k8` | one rollout to 8, `1/sqrt(i)` weights | pending | pending | not submitted yet |
-| `A_old_path_h16_only` | old path, only horizon 16 | pending | pending | not submitted yet |
-| `A_old_path_h8_only` | old path, only horizon 8 | pending | pending | not submitted yet |
-| `A_no_goal_mse` | remove context-goal MSE | pending | pending | not submitted yet |
-| `A_initial_current_goal` | `q(c,H0,Ht)` goal conditioning | pending | pending | not submitted yet |
-| `A_no_hierarchy` | remove hierarchy training | pending | pending | not submitted yet |
-| `A_no_predict_delta` | predict next latent directly | pending | pending | not submitted yet |
+| `A_anchor_repro` | exact anchor | `3805527` | `3805528` | train running, eval dependency-held |
+| `A_refactor_equiv_14816` | single shared rollout, old term structure | `3805529` | `3805530` | train running, eval dependency-held |
+| `A_refactor_equiv_14816_dropout_off` | exact refactor, dropout `0.0` | `3805531` | `3805532` | train running, eval dependency-held |
+| `A_smooth_14816_like` | count-weighted smooth approximation | `3805533` | `3805534` | train running, eval dependency-held |
+| `A_uniform_k16` | one rollout to 16, uniform all-step weights | `3805535` | `3805536` | train running, eval dependency-held |
+| `A_inv_sqrt_k16` | one rollout to 16, `1/sqrt(i)` weights | `3805537` | `3805538` | train running, eval dependency-held |
+| `A_gamma_k16` | one rollout to 16, gamma `0.8^(i-1)` | `3805539` | `3805540` | train running, eval dependency-held |
+| `A_inv_sqrt_k8` | one rollout to 8, `1/sqrt(i)` weights | `3805541` | `3805542` | train running, eval dependency-held |
+| `A_old_path_h16_only` | old path, only horizon 16 | `3805543` | `3805544` | train running, eval dependency-held |
+| `A_old_path_h8_only` | old path, only horizon 8 | `3805545` | `3805546` | train running, eval dependency-held |
+| `A_no_goal_mse` | remove context-goal MSE | `3805547` | `3805548` | train running, eval dependency-held |
+| `A_initial_current_goal` | `q(c,H0,Ht)` goal conditioning | `3805549` | `3805550` | train running, eval dependency-held |
+| `A_no_hierarchy` | remove hierarchy training | `3805551` | `3805552` | train running, eval dependency-held |
+| `A_no_predict_delta` | predict next latent directly | `3805553` | `3805554` | train running, eval dependency-held |
 
 Eval per checkpoint is an independent dependency-held job:
 
