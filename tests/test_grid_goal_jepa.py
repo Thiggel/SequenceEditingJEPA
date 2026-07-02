@@ -785,6 +785,100 @@ def test_variable_start_dense_rollout_applies_configured_horizon_weights(weighti
     assert output.dynamics_loss.item() == pytest.approx(expected_num / expected_den)
 
 
+def test_legacy_equivalent_refactor_matches_old_multi_horizon_dense_objective_without_dropout():
+    batch = _small_batch(batch_size=1)
+    common_kwargs = dict(
+        dropout=0.0,
+        dense_future_weight=1.0,
+        multi_step_horizons=(1, 4, 8),
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        goal_distance_field_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+    old_model = _small_model(**common_kwargs)
+    refactored_model = _small_model(**common_kwargs, dense_rollout_refactor_mode="legacy_equivalent")
+    refactored_model.load_state_dict(old_model.state_dict())
+    old_model.eval()
+    refactored_model.eval()
+
+    old_output = old_model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+    refactored_output = refactored_model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert refactored_output.dynamics_loss.item() == pytest.approx(old_output.dynamics_loss.item(), rel=1e-5)
+    assert refactored_output.dense_future_loss.item() == pytest.approx(old_output.dense_future_loss.item(), rel=1e-5)
+    assert refactored_output.loss.item() == pytest.approx(old_output.loss.item(), rel=1e-5)
+
+
+def test_legacy_count_refactor_uses_horizon_counts_without_endpoint_terms():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        dense_future_weight=1.0,
+        dense_rollout_refactor_mode="legacy_count",
+        multi_step_horizons=(1, 4, 8),
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    def fake_dynamics_error(predicted, *args, **kwargs):
+        horizon = int(kwargs.get("horizon", 1))
+        return predicted.new_full(predicted.shape[:2], float(horizon))
+
+    model._dynamics_error = fake_dynamics_error
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    expected_dense_terms = []
+    for horizon in range(1, 9):
+        count = 2 if horizon <= 4 else 1
+        expected_dense_terms.append(float(horizon) * model._dense_horizon_weight(horizon) * count)
+
+    assert output.dynamics_loss.item() == pytest.approx(1.0)
+    assert output.dense_future_loss.item() == pytest.approx(sum(expected_dense_terms) / len(expected_dense_terms))
+
+
+def test_dense_rollout_refactor_mode_rejects_other_dense_rollout_modes():
+    with pytest.raises(ValueError, match="dense_rollout_refactor_mode cannot be combined"):
+        _small_model(dense_rollout_refactor_mode="legacy_equivalent", dense_rollout_all_steps=True)
+    with pytest.raises(ValueError, match="dense_rollout_refactor_mode cannot be combined"):
+        _small_model(dense_rollout_refactor_mode="legacy_count", dense_rollout_variable_starts=True)
+
+
 def test_hierarchy_uses_one_encoder_and_multiple_predictors():
     batch = _small_batch()
     model = _small_model(hierarchy_levels=(2, 4), hierarchy_loss_weight=0.5)

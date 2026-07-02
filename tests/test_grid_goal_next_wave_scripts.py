@@ -122,6 +122,23 @@ MACRO_HWM_VARIANTS = (
     "D8_H4_16_32",
 )
 
+MINAUX_FACTOR_VARIANTS = (
+    "A_anchor_repro",
+    "A_refactor_equiv_14816",
+    "A_refactor_equiv_14816_dropout_off",
+    "A_smooth_14816_like",
+    "A_uniform_k16",
+    "A_inv_sqrt_k16",
+    "A_gamma_k16",
+    "A_inv_sqrt_k8",
+    "A_old_path_h16_only",
+    "A_old_path_h8_only",
+    "A_no_goal_mse",
+    "A_initial_current_goal",
+    "A_no_hierarchy",
+    "A_no_predict_delta",
+)
+
 
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
@@ -444,6 +461,50 @@ def _capture_macro_hwm_args(
     )
     if eval_mode is not None:
         env["EVAL_MODE"] = eval_mode
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_minaux_factor_args(tmp_path: Path, *, script: str, array_index: int, checkpoint: bool = False) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{array_index}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        variant = MINAUX_FACTOR_VARIANTS[array_index]
+        run_root = work / "runs" / "grid_goal_minaux_factor" / f"grid_goal_minaux_factor_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "SLURM_ARRAY_TASK_ID": str(array_index),
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
     subprocess.run(
         ["bash", script],
         cwd=repo_root,
@@ -852,6 +913,188 @@ def test_clean17_eval_uses_raw_oracle_only_for_g_none_and_adds_predicted_for_goa
     )
     assert goal_job[goal_job.index("--transitions") + 1] == "latent_rollout"
     assert goal_job[goal_job.index("--beam-depths") + 1] == "4,16"
+
+
+def test_minaux_factor_has_expected_unique_variant_count():
+    assert len(MINAUX_FACTOR_VARIANTS) == 14
+    assert len(set(MINAUX_FACTOR_VARIANTS)) == 14
+
+
+def test_minaux_factor_anchor_reproduces_minimal_aux_basis(tmp_path):
+    args = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=0,
+    )
+
+    assert "training.max_steps=5000" in args
+    assert "training.batch_size=8" in args
+    assert "training.learning_rate=1.0e-4" in args
+    assert "model.action_conditioning=affected_marker" in args
+    assert "model.predict_delta=true" in args
+    assert "model.goal_mse_weight=1.0" in args
+    assert "model.goal_nce_weight=0.0" in args
+    assert "model.goal_conditioning=context" in args
+    assert "model.dense_future_weight=1.0" in args
+    assert "model.dense_rollout_all_steps=false" in args
+    assert "model.dense_rollout_variable_starts=false" in args
+    assert "model.dense_rollout_refactor_mode=none" in args
+    assert "model.multi_step_horizons=[1,4,8,16]" in args
+    assert "model.dense_rollout_weighting=inverse_sqrt" in args
+    assert "model.hierarchy_levels=[4,16]" in args
+    assert "model.hierarchy_loss_weight=1.0" in args
+    assert "model.regularizer=none" in args
+    assert "model.use_ema_target_encoder=true" in args
+    assert "model.progress_rank_target=none" in args
+    assert "model.action_rank_mode=none" in args
+    assert "model.temporal_straightening_weight=0.0" in args
+
+
+def test_minaux_factor_refactor_variants_select_equivalent_and_smooth_count_modes(tmp_path):
+    exact = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=1,
+    )
+    exact_no_dropout = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=2,
+    )
+    smooth = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=3,
+    )
+
+    assert "model.dense_rollout_refactor_mode=legacy_equivalent" in exact
+    assert "model.multi_step_horizons=[1,4,8,16]" in exact
+    assert "model.dense_rollout_refactor_mode=legacy_equivalent" in exact_no_dropout
+    assert "model.dropout=0.0" in exact_no_dropout
+    assert "model.dense_rollout_refactor_mode=legacy_count" in smooth
+    assert "model.multi_step_horizons=[1,4,8,16]" in smooth
+
+
+def test_minaux_factor_single_rollout_weighting_variants_are_clean_controls(tmp_path):
+    uniform = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=4,
+    )
+    inv = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=5,
+    )
+    gamma = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=6,
+    )
+    inv8 = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=7,
+    )
+
+    assert "model.dense_rollout_all_steps=true" in uniform
+    assert "model.multi_step_horizons=[16]" in uniform
+    assert "model.dense_rollout_weighting=uniform" in uniform
+    assert "model.dense_rollout_all_steps=true" in inv
+    assert "model.multi_step_horizons=[16]" in inv
+    assert "model.dense_rollout_weighting=inverse_sqrt" in inv
+    assert "model.dense_rollout_all_steps=true" in gamma
+    assert "model.multi_step_horizons=[16]" in gamma
+    assert "model.dense_rollout_weighting=geometric" in gamma
+    assert "model.dense_rollout_gamma=0.8" in gamma
+    assert "model.dense_rollout_all_steps=true" in inv8
+    assert "model.multi_step_horizons=[8]" in inv8
+
+
+def test_minaux_factor_old_path_single_horizon_controls_keep_legacy_loop(tmp_path):
+    h16 = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=8,
+    )
+    h8 = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=9,
+    )
+
+    assert "model.dense_rollout_all_steps=false" in h16
+    assert "model.dense_rollout_variable_starts=false" in h16
+    assert "model.dense_rollout_refactor_mode=none" in h16
+    assert "model.multi_step_horizons=[16]" in h16
+    assert "model.dense_rollout_all_steps=false" in h8
+    assert "model.dense_rollout_variable_starts=false" in h8
+    assert "model.dense_rollout_refactor_mode=none" in h8
+    assert "model.multi_step_horizons=[8]" in h8
+
+
+def test_minaux_factor_one_factor_ablation_variants_only_change_named_factor(tmp_path):
+    no_goal = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=10,
+    )
+    ic_goal = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=11,
+    )
+    no_hier = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=12,
+    )
+    no_delta = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=13,
+    )
+
+    assert "model.goal_mse_weight=0.0" in no_goal
+    assert "model.multi_step_horizons=[1,4,8,16]" in no_goal
+    assert "model.goal_conditioning=initial_current" in ic_goal
+    assert "model.goal_conditioning_detach_state=false" in ic_goal
+    assert "model.hierarchy_levels=[]" in no_hier
+    assert "model.hierarchy_loss_weight=0.0" in no_hier
+    assert "model.predict_delta=false" in no_delta
+    assert "model.hierarchy_levels=[4,16]" in no_delta
+
+
+def test_minaux_factor_eval_is_independent_fast_latent_matrix(tmp_path):
+    args = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_eval.slurm",
+        array_index=0,
+        checkpoint=True,
+    )
+    scores = args[args.index("--scores") + 1].split(",")
+
+    assert args[args.index("--transitions") + 1] == "latent_rollout"
+    assert args[args.index("--beam-widths") + 1] == "16"
+    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert args[args.index("--examples") + 1] == "8"
+    assert args[args.index("--planners") + 1] == "mpc_beam,hierarchical_beam"
+    assert "--skip-diagnostics" in args
+    assert scores == [
+        "oracle_goal_raw_euclidean_distance",
+        "predicted_goal_raw_euclidean_distance",
+    ]
+
+
+def test_minaux_factor_eval_skips_hierarchical_beam_without_hierarchy(tmp_path):
+    args = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_eval.slurm",
+        array_index=12,
+        checkpoint=True,
+    )
+
+    assert args[args.index("--planners") + 1] == "mpc_beam"
 
 
 def test_macro_hwm_train_uses_low_dimensional_macro_bottleneck_on_clean17_anchor(tmp_path):

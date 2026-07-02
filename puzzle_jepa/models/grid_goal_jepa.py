@@ -264,6 +264,7 @@ class GridTokenGoalJEPA(nn.Module):
         dense_future_weight: float = 0.0,
         dense_rollout_all_steps: bool = False,
         dense_rollout_variable_starts: bool = False,
+        dense_rollout_refactor_mode: str = "none",
         dense_rollout_weighting: str = "inverse_sqrt",
         dense_rollout_gamma: float = 0.95,
         rollout_detach_interval: int = 0,
@@ -323,6 +324,17 @@ class GridTokenGoalJEPA(nn.Module):
         self.dense_future_weight = float(dense_future_weight)
         self.dense_rollout_all_steps = bool(dense_rollout_all_steps)
         self.dense_rollout_variable_starts = bool(dense_rollout_variable_starts)
+        allowed_dense_refactors = {"none", "legacy_equivalent", "legacy_count"}
+        if dense_rollout_refactor_mode not in allowed_dense_refactors:
+            raise ValueError(f"dense_rollout_refactor_mode must be one of {sorted(allowed_dense_refactors)}.")
+        self.dense_rollout_refactor_mode = str(dense_rollout_refactor_mode)
+        if self.dense_rollout_refactor_mode != "none" and (
+            self.dense_rollout_all_steps or self.dense_rollout_variable_starts
+        ):
+            raise ValueError(
+                "dense_rollout_refactor_mode cannot be combined with dense_rollout_all_steps "
+                "or dense_rollout_variable_starts."
+            )
         allowed_dense_weighting = {"uniform", "inverse_sqrt", "geometric"}
         if dense_rollout_weighting not in allowed_dense_weighting:
             raise ValueError(f"dense_rollout_weighting must be one of {sorted(allowed_dense_weighting)}.")
@@ -857,7 +869,91 @@ class GridTokenGoalJEPA(nn.Module):
                 predicted_next = state_latents[:, :0]
                 dynamics_terms.append(state_latents.sum() * 0.0)
 
-        if (not self.dense_rollout_variable_starts) and self.dense_rollout_all_steps and self.multi_step_horizons:
+        if self.dense_rollout_refactor_mode != "none" and self.multi_step_horizons:
+            max_horizon = min(max(self.multi_step_horizons), frames - 1)
+            if max_horizon > 0:
+                rollouts: dict[int, torch.Tensor] = {}
+                rollout = state_latents[:, : frames - 1]
+                for offset in range(max_horizon):
+                    dense_horizon = offset + 1
+                    start_count = frames - dense_horizon
+                    rollout = rollout[:, :start_count]
+                    ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
+                        -1, token_count, self.d_model
+                    )
+                    act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
+                    rollout = self.predict_next(
+                        rollout.reshape(batch * start_count, token_count, self.d_model),
+                        act,
+                        ctx,
+                    ).reshape(batch, start_count, token_count, self.d_model)
+                    rollouts[dense_horizon] = rollout
+                    if (
+                        self.rollout_detach_interval > 0
+                        and dense_horizon % self.rollout_detach_interval == 0
+                        and dense_horizon < max_horizon
+                    ):
+                        rollout = rollout.detach()
+
+                configured_horizons = tuple(
+                    horizon for horizon in self.multi_step_horizons if horizon > 1 and horizon <= max_horizon
+                )
+                if self.dense_rollout_refactor_mode == "legacy_equivalent":
+                    for horizon in configured_horizons:
+                        start_count = frames - horizon
+                        for dense_horizon in range(1, horizon + 1):
+                            pred = rollouts[dense_horizon][:, :start_count]
+                            dense_target = target_state_latents[:, dense_horizon : dense_horizon + start_count]
+                            dense_valid = masks[:, :start_count] & masks[
+                                :, dense_horizon : dense_horizon + start_count
+                            ]
+                            dense_actions = actions[:, : dense_horizon + start_count - 1]
+                            dense_error = self._dynamics_error(
+                                pred,
+                                dense_target,
+                                dense_actions,
+                                rows=rows,
+                                cols=cols,
+                                horizon=dense_horizon,
+                            )
+                            dense_future_terms.append(
+                                _masked_mean(dense_error, dense_valid) * self._dense_horizon_weight(dense_horizon)
+                            )
+                        target = target_state_latents[:, horizon : horizon + start_count]
+                        valid = masks[:, :start_count] & masks[:, horizon : horizon + start_count]
+                        rollout_actions = actions[:, : horizon + start_count - 1]
+                        error = self._dynamics_error(
+                            rollouts[horizon][:, :start_count],
+                            target,
+                            rollout_actions,
+                            rows=rows,
+                            cols=cols,
+                            horizon=horizon,
+                        )
+                        dynamics_terms.append(_masked_mean(error, valid) * self._dense_horizon_weight(horizon))
+                elif self.dense_rollout_refactor_mode == "legacy_count":
+                    for dense_horizon in range(1, max_horizon + 1):
+                        horizon_count = sum(1 for horizon in configured_horizons if horizon >= dense_horizon)
+                        if horizon_count <= 0:
+                            continue
+                        start_count = frames - dense_horizon
+                        dense_target = target_state_latents[:, dense_horizon : dense_horizon + start_count]
+                        dense_valid = masks[:, :start_count] & masks[:, dense_horizon : dense_horizon + start_count]
+                        dense_actions = actions[:, : dense_horizon + start_count - 1]
+                        dense_error = self._dynamics_error(
+                            rollouts[dense_horizon],
+                            dense_target,
+                            dense_actions,
+                            rows=rows,
+                            cols=cols,
+                            horizon=dense_horizon,
+                        )
+                        dense_future_terms.append(
+                            _masked_mean(dense_error, dense_valid)
+                            * self._dense_horizon_weight(dense_horizon)
+                            * float(horizon_count)
+                        )
+        elif (not self.dense_rollout_variable_starts) and self.dense_rollout_all_steps and self.multi_step_horizons:
             max_horizon = min(max(self.multi_step_horizons), frames - 1)
             start_count = frames - max_horizon
             if start_count > 0:

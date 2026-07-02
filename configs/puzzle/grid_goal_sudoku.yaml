@@ -36,6 +36,7 @@ model:
   dense_future_weight: 0.0
   dense_rollout_all_steps: false
   dense_rollout_variable_starts: false
+  dense_rollout_refactor_mode: none
   dense_rollout_weighting: inverse_sqrt
   dense_rollout_gamma: 0.95
   rollout_detach_interval: 0

@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-02 14:48 CEST
 
-## Proposed Grid: Minimal-Aux Objective Factorization
+## Active Grid: Minimal-Aux Objective Factorization
 
 Purpose: isolate why the successful `minimal_aux` `[1,4,8,16]` objective
 worked while Clean17 failed. Clean17 was not a pure weighting ablation: it
@@ -66,9 +66,26 @@ Proposed controls:
 | `A_no_hierarchy` | exact anchor but `hierarchy_levels=[]`, hierarchy loss `0.0` | Confirm whether hierarchy training is required for this geometry. |
 | `A_no_predict_delta` | exact anchor but `predict_delta=false` | Check whether residual prediction is part of the recipe. |
 
-Eval: fast latent rollout, oracle raw L2 first, beam width `16`, depths
-`{4,16}`, 8 boards; include predicted raw L2 only for goal-conditioned runs
-after the oracle geometry gate passes.
+Eval: independent dependency-held jobs per checkpoint; fast latent rollout,
+beam width `16`, depths `{4,16}`, 8 boards; score every checkpoint with both
+`oracle_goal_raw_euclidean_distance` and
+`predicted_goal_raw_euclidean_distance`. `hierarchical_beam` is included only
+when the checkpoint was trained with hierarchy.
+
+Implemented scripts:
+
+- `scripts/slurm/run_grid_goal_minaux_factor_train.slurm`
+- `scripts/slurm/run_grid_goal_minaux_factor_eval.slurm`
+- `scripts/experiments/submit_grid_goal_minaux_factor.sh`
+
+Implementation notes:
+
+- `model.dense_rollout_refactor_mode=legacy_equivalent` preserves the old
+  endpoint/intermediate term structure from one shared rollout.
+- `model.dense_rollout_refactor_mode=legacy_count` is a smoother
+  horizon-count approximation without endpoint extras.
+- Regression tests cover exact refactor equivalence with dropout off, count
+  weighting semantics, and every train/eval script variant.
 
 ## Submitted Grid: Macro-HWM Bottleneck + Codebook
 
