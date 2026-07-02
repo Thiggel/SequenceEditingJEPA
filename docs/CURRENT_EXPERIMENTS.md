@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 16:41 CEST
+Last updated: 2026-07-02 17:01 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -113,6 +113,22 @@ Follow-up dropout controls at 16:41 CEST:
 | `A_refactor_equiv_14816_dropout_off_fp32` | refactor, dropout off, fp32, LR `1e-4` | `3806053` | `3806054` | train running |
 | `A_anchor_dropout_off_lr5e5` | old path, dropout off, bf16, LR `5e-5` | `3806055` | `3806056` | train running |
 | `A_refactor_equiv_14816_dropout_off_lr5e5` | refactor, dropout off, bf16, LR `5e-5` | `3806057` | `3806058` | train running |
+
+Follow-up at 17:01 CEST:
+
+- The trainer now records `grad_norm_pre_clip`, records `grad_clip`, and
+  raises immediately on non-finite loss or pre-clip gradient norm.
+- The earlier dropout-off NaN jobs did use `training.grad_clip=1.0`, but
+  pre-clip gradient norms were not logged, so we cannot tell whether large
+  finite gradient norms preceded NaN.
+- New lower-LR/fp32-batch4 controls submitted:
+
+| Variant | Purpose | Train | Eval | State |
+|---|---|---:|---:|---|
+| `A_anchor_dropout_off_lr1e5` | old path, dropout off, bf16, LR `1e-5`, log every 100 steps | `3806110` | `3806111` | train running |
+| `A_refactor_equiv_14816_dropout_off_lr1e5` | refactor, dropout off, bf16, LR `1e-5`, log every 100 steps | `3806112` | `3806113` | train running |
+| `A_anchor_dropout_off_fp32_b4` | old path, dropout off, fp32, batch 4, grad accum 2 | `3806114` | `3806115` | train running |
+| `A_refactor_equiv_14816_dropout_off_fp32_b4` | refactor, dropout off, fp32, batch 4, grad accum 2 | `3806116` | `3806117` | train running |
 
 Eval per checkpoint is an independent dependency-held job:
 
