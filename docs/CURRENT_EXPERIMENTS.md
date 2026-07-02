@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 10:56 CEST
+Last updated: 2026-07-02 11:00 CEST
 
 ## Active: Macro-HWM Bottleneck + Codebook Wave
 
@@ -34,10 +34,10 @@ Slurm:
 
 | Variant | Train | Eval jobs | State |
 |---|---:|---|---|
-| `D4_H4_16` | `3804951` | `3804952`-`3804956` | train running on `rtxpro6k`; evals dependency-held |
-| `D8_H4_16` | `3804957` | `3804958`-`3804962` | train running on `rtxpro6k`; evals dependency-held |
-| `D16_H4_16` | `3804963` | `3804964`-`3804968` | train running on `rtxpro6k`; evals dependency-held |
-| `D8_H4_16_32` | `3804969` | `3804970`-`3804974` | train running on `rtxpro6k`; evals dependency-held |
+| `D4_H4_16` | `3804951` | `3804952`-`3804956` | train running, step `500`; evals dependency-held |
+| `D8_H4_16` | `3804957` | `3804958`-`3804962` | train running, step `500`; evals dependency-held |
+| `D16_H4_16` | `3804963` | `3804964`-`3804968` | train running, step `500`; evals dependency-held |
+| `D8_H4_16_32` | `3804969` | `3804970`-`3804974` | train running, step `500`; evals dependency-held |
 
 ## Active: Clean17 Exact K=8 Goal/Hierarchy Sweep
 
@@ -52,10 +52,10 @@ Slurm:
 | Group | Train jobs | Eval jobs | State |
 |---|---|---|---|
 | First submission | `3804721`-`3804753` odd IDs | `3804722`-`3804754` even IDs | train failed immediately from invalid custom `ablation`; stale evals canceled |
-| Corrected submission | `3804755`-`3804787` odd IDs | `3804756`-`3804788` even IDs | all 17 train jobs running on `rtxpro6k`; evals dependency-held |
+| Corrected submission | `3804755`-`3804787` odd IDs | `3804756`-`3804788` even IDs | all 17 train jobs complete; H0 evals complete; hierarchy evals `3/4`; goal evals `3/8` |
 
-Health check at 10:11 CEST: sampled corrected jobs `3804755`, `3804767`, and
-`3804787` reached step `500`; sampled stderr files were empty.
+Health check at 11:00 CEST: active eval stderr files are empty. Expected full
+Clean17 results around `12:00-12:30 CEST`.
 
 Common settings: seed `5204`, LR `1e-4`, batch `8`, `5000` steps,
 `affected_marker`, `predict_delta=true`, EMA dynamics target, no aux geometry
