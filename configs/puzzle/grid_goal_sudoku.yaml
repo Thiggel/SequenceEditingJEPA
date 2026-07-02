@@ -43,6 +43,7 @@ model:
   hierarchy_loss_weight: 0.0
   hierarchy_dense_future_weight: 0.0
   macro_action_encoder_layers: 1
+  macro_action_dim: 0
   shared_hierarchy_predictor: false
   goal_conditioning: initial_current
   goal_conditioning_detach_state: false

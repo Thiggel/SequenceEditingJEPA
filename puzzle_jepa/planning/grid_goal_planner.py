@@ -267,6 +267,10 @@ def run_hierarchical_cem_mpc(
     high_cem_elites: int = 16,
     high_cem_momentum: float = 0.7,
     high_cem_std: float = 1.0,
+    high_cem_optimizer: str = "cem",
+    high_cem_temperature: float = 1.0,
+    high_cem_codebook: str = "none",
+    high_cem_codebook_size: int = 0,
     seed: int = 0,
 ) -> BeamMPCResult:
     del beam_width
@@ -323,6 +327,7 @@ def run_hierarchical_cem_mpc(
                 subgoal,
                 context_latents,
                 active_mask,
+                board=current,
                 score_mode=score_mode,
                 level=level,
                 macro_horizon=macro_horizon,
@@ -331,6 +336,10 @@ def run_hierarchical_cem_mpc(
                 elites=high_cem_elites,
                 momentum=high_cem_momentum,
                 init_std=high_cem_std,
+                optimizer=high_cem_optimizer,
+                temperature=high_cem_temperature,
+                codebook=high_cem_codebook,
+                codebook_size=high_cem_codebook_size,
                 rng=rng,
                 device=device,
             )
@@ -666,6 +675,7 @@ def hierarchical_subgoal_cem(
     context_latents: torch.Tensor,
     active_mask: np.ndarray,
     *,
+    board: np.ndarray | None = None,
     score_mode: ScoreMode,
     level: int,
     macro_horizon: int,
@@ -674,6 +684,10 @@ def hierarchical_subgoal_cem(
     elites: int,
     momentum: float,
     init_std: float,
+    optimizer: str = "cem",
+    temperature: float = 1.0,
+    codebook: str = "none",
+    codebook_size: int = 0,
     rng: np.random.Generator,
     device: torch.device,
 ) -> tuple[torch.Tensor, int]:
@@ -683,15 +697,36 @@ def hierarchical_subgoal_cem(
     iterations = max(1, int(iterations))
     elites = max(1, min(int(elites), samples))
     momentum = float(np.clip(momentum, 0.0, 0.999))
-    mean = torch.zeros((macro_horizon, model.d_model), dtype=start_latent.dtype, device=device)
+    optimizer = str(optimizer)
+    if optimizer not in {"cem", "mppi"}:
+        raise ValueError("hierarchical_subgoal_cem optimizer must be 'cem' or 'mppi'.")
+    codebook = str(codebook)
+    if codebook not in {"none", "init"}:
+        raise ValueError("hierarchical_subgoal_cem codebook must be 'none' or 'init'.")
+    macro_dim = int(getattr(model, "macro_action_dim", model.d_model))
+    mean = torch.zeros((macro_horizon, macro_dim), dtype=start_latent.dtype, device=device)
     std = torch.full_like(mean, float(init_std))
+    if codebook == "init" and board is not None:
+        prior = _sample_macro_action_codebook(
+            model,
+            board,
+            level=level,
+            samples=max(samples, int(codebook_size)),
+            rng=rng,
+            device=device,
+            dtype=start_latent.dtype,
+        )
+        if prior is not None:
+            mean = prior.mean(dim=0, keepdim=True).expand(macro_horizon, -1).clone()
+            prior_std = prior.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+            std = (float(init_std) * prior_std).unsqueeze(0).expand_as(mean).clone()
     mask = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(samples, -1, -1)
     best_score = float("inf")
     best_subgoal = goal_latent.detach()
     action_evals = 0
     for _ in range(iterations):
         noise = torch.as_tensor(
-            rng.standard_normal((samples, macro_horizon, model.d_model)),
+            rng.standard_normal((samples, macro_horizon, macro_dim)),
             dtype=start_latent.dtype,
             device=device,
         )
@@ -712,12 +747,73 @@ def hierarchical_subgoal_cem(
         if float(scores[best_index].item()) < best_score and first_subgoals is not None:
             best_score = float(scores[best_index].item())
             best_subgoal = first_subgoals[best_index : best_index + 1].detach()
-        elite = macro_actions[order[:elites]]
-        elite_mean = elite.mean(dim=0)
-        elite_std = elite.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+        if optimizer == "mppi":
+            weights = torch.softmax(-(scores - scores.min()) / max(float(temperature), 1.0e-6), dim=0)
+            view = weights.view(-1, 1, 1)
+            elite_mean = (macro_actions * view).sum(dim=0)
+            elite_var = ((macro_actions - elite_mean.unsqueeze(0)).square() * view).sum(dim=0)
+            elite_std = elite_var.clamp_min(1.0e-6).sqrt()
+        else:
+            elite = macro_actions[order[:elites]]
+            elite_mean = elite.mean(dim=0)
+            elite_std = elite.std(dim=0, unbiased=False).clamp_min(1.0e-3)
         mean = momentum * mean + (1.0 - momentum) * elite_mean
         std = momentum * std + (1.0 - momentum) * elite_std
     return best_subgoal, action_evals
+
+
+@torch.no_grad()
+def _sample_macro_action_codebook(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    *,
+    level: int,
+    samples: int,
+    rng: np.random.Generator,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor | None:
+    sequences = _sample_macro_action_sequences(board, level=level, samples=samples, rng=rng)
+    if len(sequences) == 0:
+        return None
+    action_t = torch.as_tensor(sequences, dtype=torch.long, device=device)
+    latents: list[torch.Tensor] = []
+    for chunk in action_t.split(512):
+        latents.append(model.encode_macro_action(chunk).detach().to(dtype=dtype))
+    return torch.cat(latents, dim=0)
+
+
+def _sample_macro_action_sequences(
+    board: np.ndarray,
+    *,
+    level: int,
+    samples: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    level = max(1, int(level))
+    samples = max(1, int(samples))
+    sequences: list[list[tuple[int, int, int]]] = []
+    attempts = 0
+    max_attempts = max(samples * 4, 16)
+    while len(sequences) < samples and attempts < max_attempts:
+        attempts += 1
+        current = np.asarray(board, dtype=np.int64).copy()
+        sequence: list[tuple[int, int, int]] = []
+        for _ in range(level):
+            valid = np.flatnonzero(_valid_action_vocab_mask(current))
+            if len(valid) == 0:
+                break
+            action = ACTION_VOCAB[int(rng.choice(valid))]
+            sequence.append((action.row, action.col, action.value))
+            try:
+                current = apply_fill_action(current, action, allow_conflicts=True)
+            except ValueError:
+                break
+        if len(sequence) == level:
+            sequences.append(sequence)
+    if not sequences:
+        return np.empty((0, level, 3), dtype=np.int64)
+    return np.asarray(sequences, dtype=np.int64)
 
 
 @torch.no_grad()

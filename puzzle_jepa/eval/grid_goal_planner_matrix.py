@@ -76,6 +76,10 @@ def run_planner_matrix(
     high_cem_elites: int = 16,
     high_cem_momentum: float = 0.7,
     high_cem_std: float = 1.0,
+    high_cem_optimizer: str = "cem",
+    high_cem_temperature: float = 1.0,
+    high_cem_codebook: str = "none",
+    high_cem_codebook_size: int = 0,
 ) -> list[dict[str, Any]]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = _read_completed_matrix_keys(output_path)
@@ -145,6 +149,10 @@ def run_planner_matrix(
                                         high_cem_elites=high_cem_elites,
                                         high_cem_momentum=high_cem_momentum,
                                         high_cem_std=high_cem_std,
+                                        high_cem_optimizer=high_cem_optimizer,
+                                        high_cem_temperature=high_cem_temperature,
+                                        high_cem_codebook=high_cem_codebook,
+                                        high_cem_codebook_size=high_cem_codebook_size,
                                         seed=example_index,
                                     )
                                 elif planner == "hierarchical_beam":
@@ -179,6 +187,9 @@ def run_planner_matrix(
                                 "steps_mean": float(np.mean(steps)) if steps else 0.0,
                                 "action_evals_mean": float(np.mean(action_evals)) if action_evals else 0.0,
                                 "elapsed_seconds_mean": float(np.mean(elapsed)) if elapsed else 0.0,
+                                "high_cem_optimizer": high_cem_optimizer if planner == "hierarchical_cem" else "",
+                                "high_cem_codebook": high_cem_codebook if planner == "hierarchical_cem" else "",
+                                "high_cem_codebook_size": int(high_cem_codebook_size) if planner == "hierarchical_cem" else 0,
                             }
                             handle.write(json.dumps(record, sort_keys=True) + "\n")
                             handle.flush()
@@ -245,6 +256,10 @@ def main() -> None:
     parser.add_argument("--high-cem-elites", type=int, default=16)
     parser.add_argument("--high-cem-momentum", type=float, default=0.7)
     parser.add_argument("--high-cem-std", type=float, default=1.0)
+    parser.add_argument("--high-cem-optimizer", choices=("cem", "mppi"), default="cem")
+    parser.add_argument("--high-cem-temperature", type=float, default=1.0)
+    parser.add_argument("--high-cem-codebook", choices=("none", "init"), default="none")
+    parser.add_argument("--high-cem-codebook-size", type=int, default=0)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--skip-diagnostics", action="store_true")
     args = parser.parse_args()
@@ -278,6 +293,10 @@ def main() -> None:
         high_cem_elites=args.high_cem_elites,
         high_cem_momentum=args.high_cem_momentum,
         high_cem_std=args.high_cem_std,
+        high_cem_optimizer=args.high_cem_optimizer,
+        high_cem_temperature=args.high_cem_temperature,
+        high_cem_codebook=args.high_cem_codebook,
+        high_cem_codebook_size=args.high_cem_codebook_size,
     )
     print(json.dumps({"records": len(records), "output": str(args.output_dir)}, sort_keys=True), flush=True)
 

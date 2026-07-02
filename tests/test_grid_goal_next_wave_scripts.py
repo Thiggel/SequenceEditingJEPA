@@ -115,6 +115,13 @@ CLEAN17_VARIANTS = (
     "G_ic_field_only",
 )
 
+MACRO_HWM_VARIANTS = (
+    "D4_H4_16",
+    "D8_H4_16",
+    "D16_H4_16",
+    "D8_H4_16_32",
+)
+
 
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
@@ -384,6 +391,59 @@ def _capture_clean17_args(tmp_path: Path, *, script: str, array_index: int, chec
             "CAPTURE_FILE": str(capture_file),
         }
     )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_macro_hwm_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    array_index: int,
+    checkpoint: bool = False,
+    eval_mode: str | None = None,
+) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{array_index}_{eval_mode or 'train'}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        variant = MACRO_HWM_VARIANTS[array_index]
+        run_root = work / "runs" / "grid_goal_macro_hwm" / f"grid_goal_macro_hwm_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "SLURM_ARRAY_TASK_ID": str(array_index),
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    if eval_mode is not None:
+        env["EVAL_MODE"] = eval_mode
     subprocess.run(
         ["bash", script],
         cwd=repo_root,
@@ -792,3 +852,74 @@ def test_clean17_eval_uses_raw_oracle_only_for_g_none_and_adds_predicted_for_goa
     )
     assert goal_job[goal_job.index("--transitions") + 1] == "latent_rollout"
     assert goal_job[goal_job.index("--beam-depths") + 1] == "4,16"
+
+
+def test_macro_hwm_train_uses_low_dimensional_macro_bottleneck_on_clean17_anchor(tmp_path):
+    args = _capture_macro_hwm_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_macro_hwm_train.slurm",
+        array_index=1,
+    )
+
+    assert "training.max_steps=5000" in args
+    assert "model.dense_rollout_variable_starts=true" in args
+    assert "model.multi_step_horizons=[8]" in args
+    assert "model.dense_rollout_weighting=inverse_sqrt" in args
+    assert "model.hierarchy_levels=[4,16]" in args
+    assert "model.hierarchy_loss_weight=1.0" in args
+    assert "model.macro_action_dim=8" in args
+    assert "model.goal_mse_weight=0.0" in args
+    assert "model.progress_rank_target=none" in args
+    assert "model.action_rank_mode=none" in args
+
+
+def test_macro_hwm_train_has_three_level_bottleneck_variant(tmp_path):
+    args = _capture_macro_hwm_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_macro_hwm_train.slurm",
+        array_index=3,
+    )
+
+    assert "model.hierarchy_levels=[4,16,32]" in args
+    assert "model.macro_action_dim=8" in args
+
+
+def test_macro_hwm_eval_baseline_is_flat_mpc_only(tmp_path):
+    args = _capture_macro_hwm_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_macro_hwm_eval.slurm",
+        array_index=1,
+        checkpoint=True,
+        eval_mode="baseline",
+    )
+
+    assert args[args.index("--planners") + 1] == "mpc_beam"
+    assert args[args.index("--scores") + 1] == "oracle_goal_raw_euclidean_distance"
+    assert args[args.index("--transitions") + 1] == "latent_rollout"
+    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert "--skip-diagnostics" in args
+
+
+def test_macro_hwm_eval_ablate_cem_mppi_and_codebook(tmp_path):
+    cem_codebook = _capture_macro_hwm_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_macro_hwm_eval.slurm",
+        array_index=1,
+        checkpoint=True,
+        eval_mode="cem_codebook",
+    )
+    mppi_none = _capture_macro_hwm_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_macro_hwm_eval.slurm",
+        array_index=1,
+        checkpoint=True,
+        eval_mode="mppi_none",
+    )
+
+    assert cem_codebook[cem_codebook.index("--planners") + 1] == "hierarchical_cem"
+    assert cem_codebook[cem_codebook.index("--high-cem-optimizer") + 1] == "cem"
+    assert cem_codebook[cem_codebook.index("--high-cem-codebook") + 1] == "init"
+    assert cem_codebook[cem_codebook.index("--high-cem-codebook-size") + 1] == "64"
+    assert mppi_none[mppi_none.index("--planners") + 1] == "hierarchical_cem"
+    assert mppi_none[mppi_none.index("--high-cem-optimizer") + 1] == "mppi"
+    assert mppi_none[mppi_none.index("--high-cem-codebook") + 1] == "none"

@@ -1,6 +1,36 @@
 # Current Experiments
 
-Last updated: 2026-07-02 10:08 CEST
+Last updated: 2026-07-02 10:54 CEST
+
+## Prepared: Macro-HWM Bottleneck + Codebook Wave
+
+Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+This additional wave tests whether hierarchy becomes useful when high-level
+planning optimizes a trained low-dimensional macro-action space instead of the
+full transformer width.
+
+Implementation:
+
+- `model.macro_action_dim` bottlenecks encoded macro actions.
+- High-level predictors project bottleneck macro actions back to `d_model`.
+- `hierarchical_cem` samples in the bottleneck space.
+- Eval ablates CEM vs MPPI and codebook vs no-codebook initialization.
+
+Train variants:
+
+| Variant | Hierarchy | Macro dim |
+|---|---|---:|
+| `D4_H4_16` | `[4,16]` | 4 |
+| `D8_H4_16` | `[4,16]` | 8 |
+| `D16_H4_16` | `[4,16]` | 16 |
+| `D8_H4_16_32` | `[4,16,32]` | 8 |
+
+Eval modes per checkpoint: `baseline`, `cem_none`, `cem_codebook`,
+`mppi_none`, and `mppi_codebook`. Eval uses latent rollout, oracle raw L2,
+beam width `16`, depths `{4,16}`, and 8 boards.
+
+Status: implementation verified locally; Slurm submission pending.
 
 ## Active: Clean17 Exact K=8 Goal/Hierarchy Sweep
 

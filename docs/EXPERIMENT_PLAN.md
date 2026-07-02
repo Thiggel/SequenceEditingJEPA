@@ -1,6 +1,38 @@
 # Experiment Plan
 
-Last updated: 2026-07-02 10:08 CEST
+Last updated: 2026-07-02 10:54 CEST
+
+## Prepared Grid: Macro-HWM Bottleneck + Codebook
+
+Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+This is the next additional hierarchy-planning wave. It replaces the
+full-width continuous high-level action search with a trained low-dimensional
+macro-action bottleneck and ablates whether a codebook prior helps.
+
+Training variants:
+
+| Variant | Hierarchy | Macro-action dim |
+|---|---|---:|
+| `D4_H4_16` | `[4,16]` | 4 |
+| `D8_H4_16` | `[4,16]` | 8 |
+| `D16_H4_16` | `[4,16]` | 16 |
+| `D8_H4_16_32` | `[4,16,32]` | 8 |
+
+Eval modes per checkpoint:
+
+| Mode | Planner | High-level optimizer | Codebook |
+|---|---|---|---|
+| `baseline` | `mpc_beam` | n/a | n/a |
+| `cem_none` | `hierarchical_cem` | CEM | none |
+| `cem_codebook` | `hierarchical_cem` | CEM | init |
+| `mppi_none` | `hierarchical_cem` | MPPI | none |
+| `mppi_codebook` | `hierarchical_cem` | MPPI | init |
+
+Gate: compare each high-level optimizer/codebook mode against the flat
+primitive `mpc_beam` baseline. A useful hierarchy result should improve solve
+rate or remaining Hamming under oracle raw L2 without requiring changed-cell
+scoring.
 
 ## Active Submitted Grid: Clean17
 

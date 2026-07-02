@@ -11,10 +11,12 @@ from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights, _temporal_straightening_loss
 from puzzle_jepa.planning.grid_goal_planner import (
     _predict_goal_for_board,
+    _sample_macro_action_sequences,
     affected_context_raw_euclidean_distances,
     changed_cell_raw_euclidean_distance,
     changed_cell_raw_euclidean_distances,
     delta_topk_raw_euclidean_distances,
+    hierarchical_subgoal_cem,
     projected_tokenwise_euclidean_distance,
     raw_full_board_mse_distance,
     raw_tokenwise_cosine_distance,
@@ -840,6 +842,75 @@ def test_shared_hierarchy_predictor_uses_one_predictor_with_level_conditioning()
     assert model.shared_high_level_predictor is not None
     assert pred_level2.shape == state.shape
     assert pred_level4.shape == state.shape
+
+
+def test_macro_action_bottleneck_projects_to_high_level_predictor_width():
+    batch = _small_batch()
+    model = _small_model(hierarchy_levels=(2,), hierarchy_loss_weight=1.0, macro_action_dim=6)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    macro = model.encode_macro_action(batch.actions[:, :2])
+    projected = model.project_macro_action(macro)
+    predicted = model.predict_high_level_from_macro(state, macro, context, level=2)
+
+    assert model.macro_action_dim == 6
+    assert macro.shape == (2, 6)
+    assert projected.shape == (2, model.d_model)
+    assert predicted.shape == state.shape
+    with pytest.raises(ValueError, match="Macro action must have shape"):
+        model.predict_high_level_from_macro(state, torch.zeros((2, model.d_model)), context, level=2)
+
+
+def test_macro_action_codebook_sequences_are_valid_fill_chunks():
+    example = _example()
+    board = example.goal.copy()
+    board[0, 2] = 0
+    board[0, 3] = 0
+    rng = np.random.default_rng(3)
+
+    sequences = _sample_macro_action_sequences(board, level=2, samples=8, rng=rng)
+
+    assert sequences.shape == (8, 2, 3)
+    for sequence in sequences:
+        current = board.copy()
+        for row, col, value in sequence:
+            assert current[row, col] == 0
+            assert 1 <= value <= 9
+            current[row, col] = value
+
+
+def test_hierarchical_subgoal_optimizer_uses_macro_bottleneck_with_and_without_codebook():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(hierarchy_levels=(2,), hierarchy_loss_weight=1.0, macro_action_dim=5)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    start = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    goal = model.encode_state(batch.goals, context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    for optimizer, codebook in (("cem", "none"), ("cem", "init"), ("mppi", "none"), ("mppi", "init")):
+        subgoal, evals = hierarchical_subgoal_cem(
+            model,
+            start,
+            goal,
+            context,
+            batch.active_mask[0].numpy(),
+            board=batch.boards[0, 0].numpy(),
+            score_mode="oracle_goal_raw_euclidean_distance",
+            level=2,
+            macro_horizon=1,
+            samples=3,
+            iterations=1,
+            elites=1,
+            momentum=0.0,
+            init_std=1.0,
+            optimizer=optimizer,
+            codebook=codebook,
+            rng=np.random.default_rng(4),
+            device=torch.device("cpu"),
+        )
+
+        assert subgoal.shape == start.shape
+        assert evals == 3
 
 
 def test_hierarchy_loss_runs_with_multiple_predictors():

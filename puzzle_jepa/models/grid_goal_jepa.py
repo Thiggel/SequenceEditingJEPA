@@ -187,6 +187,7 @@ class MacroActionEncoder(nn.Module):
         self,
         *,
         d_model: int,
+        macro_action_dim: int,
         max_steps: int,
         num_layers: int,
         num_heads: int,
@@ -194,6 +195,8 @@ class MacroActionEncoder(nn.Module):
         dropout: float,
     ):
         super().__init__()
+        self.d_model = int(d_model)
+        self.macro_action_dim = int(macro_action_dim)
         self.max_steps = int(max_steps)
         self.position = nn.Embedding(max_steps, d_model)
         self.encoder = BidirectionalTransformer(
@@ -203,6 +206,16 @@ class MacroActionEncoder(nn.Module):
             mlp_ratio=mlp_ratio,
             dropout=dropout,
         )
+        if self.macro_action_dim == self.d_model:
+            self.to_macro = nn.Identity()
+            self.from_macro = nn.Identity()
+        else:
+            self.to_macro = nn.Sequential(
+                nn.LayerNorm(d_model),
+                nn.Linear(d_model, self.macro_action_dim),
+                nn.LayerNorm(self.macro_action_dim),
+            )
+            self.from_macro = nn.Linear(self.macro_action_dim, d_model)
 
     def forward(self, action_tokens: torch.Tensor) -> torch.Tensor:
         if action_tokens.ndim != 3:
@@ -212,7 +225,14 @@ class MacroActionEncoder(nn.Module):
             raise ValueError(f"Macro action length {steps} exceeds configured max {self.max_steps}.")
         pos = torch.arange(steps, device=action_tokens.device).view(1, steps)
         tokens = action_tokens + self.position(pos)
-        return self.encoder(tokens).mean(dim=1)
+        return self.to_macro(self.encoder(tokens).mean(dim=1))
+
+    def project(self, macro_action: torch.Tensor) -> torch.Tensor:
+        if macro_action.shape[-1] != self.macro_action_dim:
+            raise ValueError(
+                f"Macro action must have last dim {self.macro_action_dim}, got {tuple(macro_action.shape)}."
+            )
+        return self.from_macro(macro_action)
 
 
 class GridTokenGoalJEPA(nn.Module):
@@ -251,6 +271,7 @@ class GridTokenGoalJEPA(nn.Module):
         hierarchy_loss_weight: float = 0.0,
         hierarchy_dense_future_weight: float = 0.0,
         macro_action_encoder_layers: int = 1,
+        macro_action_dim: int = 0,
         shared_hierarchy_predictor: bool = False,
         goal_conditioning: str = "initial_current",
         goal_conditioning_detach_state: bool = False,
@@ -296,6 +317,9 @@ class GridTokenGoalJEPA(nn.Module):
         self.hierarchy_levels = tuple(sorted({int(level) for level in hierarchy_levels if int(level) > 1}))
         self.hierarchy_loss_weight = float(hierarchy_loss_weight)
         self.hierarchy_dense_future_weight = float(hierarchy_dense_future_weight)
+        self.macro_action_dim = self.d_model if int(macro_action_dim) <= 0 else int(macro_action_dim)
+        if self.macro_action_dim <= 0:
+            raise ValueError("macro_action_dim must be positive when configured.")
         self.dense_future_weight = float(dense_future_weight)
         self.dense_rollout_all_steps = bool(dense_rollout_all_steps)
         self.dense_rollout_variable_starts = bool(dense_rollout_variable_starts)
@@ -314,6 +338,7 @@ class GridTokenGoalJEPA(nn.Module):
             max_level = max(self.hierarchy_levels)
             self.macro_action_encoder = MacroActionEncoder(
                 d_model=d_model,
+                macro_action_dim=self.macro_action_dim,
                 max_steps=max_level,
                 num_layers=macro_action_encoder_layers,
                 num_heads=num_heads,
@@ -520,6 +545,11 @@ class GridTokenGoalJEPA(nn.Module):
         tokens = self.action_token(actions.reshape(batch * steps, 3)).reshape(batch, steps, self.d_model)
         return self.macro_action_encoder(tokens)
 
+    def project_macro_action(self, macro_action: torch.Tensor) -> torch.Tensor:
+        if self.macro_action_encoder is None:
+            raise RuntimeError("This model was not configured with hierarchy_levels.")
+        return self.macro_action_encoder.project(macro_action)
+
     def predict_high_level(
         self,
         state_latent: torch.Tensor,
@@ -546,8 +576,11 @@ class GridTokenGoalJEPA(nn.Module):
                 raise RuntimeError("Shared hierarchy predictor was not initialized.")
         elif key not in self.high_level_predictors:
             raise ValueError(f"No high-level predictor configured for level {level}.")
-        if macro_action.ndim != 2 or macro_action.shape[-1] != self.d_model:
-            raise ValueError(f"Macro action must have shape [batch, {self.d_model}], got {tuple(macro_action.shape)}.")
+        if macro_action.ndim != 2 or macro_action.shape[-1] != self.macro_action_dim:
+            raise ValueError(
+                f"Macro action must have shape [batch, {self.macro_action_dim}], got {tuple(macro_action.shape)}."
+            )
+        macro_action = self.project_macro_action(macro_action)
         if self.shared_hierarchy_predictor:
             level_ids = torch.full(
                 (macro_action.shape[0],),
@@ -687,7 +720,9 @@ class GridTokenGoalJEPA(nn.Module):
         )
         query = F.normalize(self.policy_query(summary), dim=-1, eps=1.0e-6)
         flat_actions = macro_actions.reshape(batch * action_count, steps, 3)
-        macro_tokens = self.encode_macro_action(flat_actions).reshape(batch, action_count, self.d_model)
+        macro_tokens = self.project_macro_action(self.encode_macro_action(flat_actions)).reshape(
+            batch, action_count, self.d_model
+        )
         macro_tokens = F.normalize(self.policy_action(macro_tokens), dim=-1, eps=1.0e-6)
         logits = (macro_tokens * query[:, None]).sum(dim=-1) * (self.d_model**0.5)
         return logits[:, 0] if squeeze else logits
