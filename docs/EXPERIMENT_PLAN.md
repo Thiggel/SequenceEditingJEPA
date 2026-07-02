@@ -1,6 +1,6 @@
 # Experiment Plan
 
-Last updated: 2026-07-02 14:35 CEST
+Last updated: 2026-07-02 14:48 CEST
 
 ## Proposed Grid: Minimal-Aux Objective Factorization
 
@@ -22,21 +22,49 @@ Anchor:
 - `affected_marker`, `predict_delta=true`, EMA target encoder, no regularizer,
   no temporal/progress/action/terminal auxiliary losses
 
-Proposed one-factor controls:
+Old `[1,4,8,16]` loss notation:
+
+- `S={4,8,16}` are the recursive rollout horizons; horizon `1` is handled by
+  the direct one-step loss.
+- `w_i` is the configured horizon weight, defaulting to `1/sqrt(i)`.
+- `E_{H,i}` is the mean i-step prediction error measured inside a rollout
+  whose maximum horizon is `H`, using the old per-term mask/denominator.
+- `E_1^direct` is the direct one-step prediction loss over all valid adjacent
+  states.
+
+The old dynamic part is:
+
+```text
+L_old =
+  E_1^direct
+  + sum_{H in S} w_H E_{H,H}
+  + (1 / 28) sum_{H in S} sum_{i=1..H} w_i E_{H,i}
+```
+
+There are `4 + 8 + 16 = 28` dense-future terms. A refactor that claims to be
+equivalent must reproduce the per-term means and the extra endpoint terms, not
+just use a simple per-step vector of weights. Under dropout, a single shared
+rollout is only equivalent in expectation because the old code re-runs the
+predictor separately for horizons 4, 8, and 16.
+
+Proposed controls:
 
 | Run | Change from anchor | Question |
 |---|---|---|
 | `A_anchor_repro` | none | Reproduce `minimal_aux` in the current code path. |
-| `A_no_goal_mse` | `goal_mse_weight=0.0` | Did context-goal MSE stabilize the oracle geometry? |
-| `A_initial_current_goal` | `goal_conditioning=initial_current`, keep goal MSE | Does `q(c,H0,Ht)` itself damage geometry? |
-| `A_variable_k8_goal_on` | variable-start K=8, goal MSE on | Is Clean17 failure mostly from turning off goal MSE? |
-| `A_variable_k8_goal_off` | variable-start K=8, goal MSE off | Clean17-like objective controlled against anchor. |
-| `A_variable_k16_uniform` | variable-start K=16, supervise every step, uniform weights | Does exact all-step supervision work at a long horizon? |
-| `A_variable_k16_inv_sqrt` | same, inverse-sqrt weights | Test whether decaying long-horizon weight helps. |
-| `A_variable_k16_gamma` | same, geometric gamma | Test stronger near-term bias. |
-| `A_variable_k8_inv_sqrt` | variable-start K=8, inverse-sqrt weights | Separate horizon length from implementation path. |
+| `A_refactor_equiv_14816` | one rollout to 16, reproduce `L_old` weighting/denominators as closely as possible | Does removing repeated rollout code preserve the old objective? |
+| `A_refactor_equiv_14816_dropout_off` | same but dropout `0.0` | Check whether independent dropout masks in old repeated rollouts matter. |
+| `A_smooth_14816_like` | one rollout to 16 with a sane smoothed approximation to old weights | Is most of the benefit from the broad weighting shape? |
+| `A_uniform_k16` | one rollout to 16, supervise every step uniformly | Baseline exact all-step supervision. |
+| `A_inv_sqrt_k16` | one rollout to 16, supervise every step with `1/sqrt(i)` | Standard decayed weighting. |
+| `A_gamma_k16` | one rollout to 16, supervise every step with geometric gamma | Stronger near-term bias. |
+| `A_inv_sqrt_k8` | one rollout to 8, supervise every step with `1/sqrt(i)` | Separate max horizon from weighting implementation. |
 | `A_old_path_h16_only` | old non-variable path, `multi_step_horizons=[16]` | Is the old path's separate terminal h16 anchor enough? |
 | `A_old_path_h8_only` | old non-variable path, `multi_step_horizons=[8]` | Is h8 enough under old averaging/terminal-loss semantics? |
+| `A_no_goal_mse` | exact anchor but `goal_mse_weight=0.0` | Did context-goal MSE stabilize the oracle geometry? |
+| `A_initial_current_goal` | exact anchor but `goal_conditioning=initial_current`, keep goal MSE | Does `q(c,H0,Ht)` itself damage geometry? |
+| `A_no_hierarchy` | exact anchor but `hierarchy_levels=[]`, hierarchy loss `0.0` | Confirm whether hierarchy training is required for this geometry. |
+| `A_no_predict_delta` | exact anchor but `predict_delta=false` | Check whether residual prediction is part of the recipe. |
 
 Eval: fast latent rollout, oracle raw L2 first, beam width `16`, depths
 `{4,16}`, 8 boards; include predicted raw L2 only for goal-conditioned runs
