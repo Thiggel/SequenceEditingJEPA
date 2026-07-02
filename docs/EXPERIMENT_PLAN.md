@@ -1,8 +1,8 @@
 # Experiment Plan
 
-Last updated: 2026-07-02 10:54 CEST
+Last updated: 2026-07-02 10:56 CEST
 
-## Prepared Grid: Macro-HWM Bottleneck + Codebook
+## Submitted Grid: Macro-HWM Bottleneck + Codebook
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -33,6 +33,9 @@ Gate: compare each high-level optimizer/codebook mode against the flat
 primitive `mpc_beam` baseline. A useful hierarchy result should improve solve
 rate or remaining Hamming under oracle raw L2 without requiring changed-cell
 scoring.
+
+Submitted jobs: train `3804951`, `3804957`, `3804963`, `3804969`; eval
+`3804952`-`3804974`.
 
 ## Active Submitted Grid: Clean17
 

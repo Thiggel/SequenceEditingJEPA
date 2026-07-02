@@ -1,8 +1,8 @@
 # Current Experiments
 
-Last updated: 2026-07-02 10:54 CEST
+Last updated: 2026-07-02 10:56 CEST
 
-## Prepared: Macro-HWM Bottleneck + Codebook Wave
+## Active: Macro-HWM Bottleneck + Codebook Wave
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -30,7 +30,14 @@ Eval modes per checkpoint: `baseline`, `cem_none`, `cem_codebook`,
 `mppi_none`, and `mppi_codebook`. Eval uses latent rollout, oracle raw L2,
 beam width `16`, depths `{4,16}`, and 8 boards.
 
-Status: implementation verified locally; Slurm submission pending.
+Slurm:
+
+| Variant | Train | Eval jobs | State |
+|---|---:|---|---|
+| `D4_H4_16` | `3804951` | `3804952`-`3804956` | train running on `rtxpro6k`; evals dependency-held |
+| `D8_H4_16` | `3804957` | `3804958`-`3804962` | train running on `rtxpro6k`; evals dependency-held |
+| `D16_H4_16` | `3804963` | `3804964`-`3804968` | train running on `rtxpro6k`; evals dependency-held |
+| `D8_H4_16_32` | `3804969` | `3804970`-`3804974` | train running on `rtxpro6k`; evals dependency-held |
 
 ## Active: Clean17 Exact K=8 Goal/Hierarchy Sweep
 
