@@ -27,7 +27,8 @@ all predicted-goal rows are still `0/8`.
 Dense-horizon caveat: `dense_k*` was based on the same minimal-aux script base,
 but it changed loss weighting as well as horizon. The base uses
 `dense_rollout_all_steps=false` with `[1,4,8,16]`; `dense_k*` uses
-`dense_rollout_all_steps=true` with only `[K]`.
+`dense_rollout_all_steps=true` with only `[K]` and only starts rollouts where
+the full K-step future exists.
 
 The H1 recipe first wave is superseded. Health oversight `3800223` ran and
 made no submissions. Post-eval oversight `3800130` was canceled before it ran,
