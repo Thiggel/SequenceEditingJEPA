@@ -30,6 +30,12 @@ but it changed loss weighting as well as horizon. The base uses
 `dense_rollout_all_steps=true` with only `[K]` and only starts rollouts where
 the full K-step future exists.
 
+Follow-up audit: `minimal_aux` trained hierarchy `[4,16]`, but its good rows
+used `mpc_beam`, not `hierarchical_beam`. `q(c,H0,Ht)` and no-stopgrad goal
+target variants are not isolated goal-head ablations because they send goal
+loss gradients into the state encoder. Exact dense K=8 weighting scripts are
+implemented but not submitted.
+
 The H1 recipe first wave is superseded. Health oversight `3800223` ran and
 made no submissions. Post-eval oversight `3800130` was canceled before it ran,
 so no Wave 2 has been submitted.

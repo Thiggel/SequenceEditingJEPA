@@ -431,6 +431,41 @@ def test_goal_target_stopgrad_does_not_backprop_goal_loss_to_online_state_encode
     assert online_grad == pytest.approx(0.0)
 
 
+def test_initial_current_goal_conditioning_backprops_goal_loss_to_state_encoder():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_conditioning="initial_current",
+        goal_target_mode="target_stopgrad",
+        use_ema_target_encoder=True,
+        regularizer="none",
+        goal_nce_weight=0.0,
+        dense_future_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="none",
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+    )
+    output.loss.backward()
+
+    online_grad = sum(
+        0.0 if parameter.grad is None else float(parameter.grad.detach().abs().sum().item())
+        for parameter in model.state_encoder.parameters()
+    )
+    assert online_grad > 0.0
+
+
 def test_goal_distance_field_distillation_loss_is_active_when_requested():
     batch = _small_batch(batch_size=1)
     model = _small_model(
@@ -545,6 +580,100 @@ def test_dense_rollout_all_steps_supervises_every_intermediate_horizon_once():
     assert seen_horizons.count(3) == 1
     assert seen_horizons.count(4) == 1
     assert predict_calls == 5
+
+
+def test_variable_start_dense_rollout_uses_all_available_starts_once():
+    batch = _small_batch(batch_size=1)
+    frames = batch.boards.shape[1]
+    model = _small_model(
+        dense_future_weight=1.0,
+        dense_rollout_variable_starts=True,
+        multi_step_horizons=(4,),
+    )
+    seen = []
+    predict_calls = 0
+    original = model._dynamics_error
+    original_predict_next = model.predict_next
+
+    def wrapped_dynamics_error(predicted, *args, **kwargs):
+        seen.append((int(kwargs.get("horizon", 1)), predicted.shape[1]))
+        return original(predicted, *args, **kwargs)
+
+    def wrapped_predict_next(*args, **kwargs):
+        nonlocal predict_calls
+        predict_calls += 1
+        return original_predict_next(*args, **kwargs)
+
+    model._dynamics_error = wrapped_dynamics_error
+    model.predict_next = wrapped_predict_next
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.dynamics_loss.item() > 0.0
+    assert output.dense_future_loss.item() == pytest.approx(0.0)
+    assert seen == [(1, frames - 1), (2, frames - 2), (3, frames - 3), (4, frames - 4)]
+    assert predict_calls == 4
+
+
+@pytest.mark.parametrize(
+    ("weighting", "gamma"),
+    [
+        ("uniform", 0.5),
+        ("inverse_sqrt", 0.5),
+        ("geometric", 0.5),
+    ],
+)
+def test_variable_start_dense_rollout_applies_configured_horizon_weights(weighting, gamma):
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        dense_future_weight=1.0,
+        dense_rollout_variable_starts=True,
+        dense_rollout_weighting=weighting,
+        dense_rollout_gamma=gamma,
+        multi_step_horizons=(3,),
+    )
+
+    def fake_dynamics_error(predicted, *args, **kwargs):
+        horizon = int(kwargs.get("horizon", 1))
+        return predicted.new_full(predicted.shape[:2], float(horizon))
+
+    model._dynamics_error = fake_dynamics_error
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    expected_num = 0.0
+    expected_den = 0.0
+    for horizon in (1, 2, 3):
+        start_count = batch.boards.shape[1] - horizon
+        valid_count = (batch.masks[:, :start_count] & batch.masks[:, horizon : horizon + start_count]).sum().item()
+        if weighting == "uniform":
+            weight = 1.0
+        elif weighting == "inverse_sqrt":
+            weight = horizon**-0.5
+        else:
+            weight = gamma ** (horizon - 1)
+        expected_num += weight * horizon * valid_count
+        expected_den += weight * valid_count
+
+    assert output.dynamics_loss.item() == pytest.approx(expected_num / expected_den)
 
 
 def test_hierarchy_uses_one_encoder_and_multiple_predictors():

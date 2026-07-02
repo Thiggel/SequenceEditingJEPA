@@ -242,6 +242,9 @@ class GridTokenGoalJEPA(nn.Module):
         multi_step_horizons: tuple[int, ...] = (1, 4, 8, 16),
         dense_future_weight: float = 0.0,
         dense_rollout_all_steps: bool = False,
+        dense_rollout_variable_starts: bool = False,
+        dense_rollout_weighting: str = "inverse_sqrt",
+        dense_rollout_gamma: float = 0.95,
         rollout_detach_interval: int = 0,
         hierarchy_levels: tuple[int, ...] = (),
         hierarchy_loss_weight: float = 0.0,
@@ -293,6 +296,14 @@ class GridTokenGoalJEPA(nn.Module):
         self.hierarchy_dense_future_weight = float(hierarchy_dense_future_weight)
         self.dense_future_weight = float(dense_future_weight)
         self.dense_rollout_all_steps = bool(dense_rollout_all_steps)
+        self.dense_rollout_variable_starts = bool(dense_rollout_variable_starts)
+        allowed_dense_weighting = {"uniform", "inverse_sqrt", "geometric"}
+        if dense_rollout_weighting not in allowed_dense_weighting:
+            raise ValueError(f"dense_rollout_weighting must be one of {sorted(allowed_dense_weighting)}.")
+        self.dense_rollout_weighting = str(dense_rollout_weighting)
+        self.dense_rollout_gamma = float(dense_rollout_gamma)
+        if self.dense_rollout_gamma <= 0.0:
+            raise ValueError("dense_rollout_gamma must be positive.")
         self.rollout_detach_interval = int(rollout_detach_interval)
         if self.rollout_detach_interval < 0:
             raise ValueError("rollout_detach_interval must be non-negative.")
@@ -735,26 +746,75 @@ class GridTokenGoalJEPA(nn.Module):
         transition_mask = masks[:, :-1] & masks[:, 1:]
         dynamics_terms = []
         dense_future_terms = []
-        if frames > 1:
-            predicted_next = self.predict_next(
-                state_latents[:, :-1].reshape(-1, token_count, self.d_model),
-                actions[:, :-1].reshape(-1, 3),
-                context_latents[:, None].expand(batch, frames - 1, token_count, self.d_model).reshape(
-                    -1, token_count, self.d_model
-                ),
-            ).reshape(batch, frames - 1, token_count, self.d_model)
-            one_step_error = self._dynamics_error(
-                predicted_next,
-                target_state_latents[:, 1:],
-                actions[:, :-1],
-                rows=rows,
-                cols=cols,
-            )
-            dynamics_terms.append(_masked_mean(one_step_error, transition_mask))
+        if self.dense_rollout_variable_starts and self.multi_step_horizons:
+            max_horizon = min(max(self.multi_step_horizons), frames - 1)
+            if max_horizon > 0:
+                rollout = state_latents[:, : frames - 1]
+                predicted_next = state_latents[:, :0]
+                weighted_sum = state_latents.sum() * 0.0
+                weight_count = state_latents.new_zeros(())
+                for offset in range(max_horizon):
+                    dense_horizon = offset + 1
+                    start_count = frames - dense_horizon
+                    rollout = rollout[:, :start_count]
+                    ctx = context_latents[:, None].expand(batch, start_count, token_count, self.d_model).reshape(
+                        -1, token_count, self.d_model
+                    )
+                    act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
+                    rollout = self.predict_next(
+                        rollout.reshape(batch * start_count, token_count, self.d_model),
+                        act,
+                        ctx,
+                    ).reshape(batch, start_count, token_count, self.d_model)
+                    if dense_horizon == 1:
+                        predicted_next = rollout
+                    target = target_state_latents[:, dense_horizon : dense_horizon + start_count]
+                    valid = masks[:, :start_count] & masks[:, dense_horizon : dense_horizon + start_count]
+                    rollout_actions = actions[:, : dense_horizon + start_count - 1]
+                    dense_error = self._dynamics_error(
+                        rollout,
+                        target,
+                        rollout_actions,
+                        rows=rows,
+                        cols=cols,
+                        horizon=dense_horizon,
+                    )
+                    horizon_weight = self._dense_horizon_weight(dense_horizon)
+                    valid_weights = valid.to(dtype=dense_error.dtype) * horizon_weight
+                    weighted_sum = weighted_sum + (dense_error * valid_weights).sum()
+                    weight_count = weight_count + valid_weights.sum()
+                    if (
+                        self.rollout_detach_interval > 0
+                        and dense_horizon % self.rollout_detach_interval == 0
+                        and dense_horizon < max_horizon
+                    ):
+                        rollout = rollout.detach()
+                dynamics_terms.append(weighted_sum / weight_count.clamp_min(1.0))
+            else:
+                predicted_next = state_latents[:, :0]
+                dynamics_terms.append(state_latents.sum() * 0.0)
         else:
-            predicted_next = state_latents[:, :0]
-            dynamics_terms.append(state_latents.sum() * 0.0)
-        if self.dense_rollout_all_steps and self.multi_step_horizons:
+            if frames > 1:
+                predicted_next = self.predict_next(
+                    state_latents[:, :-1].reshape(-1, token_count, self.d_model),
+                    actions[:, :-1].reshape(-1, 3),
+                    context_latents[:, None].expand(batch, frames - 1, token_count, self.d_model).reshape(
+                        -1, token_count, self.d_model
+                    ),
+                ).reshape(batch, frames - 1, token_count, self.d_model)
+                one_step_error = self._dynamics_error(
+                    predicted_next,
+                    target_state_latents[:, 1:],
+                    actions[:, :-1],
+                    rows=rows,
+                    cols=cols,
+                )
+                dynamics_terms.append(_masked_mean(one_step_error, transition_mask))
+            else:
+                predicted_next = state_latents[:, :0]
+                dynamics_terms.append(state_latents.sum() * 0.0)
+
+        if (not self.dense_rollout_variable_starts) and self.dense_rollout_all_steps and self.multi_step_horizons:
             max_horizon = min(max(self.multi_step_horizons), frames - 1)
             start_count = frames - max_horizon
             if start_count > 0:
@@ -778,14 +838,16 @@ class GridTokenGoalJEPA(nn.Module):
                             cols=cols,
                             horizon=dense_horizon,
                         )
-                        dense_future_terms.append(_masked_mean(dense_error, valid) / (dense_horizon**0.5))
+                        dense_future_terms.append(
+                            _masked_mean(dense_error, valid) * self._dense_horizon_weight(dense_horizon)
+                        )
                     if (
                         self.rollout_detach_interval > 0
                         and (offset + 1) % self.rollout_detach_interval == 0
                         and offset + 1 < max_horizon
                     ):
                         rollout = rollout.detach()
-        else:
+        elif not self.dense_rollout_variable_starts:
             for horizon in self.multi_step_horizons:
                 if horizon <= 1 or frames <= horizon:
                     continue
@@ -810,7 +872,9 @@ class GridTokenGoalJEPA(nn.Module):
                             cols=cols,
                             horizon=dense_horizon,
                         )
-                        dense_future_terms.append(_masked_mean(dense_error, dense_valid) / (dense_horizon**0.5))
+                        dense_future_terms.append(
+                            _masked_mean(dense_error, dense_valid) * self._dense_horizon_weight(dense_horizon)
+                        )
                     if (
                         self.rollout_detach_interval > 0
                         and (offset + 1) % self.rollout_detach_interval == 0
@@ -828,7 +892,7 @@ class GridTokenGoalJEPA(nn.Module):
                     cols=cols,
                     horizon=horizon,
                 )
-                dynamics_terms.append(_masked_mean(error, valid) / (horizon**0.5))
+                dynamics_terms.append(_masked_mean(error, valid) * self._dense_horizon_weight(horizon))
         dynamics_loss = torch.stack(dynamics_terms).sum()
         if dense_future_terms:
             dense_future_loss = torch.stack(dense_future_terms).mean()
@@ -1297,6 +1361,13 @@ class GridTokenGoalJEPA(nn.Module):
             else:
                 conditioned = _add_at_action_positions(conditioned, action, values, rows=self.max_rows, cols=self.max_cols)
         return conditioned
+
+    def _dense_horizon_weight(self, horizon: int) -> float:
+        if self.dense_rollout_weighting == "uniform":
+            return 1.0
+        if self.dense_rollout_weighting == "inverse_sqrt":
+            return float(horizon) ** -0.5
+        return self.dense_rollout_gamma ** max(int(horizon) - 1, 0)
 
     def _dynamics_error(
         self,

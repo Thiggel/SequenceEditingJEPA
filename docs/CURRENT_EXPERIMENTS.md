@@ -57,6 +57,14 @@ Interpretation:
   terminal multi-horizon dynamics terms, while `dense_k*` uses a single `[K]`
   all-steps objective with different weighting and only starts rollouts where
   the full K-step future exists.
+- `minimal_aux` included hierarchy `[4,16]`, but the good rows used
+  `mpc_beam`; hierarchical-beam rows were poor.
+- `q(c,H0,Ht)` and no-stopgrad goal targets are not isolated goal-head
+  changes because they backpropagate goal loss into the state encoder.
+
+Prepared but not submitted: `grid_goal_dense_exact` K=8 weighting probe with
+`dense_rollout_variable_starts=true`, variants `uniform`, `inverse_sqrt`, and
+geometric gamma `0.8`.
 
 Implementation:
 

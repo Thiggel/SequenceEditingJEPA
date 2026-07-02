@@ -1,6 +1,41 @@
 # Experiment Plan
 
-Last updated: 2026-07-01 17:45 CEST
+Last updated: 2026-07-02 08:34 CEST
+
+## Prepared Dense-Exact Probe
+
+Do not submit until the surrounding ablation plan is agreed.
+
+The old `dense_k*` minimal-aux rows were not a clean longer-horizon ablation:
+they changed weighting and restricted starts to frames with a full K-step
+future. The new dense-exact implementation adds
+`model.dense_rollout_variable_starts=true`, which matches the intended
+objective:
+
+```python
+H = f_theta(x_t)
+for i in range(1, K + 1):
+    H = P_phi(H, a[t + i - 1], H_c)
+    loss += w_i * mse(H, stopgrad(f_ema(x[t + i], H_c)))
+```
+
+It does this for every start frame where the target future exists, not only
+for starts with a full K-step future. The prepared scripts are:
+
+- `scripts/slurm/run_grid_goal_dense_exact_train.slurm`
+- `scripts/slurm/run_grid_goal_dense_exact_eval.slurm`
+- `scripts/experiments/submit_grid_goal_dense_exact.sh`
+
+Prepared variants, all K=8 on the minimal-aux base:
+
+| Variant | Weighting |
+| --- | --- |
+| `dense_exact_k8_uniform` | `w_i = 1` |
+| `dense_exact_k8_inv_sqrt` | `w_i = 1 / sqrt(i)` |
+| `dense_exact_k8_gamma` | `w_i = 0.8^(i-1)` |
+
+Gate: verify one of these preserves oracle global latent-rollout solve rate
+before combining it with regularization, goal-prediction, or ranking changes.
 
 ## Proposed Minimal-Aux Single-Factor Wave
 

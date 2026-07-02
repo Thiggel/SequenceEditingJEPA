@@ -89,6 +89,12 @@ MINAUX_VARIANTS = (
     "goal_distance_field_distill",
 )
 
+DENSE_EXACT_VARIANTS = (
+    "dense_exact_k8_uniform",
+    "dense_exact_k8_inv_sqrt",
+    "dense_exact_k8_gamma",
+)
+
 
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
@@ -256,6 +262,49 @@ def _capture_minaux_args(tmp_path: Path, *, script: str, array_index: int, check
     if checkpoint:
         variant = MINAUX_VARIANTS[array_index]
         run_root = work / "runs" / "grid_goal_minaux_wave" / f"grid_goal_minaux_wave_{variant}"
+        run_root.mkdir(parents=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "SLURM_ARRAY_TASK_ID": str(array_index),
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_dense_exact_args(tmp_path: Path, *, script: str, array_index: int, checkpoint: bool = False) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{array_index}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        variant = DENSE_EXACT_VARIANTS[array_index]
+        run_root = work / "runs" / "grid_goal_dense_exact" / f"grid_goal_dense_exact_{variant}"
         run_root.mkdir(parents=True)
         (run_root / "checkpoint.pt").write_bytes(b"placeholder")
 
@@ -494,3 +543,64 @@ def test_minaux_wave_fast_eval_skips_hierarchical_beam_for_no_hierarchy_variant(
     )
 
     assert args[args.index("--planners") + 1] == "mpc_beam"
+
+
+def test_dense_exact_train_uses_variable_start_k8_minimal_aux_base(tmp_path):
+    args = _capture_dense_exact_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_dense_exact_train.slurm",
+        array_index=0,
+    )
+
+    assert "training.max_steps=5000" in args
+    assert "model.action_conditioning=affected_marker" in args
+    assert "model.predict_delta=true" in args
+    assert "model.hierarchy_levels=[4,16]" in args
+    assert "model.goal_conditioning=context" in args
+    assert "model.dense_rollout_all_steps=false" in args
+    assert "model.dense_rollout_variable_starts=true" in args
+    assert "model.multi_step_horizons=[8]" in args
+    assert "model.dense_rollout_weighting=uniform" in args
+
+
+def test_dense_exact_train_weighting_variants_are_single_factor(tmp_path):
+    inv_args = _capture_dense_exact_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_dense_exact_train.slurm",
+        array_index=1,
+    )
+    gamma_args = _capture_dense_exact_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_dense_exact_train.slurm",
+        array_index=2,
+    )
+
+    assert "model.dense_rollout_weighting=inverse_sqrt" in inv_args
+    assert "model.dense_rollout_variable_starts=true" in inv_args
+    assert "model.multi_step_horizons=[8]" in inv_args
+    assert "model.dense_rollout_weighting=geometric" in gamma_args
+    assert "model.dense_rollout_gamma=0.8" in gamma_args
+    assert "model.dense_rollout_variable_starts=true" in gamma_args
+    assert "model.multi_step_horizons=[8]" in gamma_args
+
+
+def test_dense_exact_eval_matches_fast_latent_global_matrix(tmp_path):
+    args = _capture_dense_exact_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_dense_exact_eval.slurm",
+        array_index=0,
+        checkpoint=True,
+    )
+    scores = args[args.index("--scores") + 1].split(",")
+
+    assert args[args.index("--transitions") + 1] == "latent_rollout"
+    assert args[args.index("--beam-widths") + 1] == "16"
+    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert args[args.index("--examples") + 1] == "8"
+    assert args[args.index("--planners") + 1] == "mpc_beam,hierarchical_beam"
+    assert scores == [
+        "oracle_goal_distance",
+        "predicted_goal_distance",
+        "oracle_goal_raw_euclidean_distance",
+        "predicted_goal_raw_euclidean_distance",
+    ]
