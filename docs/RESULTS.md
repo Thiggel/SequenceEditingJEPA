@@ -1,14 +1,25 @@
 # Results
 
-Last updated: 2026-07-02 10:08 CEST
+Last updated: 2026-07-02 14:10 CEST
 
-## Active Clean17 Sweep
+## Clean17 and Macro-HWM Waves
 
-Submitted corrected train jobs `3804755`-`3804787` and dependency-held eval jobs
-`3804756`-`3804788`. No planner results are available yet. See
-`docs/CURRENT_EXPERIMENTS.md` and
-`../sequence-editing-report/CURRENT_EXPERIMENTS.md` for the active grid and
-job map.
+Both active 2026-07-02 waves are complete. Full tables are in
+`../sequence-editing-report/RESULTS.md`.
+
+| Wave | Rows | Missing | Best result |
+|---|---:|---:|---|
+| `clean17` | `76/76` | `0` | `G_ic_field_only`, oracle raw L2, `mpc_beam`, depth 16: `0/8`, h `11.12` |
+| `macro_hwm` | `40/40` | `0` | `D16_H4_16`, baseline `mpc_beam`, depth 16: `0/8`, h `22.50` |
+
+Clean17 best predicted-goal row: `G_ic_field_plus_mse`, predicted raw L2,
+`mpc_beam`, depth 4: `0/8`, h `46.00`.
+
+Interpretation: neither wave produced solves. Exact K=8 Clean17 did not
+preserve the earlier minimal-aux oracle geometry. Distance-field goal variants
+improved oracle remaining Hamming but not predicted-goal planning. Macro-HWM
+high-level CEM/MPPI was worse than flat primitive MPC; codebook initialization
+did not repair high-level planning.
 
 ## Current H1 Recipe / Old-Local Fast Wave
 

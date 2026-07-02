@@ -1,8 +1,8 @@
 # Current Experiments
 
-Last updated: 2026-07-02 11:00 CEST
+Last updated: 2026-07-02 14:10 CEST
 
-## Active: Macro-HWM Bottleneck + Codebook Wave
+## Completed: Macro-HWM Bottleneck + Codebook Wave
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -34,12 +34,15 @@ Slurm:
 
 | Variant | Train | Eval jobs | State |
 |---|---:|---|---|
-| `D4_H4_16` | `3804951` | `3804952`-`3804956` | train running, step `500`; evals dependency-held |
-| `D8_H4_16` | `3804957` | `3804958`-`3804962` | train running, step `500`; evals dependency-held |
-| `D16_H4_16` | `3804963` | `3804964`-`3804968` | train running, step `500`; evals dependency-held |
-| `D8_H4_16_32` | `3804969` | `3804970`-`3804974` | train running, step `500`; evals dependency-held |
+| `D4_H4_16` | `3804951` | `3804952`-`3804956` | complete |
+| `D8_H4_16` | `3804957` | `3804958`-`3804962` | complete |
+| `D16_H4_16` | `3804963` | `3804964`-`3804968` | complete |
+| `D8_H4_16_32` | `3804969` | `3804970`-`3804974` | complete |
 
-## Active: Clean17 Exact K=8 Goal/Hierarchy Sweep
+Rows: `40/40`; missing: `0`. Best row: `D16_H4_16`, baseline `mpc_beam`,
+depth 16: `0/8`, h `22.50`.
+
+## Completed: Clean17 Exact K=8 Goal/Hierarchy Sweep
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -52,10 +55,12 @@ Slurm:
 | Group | Train jobs | Eval jobs | State |
 |---|---|---|---|
 | First submission | `3804721`-`3804753` odd IDs | `3804722`-`3804754` even IDs | train failed immediately from invalid custom `ablation`; stale evals canceled |
-| Corrected submission | `3804755`-`3804787` odd IDs | `3804756`-`3804788` even IDs | all 17 train jobs complete; H0 evals complete; hierarchy evals `3/4`; goal evals `3/8` |
+| Corrected submission | `3804755`-`3804787` odd IDs | `3804756`-`3804788` even IDs | complete, `76/76` rows |
 
-Health check at 11:00 CEST: active eval stderr files are empty. Expected full
-Clean17 results around `12:00-12:30 CEST`.
+Missing rows: `0`. Best row: `G_ic_field_only`, oracle raw L2, `mpc_beam`,
+depth 16: `0/8`, h `11.12`. Best predicted-goal row:
+`G_ic_field_plus_mse`, predicted raw L2, `mpc_beam`, depth 4: `0/8`,
+h `46.00`.
 
 Common settings: seed `5204`, LR `1e-4`, batch `8`, `5000` steps,
 `affected_marker`, `predict_delta=true`, EMA dynamics target, no aux geometry
