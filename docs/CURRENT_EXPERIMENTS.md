@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 15:42 CEST
+Last updated: 2026-07-02 16:22 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -81,6 +81,19 @@ Status at 15:42 CEST:
   L2, depth 4 solved `5/8`, h `0.375`. `A_smooth_14816_like` has an early
   `1/8` row. Current K16/K8 single-rollout and old-path H8/H16 first rows are
   `0/8`.
+
+Status at 16:22 CEST:
+
+- `13/14` train jobs completed successfully; the only failed train remains
+  `A_refactor_equiv_14816_dropout_off` because of NaNs.
+- `13` eval jobs are running; the dropout-off eval remains
+  `DependencyNeverSatisfied`.
+- Partial oracle results are much better than the earlier Clean17 wave:
+  `A_anchor_repro` already has `8/8`, h `0.0` with `mpc_beam`, oracle raw L2,
+  depth 16; `A_no_predict_delta` already has `8/8`, h `0.0` with `mpc_beam`,
+  oracle raw L2, depth 4.
+- Predicted-goal rows remain `0/8` so far, with best partial remaining Hamming
+  around low 40s.
 
 Eval per checkpoint is an independent dependency-held job:
 
