@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 17:22 CEST
+Last updated: 2026-07-02 18:45 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -173,6 +173,33 @@ ETA if queues remain similar: bf16 trains should finish around
 `18:00-18:25 CEST`, fp32 batch-4 trains around `19:15-20:15 CEST`, and the
 dependency-held evals should finish around `21:30-22:30 CEST` if they start
 promptly.
+
+Status at 18:45 CEST:
+
+- Main factorization evals completed for every finite checkpoint. The original
+  dropout-off refactor train failed; its eval is `DependencyNeverSatisfied`.
+- Gated dropout-off trains: bf16 LR `1e-5` anchor/refactor, bf16 LR `1e-4`
+  refactor, and fp32 batch-4 refactor completed; fp32 batch-4 anchor is at
+  step `3300`.
+- Gated evals for bf16 LR `1e-5` anchor/refactor and bf16 LR `1e-4` refactor
+  are running. fp32 refactor eval just started; fp32 anchor eval is still
+  dependency-held.
+
+Best rows so far:
+
+| Variant | Best oracle | Best predicted |
+|---|---|---|
+| `A_anchor_repro` | `8/8`, h `0.0`, `mpc_beam` d16 | `0/8`, h `44.2` |
+| `A_no_predict_delta` | `8/8`, h `0.0`, `mpc_beam` d16 | `0/8`, h `41.4` |
+| `A_refactor_equiv_14816` | `5/8`, h `0.375`, `mpc_beam` d4 | `0/8`, h `40.4` |
+| `A_refactor_equiv_14816_dropout_off_gated_l1e4` | `4/8`, h `0.625`, `mpc_beam` d16, partial | `0/8`, h `41.0`, partial |
+| `A_no_hierarchy` | `3/8`, h `0.875`, `mpc_beam` d4 | `0/8`, h `44.8` |
+| `A_old_path_h8_only` | `0/8`, h `1.75`, `mpc_beam` d16 | `0/8`, h `42.6` |
+
+Interpretation: the anchor reproduced the good oracle solve result. Disabled
+loss gating fixed dropout-off NaNs. Dropout-off LR `1e-4` looks promising
+partway through eval; LR `1e-5` is stable but planning-random. Predicted-goal
+planning remains `0/8` everywhere.
 
 Eval per checkpoint is an independent dependency-held job:
 
