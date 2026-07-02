@@ -137,6 +137,10 @@ MINAUX_FACTOR_VARIANTS = (
     "A_initial_current_goal",
     "A_no_hierarchy",
     "A_no_predict_delta",
+    "A_anchor_dropout_off_fp32",
+    "A_refactor_equiv_14816_dropout_off_fp32",
+    "A_anchor_dropout_off_lr5e5",
+    "A_refactor_equiv_14816_dropout_off_lr5e5",
 )
 
 
@@ -916,8 +920,8 @@ def test_clean17_eval_uses_raw_oracle_only_for_g_none_and_adds_predicted_for_goa
 
 
 def test_minaux_factor_has_expected_unique_variant_count():
-    assert len(MINAUX_FACTOR_VARIANTS) == 14
-    assert len(set(MINAUX_FACTOR_VARIANTS)) == 14
+    assert len(MINAUX_FACTOR_VARIANTS) == 18
+    assert len(set(MINAUX_FACTOR_VARIANTS)) == 18
 
 
 def test_minaux_factor_anchor_reproduces_minimal_aux_basis(tmp_path):
@@ -930,6 +934,7 @@ def test_minaux_factor_anchor_reproduces_minimal_aux_basis(tmp_path):
     assert "training.max_steps=5000" in args
     assert "training.batch_size=8" in args
     assert "training.learning_rate=1.0e-4" in args
+    assert "training.bf16=true" in args
     assert "model.action_conditioning=affected_marker" in args
     assert "model.predict_delta=true" in args
     assert "model.goal_mse_weight=1.0" in args
@@ -1063,6 +1068,44 @@ def test_minaux_factor_one_factor_ablation_variants_only_change_named_factor(tmp
     assert "model.hierarchy_loss_weight=0.0" in no_hier
     assert "model.predict_delta=false" in no_delta
     assert "model.hierarchy_levels=[4,16]" in no_delta
+
+
+def test_minaux_factor_dropout_off_controls_pin_precision_or_learning_rate(tmp_path):
+    anchor_fp32 = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=14,
+    )
+    refactor_fp32 = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=15,
+    )
+    anchor_lr = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=16,
+    )
+    refactor_lr = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=17,
+    )
+
+    assert "model.dropout=0.0" in anchor_fp32
+    assert "training.bf16=false" in anchor_fp32
+    assert "model.dense_rollout_refactor_mode=none" in anchor_fp32
+    assert "model.dropout=0.0" in refactor_fp32
+    assert "training.bf16=false" in refactor_fp32
+    assert "model.dense_rollout_refactor_mode=legacy_equivalent" in refactor_fp32
+    assert "model.dropout=0.0" in anchor_lr
+    assert "training.learning_rate=5.0e-5" in anchor_lr
+    assert "training.bf16=true" in anchor_lr
+    assert "model.dense_rollout_refactor_mode=none" in anchor_lr
+    assert "model.dropout=0.0" in refactor_lr
+    assert "training.learning_rate=5.0e-5" in refactor_lr
+    assert "training.bf16=true" in refactor_lr
+    assert "model.dense_rollout_refactor_mode=legacy_equivalent" in refactor_lr
 
 
 def test_minaux_factor_eval_is_independent_fast_latent_matrix(tmp_path):

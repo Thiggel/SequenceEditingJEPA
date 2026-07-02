@@ -831,6 +831,18 @@ def test_legacy_equivalent_refactor_matches_old_multi_horizon_dense_objective_wi
     assert refactored_output.dense_future_loss.item() == pytest.approx(old_output.dense_future_loss.item(), rel=1e-5)
     assert refactored_output.loss.item() == pytest.approx(old_output.loss.item(), rel=1e-5)
 
+    old_output.loss.backward()
+    refactored_output.loss.backward()
+    for (old_name, old_param), (ref_name, ref_param) in zip(
+        old_model.named_parameters(), refactored_model.named_parameters(), strict=True
+    ):
+        assert old_name == ref_name
+        if old_param.grad is None and ref_param.grad is None:
+            continue
+        assert old_param.grad is not None
+        assert ref_param.grad is not None
+        assert torch.allclose(old_param.grad, ref_param.grad, atol=1.0e-5, rtol=1.0e-5), old_name
+
 
 def test_legacy_count_refactor_uses_horizon_counts_without_endpoint_terms():
     batch = _small_batch(batch_size=1)

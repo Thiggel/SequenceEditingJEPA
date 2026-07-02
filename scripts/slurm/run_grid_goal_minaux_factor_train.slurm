@@ -27,6 +27,10 @@ VARIANTS=(
   A_initial_current_goal
   A_no_hierarchy
   A_no_predict_delta
+  A_anchor_dropout_off_fp32
+  A_refactor_equiv_14816_dropout_off_fp32
+  A_anchor_dropout_off_lr5e5
+  A_refactor_equiv_14816_dropout_off_lr5e5
 )
 
 if [[ -n "${VARIANT:-}" ]]; then
@@ -58,6 +62,7 @@ COMMON_OVERRIDES=(
   "training.save_every_steps=${SAVE_EVERY_STEPS:-5000}"
   "training.learning_rate=${LEARNING_RATE:-1.0e-4}"
   "training.warmup_steps=${WARMUP_STEPS:-500}"
+  "training.bf16=${BF16:-true}"
   "model.action_conditioning=affected_marker"
   "model.predict_delta=true"
   "model.dynamics_weighting=uniform"
@@ -153,6 +158,26 @@ case "${SELECTED_VARIANT}" in
     ;;
   A_no_predict_delta)
     EXTRA_OVERRIDES=("model.predict_delta=false")
+    ;;
+  A_anchor_dropout_off_fp32)
+    EXTRA_OVERRIDES=("model.dropout=0.0" "training.bf16=false")
+    ;;
+  A_refactor_equiv_14816_dropout_off_fp32)
+    EXTRA_OVERRIDES=(
+      "model.dense_rollout_refactor_mode=legacy_equivalent"
+      "model.dropout=0.0"
+      "training.bf16=false"
+    )
+    ;;
+  A_anchor_dropout_off_lr5e5)
+    EXTRA_OVERRIDES=("model.dropout=0.0" "training.learning_rate=5.0e-5")
+    ;;
+  A_refactor_equiv_14816_dropout_off_lr5e5)
+    EXTRA_OVERRIDES=(
+      "model.dense_rollout_refactor_mode=legacy_equivalent"
+      "model.dropout=0.0"
+      "training.learning_rate=5.0e-5"
+    )
     ;;
   *)
     echo "Unknown variant ${SELECTED_VARIANT}" >&2

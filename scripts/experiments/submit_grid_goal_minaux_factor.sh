@@ -19,6 +19,10 @@ VARIANTS=(
   A_initial_current_goal
   A_no_hierarchy
   A_no_predict_delta
+  A_anchor_dropout_off_fp32
+  A_refactor_equiv_14816_dropout_off_fp32
+  A_anchor_dropout_off_lr5e5
+  A_refactor_equiv_14816_dropout_off_lr5e5
 )
 
 for variant in "${VARIANTS[@]}"; do
