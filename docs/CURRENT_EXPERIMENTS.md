@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 16:22 CEST
+Last updated: 2026-07-02 16:41 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -94,6 +94,25 @@ Status at 16:22 CEST:
   oracle raw L2, depth 4.
 - Predicted-goal rows remain `0/8` so far, with best partial remaining Hamming
   around low 40s.
+
+Follow-up dropout controls at 16:41 CEST:
+
+- Code/config audit: `A_anchor_repro` and `A_refactor_equiv_14816` submitted
+  configs differ only in `model.dense_rollout_refactor_mode`.
+- Deterministic unit test now checks both loss and gradient equivalence between
+  old and refactored objectives when dropout is `0.0`.
+- Dropout locations: attention-weight dropout inside every
+  `nn.MultiheadAttention`, plus two MLP `nn.Dropout` layers per transformer
+  block. This affects context/state/predictor/goal/high-level/macro encoders,
+  and the EMA target encoder while the model is in train mode.
+- New control jobs submitted:
+
+| Variant | Purpose | Train | Eval | State |
+|---|---|---:|---:|---|
+| `A_anchor_dropout_off_fp32` | old path, dropout off, fp32, LR `1e-4` | `3806051` | `3806052` | train running |
+| `A_refactor_equiv_14816_dropout_off_fp32` | refactor, dropout off, fp32, LR `1e-4` | `3806053` | `3806054` | train running |
+| `A_anchor_dropout_off_lr5e5` | old path, dropout off, bf16, LR `5e-5` | `3806055` | `3806056` | train running |
+| `A_refactor_equiv_14816_dropout_off_lr5e5` | refactor, dropout off, bf16, LR `5e-5` | `3806057` | `3806058` | train running |
 
 Eval per checkpoint is an independent dependency-held job:
 
