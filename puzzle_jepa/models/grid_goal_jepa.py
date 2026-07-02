@@ -1101,30 +1101,39 @@ class GridTokenGoalJEPA(nn.Module):
             hierarchy_loss = torch.stack(hierarchy_terms).sum()
         else:
             hierarchy_loss = state_latents.sum() * 0.0
-        if hierarchy_dense_terms:
+        if hierarchy_dense_terms and self.hierarchy_dense_future_weight > 0.0:
             hierarchy_loss = hierarchy_loss + self.hierarchy_dense_future_weight * torch.stack(hierarchy_dense_terms).mean()
 
+        zero_loss = state_latents.sum() * 0.0
         goal_target_for_loss = goal_target if self.goal_target_mode == "online_no_stopgrad" else goal_target.detach()
-        goal_target_sequence = goal_target_for_loss[:, None].expand(batch, frames, token_count, self.d_model)
-        goal_token_error = (predicted_goal_sequence - goal_target_sequence).square().mean(dim=-1)
-        goal_token_weights = active_flat[:, None].expand(batch, frames, token_count) & masks[:, :, None]
-        goal_mse_loss = _masked_mean(goal_token_error, goal_token_weights)
-        pred_summary = _masked_summary(
-            predicted_goal_sequence.reshape(batch * frames, token_count, self.d_model),
-            active_flat[:, None].expand(batch, frames, token_count).reshape(batch * frames, token_count),
-        ).reshape(batch, frames, self.d_model)
-        target_summary = _masked_summary(goal_target_for_loss, active_flat)
-        valid_summary = masks.reshape(batch * frames)
-        if bool(valid_summary.any()):
-            logits = (
-                F.normalize(pred_summary.reshape(batch * frames, self.d_model)[valid_summary], dim=-1)
-                @ F.normalize(target_summary, dim=-1).T
-                / 0.1
-            )
-            labels = torch.arange(batch, device=boards.device)[:, None].expand(batch, frames).reshape(batch * frames)[valid_summary]
-            goal_nce_loss = F.cross_entropy(logits, labels)
+        if self.goal_mse_weight > 0.0 or self.goal_nce_weight > 0.0:
+            goal_target_sequence = goal_target_for_loss[:, None].expand(batch, frames, token_count, self.d_model)
+            goal_token_error = (predicted_goal_sequence - goal_target_sequence).square().mean(dim=-1)
+            goal_token_weights = active_flat[:, None].expand(batch, frames, token_count) & masks[:, :, None]
+            goal_mse_loss = _masked_mean(goal_token_error, goal_token_weights)
         else:
-            goal_nce_loss = state_latents.sum() * 0.0
+            goal_mse_loss = zero_loss
+        if self.goal_nce_weight > 0.0:
+            pred_summary = _masked_summary(
+                predicted_goal_sequence.reshape(batch * frames, token_count, self.d_model),
+                active_flat[:, None].expand(batch, frames, token_count).reshape(batch * frames, token_count),
+            ).reshape(batch, frames, self.d_model)
+            target_summary = _masked_summary(goal_target_for_loss, active_flat)
+            valid_summary = masks.reshape(batch * frames)
+            if bool(valid_summary.any()):
+                logits = (
+                    F.normalize(pred_summary.reshape(batch * frames, self.d_model)[valid_summary], dim=-1)
+                    @ F.normalize(target_summary, dim=-1).T
+                    / 0.1
+                )
+                labels = torch.arange(batch, device=boards.device)[:, None].expand(batch, frames).reshape(batch * frames)[
+                    valid_summary
+                ]
+                goal_nce_loss = F.cross_entropy(logits, labels)
+            else:
+                goal_nce_loss = zero_loss
+        else:
+            goal_nce_loss = zero_loss
 
         predicted_distances = self.distance(
             state_latents.reshape(batch * frames, token_count, self.d_model),
@@ -1138,26 +1147,35 @@ class GridTokenGoalJEPA(nn.Module):
             ),
             active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols),
         ).reshape(batch, frames)
-        goal_distance_field_loss = _distance_field_distillation_loss(
-            predicted_distances,
-            oracle_distances.detach(),
-            masks,
-        )
+        if self.goal_distance_field_weight > 0.0:
+            goal_distance_field_loss = _distance_field_distillation_loss(
+                predicted_distances,
+                oracle_distances.detach(),
+                masks,
+            )
+        else:
+            goal_distance_field_loss = zero_loss
         oracle_rows = torch.zeros_like(masks[:, 0], dtype=torch.bool) if oracle_mask is None else oracle_mask
         progress_masks = masks & oracle_rows[:, None]
-        progress_rank_loss = self._progress_rank_objective(predicted_distances, oracle_distances, progress_masks)
-        temporal_straightening_loss = _temporal_straightening_loss(
-            state_latents,
-            predicted_goal,
-            masks=masks,
-            active_mask=active_flat,
-        )
+        if self.progress_rank_weight > 0.0:
+            progress_rank_loss = self._progress_rank_objective(predicted_distances, oracle_distances, progress_masks)
+        else:
+            progress_rank_loss = zero_loss
+        if self.temporal_straightening_weight > 0.0:
+            temporal_straightening_loss = _temporal_straightening_loss(
+                state_latents,
+                predicted_goal,
+                masks=masks,
+                active_mask=active_flat,
+            )
+        else:
+            temporal_straightening_loss = zero_loss
 
-        action_rank_loss = state_latents.sum() * 0.0
-        policy_prior_loss = state_latents.sum() * 0.0
+        action_rank_loss = zero_loss
+        policy_prior_loss = zero_loss
         policy_prior_terms = []
         needs_rank_state = (
-            (self.action_rank_mode != "none" and negative_actions is not None)
+            (self.action_rank_weight > 0.0 and self.action_rank_mode != "none" and negative_actions is not None)
             or (self.policy_prior_weight > 0.0 and self.policy_prior_mode != "none")
         )
         if needs_rank_state:
@@ -1234,28 +1252,41 @@ class GridTokenGoalJEPA(nn.Module):
         if policy_prior_terms:
             policy_prior_loss = torch.stack(policy_prior_terms).mean()
 
-        terminal_corrupt_loss = state_latents.sum() * 0.0
-        if corrupt_goals is not None:
+        terminal_corrupt_loss = zero_loss
+        if self.terminal_corrupt_weight > 0.0 and corrupt_goals is not None:
             corrupt_latents = self.encode_state(corrupt_goals, context_latents, clue_mask, editable_mask, active_mask)
             good_d = self.distance(goal_target.detach(), predicted_goal, active_mask)
             bad_d = self.distance(corrupt_latents, predicted_goal, active_mask)
             terminal_corrupt_loss = F.softplus((good_d - bad_d + self.rank_margin) / self.rank_temperature).mean()
 
-        sigreg_loss = self._regularizer_loss(state_latents, masks[:, :, None].expand(batch, frames, token_count))
-        loss = (
-            dynamics_loss
-            + self.dense_future_weight * dense_future_loss
-            + self.hierarchy_loss_weight * hierarchy_loss
-            + self.sigreg_weight * sigreg_loss
-            + self.goal_mse_weight * goal_mse_loss
-            + self.goal_nce_weight * goal_nce_loss
-            + self.goal_distance_field_weight * goal_distance_field_loss
-            + self.progress_rank_weight * progress_rank_loss
-            + self.action_rank_weight * action_rank_loss
-            + self.policy_prior_weight * policy_prior_loss
-            + self.temporal_straightening_weight * temporal_straightening_loss
-            + self.terminal_corrupt_weight * terminal_corrupt_loss
-        )
+        if self.sigreg_weight > 0.0:
+            sigreg_loss = self._regularizer_loss(state_latents, masks[:, :, None].expand(batch, frames, token_count))
+        else:
+            sigreg_loss = zero_loss
+
+        loss = dynamics_loss
+        if self.dense_future_weight > 0.0:
+            loss = loss + self.dense_future_weight * dense_future_loss
+        if self.hierarchy_loss_weight > 0.0:
+            loss = loss + self.hierarchy_loss_weight * hierarchy_loss
+        if self.sigreg_weight > 0.0:
+            loss = loss + self.sigreg_weight * sigreg_loss
+        if self.goal_mse_weight > 0.0:
+            loss = loss + self.goal_mse_weight * goal_mse_loss
+        if self.goal_nce_weight > 0.0:
+            loss = loss + self.goal_nce_weight * goal_nce_loss
+        if self.goal_distance_field_weight > 0.0:
+            loss = loss + self.goal_distance_field_weight * goal_distance_field_loss
+        if self.progress_rank_weight > 0.0:
+            loss = loss + self.progress_rank_weight * progress_rank_loss
+        if self.action_rank_weight > 0.0:
+            loss = loss + self.action_rank_weight * action_rank_loss
+        if self.policy_prior_weight > 0.0:
+            loss = loss + self.policy_prior_weight * policy_prior_loss
+        if self.temporal_straightening_weight > 0.0:
+            loss = loss + self.temporal_straightening_weight * temporal_straightening_loss
+        if self.terminal_corrupt_weight > 0.0:
+            loss = loss + self.terminal_corrupt_weight * terminal_corrupt_loss
         return GridGoalJEPAOutput(
             loss=loss,
             dynamics_loss=dynamics_loss.detach(),

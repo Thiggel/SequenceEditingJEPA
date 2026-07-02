@@ -3,6 +3,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+import puzzle_jepa.models.grid_goal_jepa as grid_goal_jepa_module
 from puzzle_jepa.data.grid_goal_sudoku import (
     collate_grid_goal_sudoku_trajectories,
     sample_grid_goal_sudoku_trajectory,
@@ -842,6 +843,54 @@ def test_legacy_equivalent_refactor_matches_old_multi_horizon_dense_objective_wi
         assert old_param.grad is not None
         assert ref_param.grad is not None
         assert torch.allclose(old_param.grad, ref_param.grad, atol=1.0e-5, rtol=1.0e-5), old_name
+
+
+def test_zero_weight_auxiliary_losses_are_not_computed_or_backpropagated(monkeypatch):
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        goal_distance_field_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="pairwise",
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    )
+
+    def disabled_loss_called(*args, **kwargs):
+        raise AssertionError("disabled auxiliary loss should not be computed")
+
+    monkeypatch.setattr(grid_goal_jepa_module, "_distance_field_distillation_loss", disabled_loss_called)
+    monkeypatch.setattr(grid_goal_jepa_module, "_temporal_straightening_loss", disabled_loss_called)
+    monkeypatch.setattr(model, "_progress_rank_objective", disabled_loss_called)
+    monkeypatch.setattr(model, "_regularizer_loss", disabled_loss_called)
+
+    corrupt_goals = torch.full_like(batch.goals, 99)
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        corrupt_goals=corrupt_goals,
+        negative_actions=batch.actions[:, 0],
+    )
+    assert torch.isfinite(output.loss)
+    assert output.goal_mse_loss.item() == pytest.approx(0.0)
+    assert output.goal_nce_loss.item() == pytest.approx(0.0)
+    assert output.goal_distance_field_loss.item() == pytest.approx(0.0)
+    assert output.progress_rank_loss.item() == pytest.approx(0.0)
+    assert output.action_rank_loss.item() == pytest.approx(0.0)
+    assert output.temporal_straightening_loss.item() == pytest.approx(0.0)
+    assert output.terminal_corrupt_loss.item() == pytest.approx(0.0)
+
+    output.loss.backward()
+    assert all(param.grad is None or torch.isfinite(param.grad).all() for param in model.parameters())
 
 
 def test_legacy_count_refactor_uses_horizon_counts_without_endpoint_terms():

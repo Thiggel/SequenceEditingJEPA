@@ -48,7 +48,8 @@ else
   SELECTED_VARIANT="${VARIANTS[$INDEX]}"
 fi
 
-RUN_NAME="grid_goal_minaux_factor_${SELECTED_VARIANT}"
+RUN_SUFFIX="${RUN_SUFFIX:-}"
+RUN_NAME="grid_goal_minaux_factor_${SELECTED_VARIANT}${RUN_SUFFIX}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/grid_goal_minaux_factor/${RUN_NAME}"
 CHECKPOINT="${RUN_ROOT}/checkpoint.pt"
 if [[ ! -f "${CHECKPOINT}" ]]; then

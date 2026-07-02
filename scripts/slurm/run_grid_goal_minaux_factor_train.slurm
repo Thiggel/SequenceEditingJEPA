@@ -48,14 +48,15 @@ else
   SELECTED_VARIANT="${VARIANTS[$INDEX]}"
 fi
 
-RUN_NAME="grid_goal_minaux_factor_${SELECTED_VARIANT}"
+RUN_SUFFIX="${RUN_SUFFIX:-}"
+RUN_NAME="grid_goal_minaux_factor_${SELECTED_VARIANT}${RUN_SUFFIX}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/grid_goal_minaux_factor/${RUN_NAME}"
 
 COMMON_OVERRIDES=(
   --config-name grid_goal_sudoku
   "seed=${SEED:-5204}"
   "ablation=M0_full"
-  "+experiment_variant=${SELECTED_VARIANT}"
+  "+experiment_variant=${SELECTED_VARIANT}${RUN_SUFFIX}"
   "output_dir=${RUN_ROOT}"
   "task.train_limit=${TRAIN_LIMIT:-null}"
   "task.eval_limit=${EVAL_LIMIT:-null}"

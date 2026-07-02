@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 17:06 CEST
+Last updated: 2026-07-02 17:16 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -139,6 +139,29 @@ Status at 17:06 CEST:
   LR. They have a finite step-1 loss but non-finite gradients before clipping.
 - The main non-dropout-off factorization evals have `96` planner rows so far
   and remain the useful result source.
+
+Follow-up at 17:14 CEST:
+
+- Initialization audit: the model mostly uses PyTorch defaults. Linear layers
+  are already Kaiming-style defaults; embeddings are the high-scale part
+  because each grid token sums seven `nn.Embedding` vectors initialized around
+  unit standard deviation.
+- Found and fixed a higher-priority NaN candidate: zero-weighted auxiliary
+  objectives were still in the autograd graph as `0 * loss`. Disabled
+  auxiliary losses are now gated out of computation and loss assembly.
+- Submitted fresh gated dropout-off controls with `RUN_SUFFIX=_gated`:
+
+| Variant | Train | Eval | State |
+|---|---:|---:|---|
+| `A_anchor_dropout_off_lr1e5_gated` | `3806182` | `3806183` | running |
+| `A_refactor_equiv_14816_dropout_off_lr1e5_gated` | `3806184` | `3806185` | running |
+| `A_anchor_dropout_off_fp32_b4_gated` | `3806186` | `3806187` | running |
+| `A_refactor_equiv_14816_dropout_off_fp32_b4_gated` | `3806188` | `3806189` | running |
+
+Initial health: all four gated controls passed the old step-1 failure point.
+The bf16 LR `1e-5` anchor/refactor reached step `100` with finite pre-clip
+grad norms around `58.7`; the fp32 batch-4 controls logged finite step-1 grad
+norms around `151.9`.
 
 Eval per checkpoint is an independent dependency-held job:
 
