@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 18:45 CEST
+Last updated: 2026-07-02 19:02 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -204,6 +204,19 @@ partway through eval, and fp32 batch-4 dropout-off refactor has a first row at
 remains `0/8` everywhere. Dropout-off has not yet been crossed with the
 alternative loss schemes such as uniform, inverse-sqrt K16, gamma K16, smooth
 count weighting, or H8/H16-only.
+
+Follow-up at 19:02 CEST:
+
+Submitted dropout-off loss-scheme cross:
+
+| Suffix | Variants | Train jobs | Eval jobs | State |
+|---|---|---|---|---|
+| `_dropout_off_bf16_l1e4` | smooth, uniform K16, inv-sqrt K16, gamma K16, inv-sqrt K8, old H16, old H8 | `3806552`, `3806554`, `3806556`, `3806558`, `3806560`, `3806562`, `3806564` | `3806553`, `3806555`, `3806557`, `3806559`, `3806561`, `3806563`, `3806565` | train running |
+| `_dropout_off_fp32_b4` | same seven variants | `3806566`, `3806568`, `3806570`, `3806572`, `3806574`, `3806576`, `3806578` | `3806567`, `3806569`, `3806571`, `3806573`, `3806575`, `3806577`, `3806579` | train running |
+
+All 14 started immediately and logged finite step-1 loss/grad norms. Expected
+result window: first eval rows around `20:30 CEST`, most rows around
+`22:00-23:00 CEST` if GPUs remain available.
 
 Eval per checkpoint is an independent dependency-held job:
 

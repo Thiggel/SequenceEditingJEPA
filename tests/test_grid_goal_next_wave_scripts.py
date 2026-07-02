@@ -480,7 +480,14 @@ def _capture_macro_hwm_args(
     return capture_file.read_text().splitlines()
 
 
-def _capture_minaux_factor_args(tmp_path: Path, *, script: str, array_index: int, checkpoint: bool = False) -> list[str]:
+def _capture_minaux_factor_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    array_index: int,
+    checkpoint: bool = False,
+    extra_env: dict[str, str] | None = None,
+) -> list[str]:
     repo_root = Path(__file__).resolve().parents[1]
     work = tmp_path / "work"
     venv_bin = work / ".venv" / "bin"
@@ -513,6 +520,8 @@ def _capture_minaux_factor_args(tmp_path: Path, *, script: str, array_index: int
             "CAPTURE_FILE": str(capture_file),
         }
     )
+    if extra_env:
+        env.update(extra_env)
     subprocess.run(
         ["bash", script],
         cwd=repo_root,
@@ -1150,6 +1159,32 @@ def test_minaux_factor_dropout_off_low_lr_and_fp32_b4_controls_are_comparable(tm
         assert "training.eval_every_steps=100" in args
     assert "model.dense_rollout_refactor_mode=none" in anchor_fp32_b4
     assert "model.dense_rollout_refactor_mode=legacy_equivalent" in refactor_fp32_b4
+
+
+def test_minaux_factor_train_accepts_extra_hydra_overrides_for_followup_crosses(tmp_path):
+    args = _capture_minaux_factor_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_minaux_factor_train.slurm",
+        array_index=4,
+        extra_env={
+            "RUN_SUFFIX": "_dropout_off_fp32_b4",
+            "EXTRA_HYDRA_OVERRIDES": (
+                "model.dropout=0.0 training.bf16=false "
+                "training.batch_size=4 training.gradient_accumulation_steps=2"
+            ),
+        },
+    )
+
+    assert "+experiment_variant=A_uniform_k16_dropout_off_fp32_b4" in args
+    assert any(arg.endswith("/grid_goal_minaux_factor_A_uniform_k16_dropout_off_fp32_b4") for arg in args)
+    assert "model.dense_rollout_all_steps=true" in args
+    assert "model.dense_rollout_weighting=uniform" in args
+    assert args[-4:] == [
+        "model.dropout=0.0",
+        "training.bf16=false",
+        "training.batch_size=4",
+        "training.gradient_accumulation_steps=2",
+    ]
 
 
 def test_minaux_factor_eval_is_independent_fast_latent_matrix(tmp_path):

@@ -224,6 +224,14 @@ case "${SELECTED_VARIANT}" in
     ;;
 esac
 
+USER_OVERRIDES=()
+if [[ -n "${EXTRA_HYDRA_OVERRIDES:-}" ]]; then
+  # Overrides are whitespace-separated Hydra arguments, e.g.
+  # EXTRA_HYDRA_OVERRIDES="model.dropout=0.0 training.bf16=false".
+  read -r -a USER_OVERRIDES <<< "${EXTRA_HYDRA_OVERRIDES}"
+fi
+
 python -m puzzle_jepa.train.grid_goal_sudoku \
   "${COMMON_OVERRIDES[@]}" \
-  "${EXTRA_OVERRIDES[@]}"
+  "${EXTRA_OVERRIDES[@]}" \
+  "${USER_OVERRIDES[@]}"
