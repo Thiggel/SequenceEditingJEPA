@@ -52,6 +52,10 @@ Interpretation:
 - Predicted goals remain the bottleneck; no predicted-goal row solved.
 - Dense horizon changes, no-stopgrad goal targets, and q(c,H0,Ht) were harmful
   in this pass.
+- Dense horizon is not a clean "longer horizon is worse" readout: the base
+  rolls horizons `[1,4,8,16]` with repeated intermediate supervision and
+  terminal multi-horizon dynamics terms, while `dense_k*` uses a single `[K]`
+  all-steps objective with different weighting.
 
 Implementation:
 
