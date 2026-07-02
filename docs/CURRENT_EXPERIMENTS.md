@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 17:17 CEST
+Last updated: 2026-07-02 17:22 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -162,6 +162,17 @@ Initial health: all four gated controls passed the old step-1 failure point.
 The bf16 LR `1e-5` anchor/refactor reached step `200`/`300` with finite
 pre-clip grad norms; the fp32 batch-4 controls reached step `100` with finite
 pre-clip grad norms around `33.0`.
+
+Follow-up: submitted bf16 LR `1e-4` exact-refactor dropout-off rerun
+`A_refactor_equiv_14816_dropout_off_gated_l1e4`, train `3806203`, eval
+`3806204`. Train `3806203` started immediately at `17:20:17 CEST` and has a
+finite step-1 pre-clip grad norm `151.46`; full warmup stability is still
+pending until step `100+`.
+
+ETA if queues remain similar: bf16 trains should finish around
+`18:00-18:25 CEST`, fp32 batch-4 trains around `19:15-20:15 CEST`, and the
+dependency-held evals should finish around `21:30-22:30 CEST` if they start
+promptly.
 
 Eval per checkpoint is an independent dependency-held job:
 
