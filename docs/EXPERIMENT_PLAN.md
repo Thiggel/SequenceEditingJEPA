@@ -1,6 +1,46 @@
 # Experiment Plan
 
-Last updated: 2026-07-02 10:56 CEST
+Last updated: 2026-07-02 14:35 CEST
+
+## Proposed Grid: Minimal-Aux Objective Factorization
+
+Purpose: isolate why the successful `minimal_aux` `[1,4,8,16]` objective
+worked while Clean17 failed. Clean17 was not a pure weighting ablation: it
+also removed context-goal MSE and switched to the new variable-start K=8 loss.
+
+Anchor:
+
+- `goal_conditioning=context`
+- `goal_mse_weight=1.0`
+- `goal_nce_weight=0.0`
+- `goal_distance_field_weight=0.0`
+- `dense_rollout_variable_starts=false`
+- `dense_rollout_all_steps=false`
+- `multi_step_horizons=[1,4,8,16]`
+- `hierarchy_levels=[4,16]`
+- `hierarchy_loss_weight=1.0`
+- `affected_marker`, `predict_delta=true`, EMA target encoder, no regularizer,
+  no temporal/progress/action/terminal auxiliary losses
+
+Proposed one-factor controls:
+
+| Run | Change from anchor | Question |
+|---|---|---|
+| `A_anchor_repro` | none | Reproduce `minimal_aux` in the current code path. |
+| `A_no_goal_mse` | `goal_mse_weight=0.0` | Did context-goal MSE stabilize the oracle geometry? |
+| `A_initial_current_goal` | `goal_conditioning=initial_current`, keep goal MSE | Does `q(c,H0,Ht)` itself damage geometry? |
+| `A_variable_k8_goal_on` | variable-start K=8, goal MSE on | Is Clean17 failure mostly from turning off goal MSE? |
+| `A_variable_k8_goal_off` | variable-start K=8, goal MSE off | Clean17-like objective controlled against anchor. |
+| `A_variable_k16_uniform` | variable-start K=16, supervise every step, uniform weights | Does exact all-step supervision work at a long horizon? |
+| `A_variable_k16_inv_sqrt` | same, inverse-sqrt weights | Test whether decaying long-horizon weight helps. |
+| `A_variable_k16_gamma` | same, geometric gamma | Test stronger near-term bias. |
+| `A_variable_k8_inv_sqrt` | variable-start K=8, inverse-sqrt weights | Separate horizon length from implementation path. |
+| `A_old_path_h16_only` | old non-variable path, `multi_step_horizons=[16]` | Is the old path's separate terminal h16 anchor enough? |
+| `A_old_path_h8_only` | old non-variable path, `multi_step_horizons=[8]` | Is h8 enough under old averaging/terminal-loss semantics? |
+
+Eval: fast latent rollout, oracle raw L2 first, beam width `16`, depths
+`{4,16}`, 8 boards; include predicted raw L2 only for goal-conditioned runs
+after the oracle geometry gate passes.
 
 ## Submitted Grid: Macro-HWM Bottleneck + Codebook
 
