@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-02 14:52 CEST
+Last updated: 2026-07-02 15:03 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -56,6 +56,20 @@ Planned train/eval jobs:
 | `A_initial_current_goal` | `q(c,H0,Ht)` goal conditioning | `3805549` | `3805550` | train running, eval dependency-held |
 | `A_no_hierarchy` | remove hierarchy training | `3805551` | `3805552` | train running, eval dependency-held |
 | `A_no_predict_delta` | predict next latent directly | `3805553` | `3805554` | train running, eval dependency-held |
+
+Status at 15:03 CEST:
+
+- All 14 train jobs are still running on `rtxpro6k`; all eval jobs remain
+  dependency-held.
+- Latest train logs are between step `500` and `1500` out of `5000`.
+- `13/14` train jobs have finite losses.
+- `A_refactor_equiv_14816_dropout_off` is logging NaNs from step `500`; treat
+  that diagnostic row as suspect unless it is rerun later. It has not been
+  canceled.
+- Based on current step rate and previous similar eval durations, first eval
+  rows are expected around `16:00-16:30 CEST`; the full finite-result matrix is
+  expected around `17:00-18:00 CEST` if the eval jobs start promptly after
+  dependencies clear.
 
 Eval per checkpoint is an independent dependency-held job:
 
