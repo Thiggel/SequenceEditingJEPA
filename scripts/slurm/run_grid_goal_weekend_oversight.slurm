@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=grid_goal_weekend_oversight
-#SBATCH --partition=tiny
+#SBATCH --partition=rtxpro6k,a100
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=8G
 #SBATCH --time=00:30:00
 #SBATCH --output=logs/%x-%A.out
 #SBATCH --error=logs/%x-%A.err

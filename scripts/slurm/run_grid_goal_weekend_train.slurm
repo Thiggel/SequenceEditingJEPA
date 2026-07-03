@@ -144,8 +144,8 @@ python -m puzzle_jepa.train.grid_goal_sudoku \
   "task.train_limit=${TRAIN_LIMIT:-null}" \
   "task.eval_limit=${EVAL_LIMIT:-null}" \
   "training.max_steps=${TRAIN_MAX_STEPS:-5000}" \
-  "training.batch_size=${BATCH_SIZE:-8}" \
-  "training.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS:-1}" \
+  "training.batch_size=${BATCH_SIZE:-4}" \
+  "training.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS:-2}" \
   "training.eval_every_steps=${EVAL_EVERY_STEPS:-500}" \
   "training.save_every_steps=${SAVE_EVERY_STEPS:-5000}" \
   "training.learning_rate=${LEARNING_RATE:-1.0e-4}" \
