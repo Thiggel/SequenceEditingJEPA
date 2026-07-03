@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 18:29 CEST
+Last updated: 2026-07-03 18:35 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -55,12 +55,13 @@ Job map:
 | single CLS | one-step | `3809178,3809180,3809182,3809184,3809186,3809188,3809190,3809192` | `3809179,3809181,3809183,3809185,3809187,3809189,3809191,3809193` |
 | single CLS | `K8_smooth_count` | `3809194,3809196,3809198,3809200,3809202,3809204,3809206,3809208` | `3809195,3809197,3809199,3809201,3809203,3809205,3809207,3809209` |
 
-State at 18:29 CEST: all 32 Delta train jobs completed with exit `0:0`.
+State at 18:35 CEST: all 32 Delta train jobs completed with exit `0:0`.
 Eval jobs `3809147`, `3809149`, `3809151`, `3809153`, and `3809155` completed
 with exit `0:0`; 14 Delta evals are running and the remaining evals are
-pending priority/resources. First completed full-board one-step LDAD rows
-(`0,0.1,1,10,20`) solve `0/8` with latent rollout but `8/8` with symbolic
-re-encode under oracle raw L2. No failures/OOMs/timeouts.
+pending priority/resources. Current partial rows show full-board variants solve
+`0/8` with latent rollout but `8/8` with symbolic re-encode where available.
+Single-CLS one-step rows currently solve `0/8` even with symbolic re-encode.
+No failures/OOMs/timeouts.
 
 ## Complete: Metric/Value Geometry Ablation
 
