@@ -522,3 +522,46 @@ def test_planner_checkpoint_loader_accepts_training_metadata_numpy_scalars(tmp_p
 
     assert isinstance(loaded_model, GridTokenGoalJEPA)
     assert loaded_config["model"] == model_config
+
+
+def test_planner_checkpoint_loader_accepts_legacy_checkpoints_without_inactive_delta_decoder(tmp_path):
+    model_config = _small_model_config(delta_action_weight=0.0)
+    model = GridTokenGoalJEPA(**model_config)
+    legacy_state = {
+        key: value
+        for key, value in model.state_dict().items()
+        if not key.startswith("delta_action_decoder.")
+    }
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    torch.save(
+        {
+            "model": legacy_state,
+            "config": {"model": model_config, "task": {}, "seed": 0},
+        },
+        checkpoint_path,
+    )
+
+    loaded_model, _ = load_checkpoint(checkpoint_path, torch.device("cpu"))
+
+    assert isinstance(loaded_model, GridTokenGoalJEPA)
+
+
+def test_planner_checkpoint_loader_rejects_missing_active_delta_decoder(tmp_path):
+    model_config = _small_model_config(delta_action_weight=1.0, delta_action_horizons=(1,))
+    model = GridTokenGoalJEPA(**model_config)
+    broken_state = {
+        key: value
+        for key, value in model.state_dict().items()
+        if not key.startswith("delta_action_decoder.")
+    }
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    torch.save(
+        {
+            "model": broken_state,
+            "config": {"model": model_config, "task": {}, "seed": 0},
+        },
+        checkpoint_path,
+    )
+
+    with pytest.raises(RuntimeError, match="delta_action_decoder"):
+        load_checkpoint(checkpoint_path, torch.device("cpu"))

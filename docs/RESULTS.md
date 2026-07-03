@@ -1,6 +1,27 @@
 # Results
 
-Last updated: 2026-07-02 14:10 CEST
+Last updated: 2026-07-03 11:00 CEST
+
+## Horizon-Length Ablation Partial Results
+
+K1-K4 evals are complete. K8/K16 evals initially failed after the Delta decoder
+addition changed the current model state dict; repaired eval jobs are running
+as `3808345`-`3808348`.
+
+| Variant | Rows | Best oracle | Best predicted |
+|---|---:|---|---|
+| `K1_uniform` | 4 | `0/8`, h `49.5`, d4 | `0/8`, h `48.125`, d4 |
+| `K1_smooth_count` | 4 | `0/8`, h `49.5`, d4 | `0/8`, h `48.125`, d4 |
+| `K2_uniform` | 4 | `0/8`, h `44.375`, d16 | `0/8`, h `48.375`, d4 |
+| `K2_smooth_count` | 4 | `0/8`, h `43.875`, d4 | `0/8`, h `48.75`, d4 |
+| `K3_uniform` | 4 | `0/8`, h `42.75`, d4 | `0/8`, h `48.125`, d16 |
+| `K3_smooth_count` | 4 | `0/8`, h `42.5`, d16 | `0/8`, h `48.25`, d16 |
+| `K4_uniform` | 4 | `0/8`, h `35.125`, d4 | `0/8`, h `47.25`, d4 |
+| `K4_smooth_count` | 4 | `0/8`, h `31.75`, d4 | `0/8`, h `46.125`, d16 |
+
+Interpretation so far: clean one-long-rollout K4 improves oracle latent
+planning substantially over K1-K3, and smooth/count is better than uniform at
+K4. It still solves `0/8`; predicted-goal rows remain poor.
 
 ## Clean17 and Macro-HWM Waves
 

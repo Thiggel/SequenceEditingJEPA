@@ -31,7 +31,18 @@ def load_checkpoint(path: Path, device: torch.device) -> tuple[GridTokenGoalJEPA
     payload = torch.load(path, map_location=device, weights_only=False)
     config = dict(payload["config"])
     model = GridTokenGoalJEPA(**dict(config["model"])).to(device)
-    model.load_state_dict(payload["model"])
+    incompatible = model.load_state_dict(payload["model"], strict=False)
+    missing = set(incompatible.missing_keys)
+    unexpected = set(incompatible.unexpected_keys)
+    if missing or unexpected:
+        model_cfg = dict(config["model"])
+        delta_weight = float(model_cfg.get("delta_action_weight", 0.0) or 0.0)
+        allowed_missing = {key for key in missing if key.startswith("delta_action_decoder.")}
+        if not (delta_weight <= 0.0 and missing == allowed_missing and not unexpected):
+            raise RuntimeError(
+                "Incompatible checkpoint state_dict: "
+                f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
+            )
     model.eval()
     return model, config
 

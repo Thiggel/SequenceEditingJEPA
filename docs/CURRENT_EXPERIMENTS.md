@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 10:48 CEST
+Last updated: 2026-07-03 11:00 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -96,14 +96,16 @@ Grid:
 Eval is flat latent-rollout MPC beam only: beam width `16`, depths `{4,16}`,
 8 boards, oracle raw L2 and predicted raw L2.
 
-Current state at 10:48 CEST:
+Current state at 11:00 CEST:
 
 - K1-K4 train/eval pairs completed successfully; eval rows are available.
 - K8/K16 training completed successfully, but eval jobs `3807884`, `3807886`,
   `3807888`, and `3807890` failed at checkpoint load after the Delta-JEPA
   decoder was added. The loader instantiated a Delta decoder for these older
   horizon checkpoints and reported missing `delta_action_decoder.*` keys.
-- K8/K16 eval rows require a compatibility fix and resubmission.
+- The loader compatibility fix is applied. Repair evals are running:
+  `K8_uniform` `3808345`, `K8_smooth_count` `3808346`, `K16_uniform`
+  `3808347`, `K16_smooth_count` `3808348`.
 
 ## Previous Sweep Takeaway
 
