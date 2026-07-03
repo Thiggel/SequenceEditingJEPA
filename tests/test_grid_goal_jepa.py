@@ -159,6 +159,32 @@ def test_editable_counterfactual_sampling_overwrites_only_non_clue_cells_and_col
     assert bool(batch.counterfactual_mask.any())
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="counterfactual_depth currently records chained one-step pairs, not P-step futures from the branch root",
+)
+def test_counterfactual_depth_targets_include_multistep_future_boards():
+    rng = np.random.default_rng(13)
+    trajectory = sample_grid_goal_sudoku_trajectory(
+        _example(),
+        rng,
+        oracle_probability=1.0,
+        allow_overwrite=False,
+        counterfactual_branches=1,
+        counterfactual_depth=3,
+        counterfactual_max_pairs=512,
+    )
+
+    assert trajectory.counterfactual_states is not None
+    assert trajectory.counterfactual_next_boards is not None
+    changed_cells = np.count_nonzero(
+        trajectory.counterfactual_states != trajectory.counterfactual_next_boards,
+        axis=(1, 2),
+    )
+
+    assert int(changed_cells.max()) >= 2
+
+
 def test_editable_legal_actions_include_overwrites_but_never_clue_cells():
     example = _example()
     board = example.state.copy()
@@ -204,6 +230,81 @@ def test_editable_planning_keeps_depth_on_full_wrong_board_and_masks_clues():
     assert not bool(fill_mask.any())
     assert not bool(edit_mask[clue_action_ids].any())
     assert bool(edit_mask[changed_cell_ids].any())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="hierarchical beam drops allow_overwrite when it calls the primitive tracker",
+)
+def test_hierarchical_beam_passes_allow_overwrite_to_primitive_tracker(monkeypatch):
+    import puzzle_jepa.planning.grid_goal_planner as planner_module
+
+    example = _example()
+    board = example.goal.copy()
+    clue_mask = example.state != 0
+    row, col = np.argwhere(~clue_mask)[0]
+    board[int(row), int(col)] = (int(example.goal[int(row), int(col)]) % 9) + 1
+    model = _small_model(hierarchy_levels=(4,))
+    captured = {}
+
+    def fake_hierarchical_subgoal_beam(
+        model,
+        board,
+        start_latent,
+        goal_latent,
+        context_latents,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        *,
+        score_mode,
+        level,
+        beam_width,
+        device,
+        allow_overwrite=False,
+    ):
+        captured["subgoal_allow_overwrite"] = allow_overwrite
+        return goal_latent, 0
+
+    def fake_beam_plan_once(
+        model,
+        board,
+        goal,
+        context_latents,
+        predicted_goal,
+        oracle_goal,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        *,
+        score_mode,
+        transition_mode,
+        beam_width,
+        beam_depth,
+        device,
+        allow_overwrite=False,
+    ):
+        captured["primitive_allow_overwrite"] = allow_overwrite
+        return None, 0
+
+    monkeypatch.setattr(planner_module, "hierarchical_subgoal_beam", fake_hierarchical_subgoal_beam)
+    monkeypatch.setattr(planner_module, "beam_plan_once", fake_beam_plan_once)
+
+    planner_module.run_hierarchical_beam_mpc(
+        model,
+        board,
+        example.goal,
+        score_mode="oracle_goal_raw_euclidean_distance",
+        transition_mode="latent_rollout",
+        beam_width=1,
+        beam_depth=4,
+        max_steps=1,
+        device=torch.device("cpu"),
+        allow_overwrite=True,
+    )
+
+    assert captured["subgoal_allow_overwrite"] is True
+    assert captured["primitive_allow_overwrite"] is True
 
 
 def test_model_uses_full_grid_latent_without_cls_vector():
@@ -292,6 +393,30 @@ def test_waypoint_loss_uses_only_successful_trajectory_rows():
     assert output.waypoint_final_loss.item() > 0.0
     assert no_oracle.waypoint_loss.item() == pytest.approx(0.0)
     assert no_oracle.waypoint_final_loss.item() == pytest.approx(0.0)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="multi-horizon waypoint config supervises one shared output instead of separate waypoint heads",
+)
+def test_multi_horizon_waypoint_predictor_outputs_one_latent_per_horizon():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        waypoint_horizons=(4, 8),
+        waypoint_loss_weight=1.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    )
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    current = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    waypoints = model.predict_waypoint(context, batch.active_mask, current)
+
+    assert waypoints.shape == (1, len(model.waypoint_horizons), 81, model.d_model)
 
 
 def test_counterfactual_dynamics_loss_is_reported_and_backprops():

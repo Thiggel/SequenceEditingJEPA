@@ -4,6 +4,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 STAGE_VARIANTS = {
     "hierarchy_levels": ("H_empty", "H2", "H2_4", "H2_4_8", "H2_4_8_16", "H2_4_8_16_32"),
@@ -2032,3 +2034,14 @@ def test_weekend_submit_wrapper_uses_individual_dependency_held_eval_jobs(tmp_pa
         assert f"--export=ALL,VARIANT_INDEX={index}" in line
         assert "scripts/slurm/run_grid_goal_weekend_eval.slurm" in line
     assert "grid_goal_weekend\ttrain=900001" in result.stdout
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="weekend oversight wrapper currently defaults to a 6-hour cadence instead of the requested 12-hour cadence",
+)
+def test_weekend_oversight_wrapper_defaults_to_twelve_hour_cadence():
+    repo_root = Path(__file__).resolve().parents[1]
+    script = (repo_root / "scripts/experiments/submit_grid_goal_weekend_oversight.sh").read_text()
+
+    assert 'CADENCE_HOURS="${CADENCE_HOURS:-12}"' in script
