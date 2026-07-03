@@ -1,10 +1,44 @@
 # Current Experiments
 
-Last updated: 2026-07-03 14:45 CEST
+Last updated: 2026-07-03 15:45 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-## Active: Metric/Value Geometry Ablation
+## Active: Delta-JEPA LDAD Tuning Wave
+
+This sweep tests whether the online/no-EMA Delta-JEPA branch failed because the
+LDAD action-reconstruction weight or rollout objective was poorly tuned.
+
+Grid:
+
+- latent: full board-token latent vs single learned-CLS board latent
+- rollout: one-step JEPA only vs `K8_smooth_count`
+- LDAD weight: `{0,0.1,1,10,20,50,100,1000}`
+- no EMA, no stop-grad dynamics target, no goal predictor, no SIG/VIC
+
+Eval:
+
+- dependency-held eval per checkpoint
+- oracle raw L2 only
+- `mpc_beam`, beam width `16`, depths `{1,2,4,16}`
+- latent rollout and symbolic re-encode
+- 8 boards
+
+Job map:
+
+| Latent | Rollout | Train jobs | Eval jobs |
+|---|---|---|---|
+| full board | one-step | `3809146,3809148,3809150,3809152,3809154,3809156,3809158,3809160` | `3809147,3809149,3809151,3809153,3809155,3809157,3809159,3809161` |
+| full board | `K8_smooth_count` | `3809162,3809164,3809166,3809168,3809170,3809172,3809174,3809176` | `3809163,3809165,3809167,3809169,3809171,3809173,3809175,3809177` |
+| single CLS | one-step | `3809178,3809180,3809182,3809184,3809186,3809188,3809190,3809192` | `3809179,3809181,3809183,3809185,3809187,3809189,3809191,3809193` |
+| single CLS | `K8_smooth_count` | `3809194,3809196,3809198,3809200,3809202,3809204,3809206,3809208` | `3809195,3809197,3809199,3809201,3809203,3809205,3809207,3809209` |
+
+State at 15:43 CEST: 32 train jobs and 32 eval jobs submitted. Train jobs
+`3809146`, `3809148`, `3809150`, `3809152`, and `3809154` started immediately;
+the remaining train jobs are pending for resources, and all evals are
+dependency-held.
+
+## Complete: Metric/Value Geometry Ablation
 
 This sweep tests whether a separate value metric projection can turn JEPA
 latents into a planning distance that works without oracle terminal states.
