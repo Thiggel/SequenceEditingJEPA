@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 11:45 CEST
+Last updated: 2026-07-03 12:35 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -45,22 +45,36 @@ Train/eval jobs:
 | `SV_M4_terminal_progress_asym_fix1` | `3808572` | `3808573` | `3808574` |
 | `SV_M5_hindsight_asym_fix1` | `3808575` | `3808576` | `3808577` |
 
-Current Slurm state at 11:45 CEST:
+Current state at 12:35 CEST:
 
+- all 12 active training jobs completed with exit `0:0`
+- all 24 oracle/predicted projected-distance eval jobs completed with exit
+  `0:0`
 - initial M1-M3 bad-state rows failed at step 1 with NaN gradient from
   differentiating `sqrt(distance)` at zero; the loss now uses an epsilon-safe
   square root and has a backward-gradient regression test
 - superseded M1-M5 train/eval jobs `3808508`-`3808522` and `3808526`-`3808540`
   were canceled or superseded
-- M0 jobs `3808505` and `3808523` are still running
-- fixed M1-M5 train jobs `3808548`, `3808551`, `3808554`, `3808557`,
-  `3808560`, `3808563`, `3808566`, `3808569`, `3808572`, and `3808575` are
-  running and stable past the previous failure point
-- all fixed metric evals are dependency-held on their matching train job
 
 Eval settings: `mpc_beam`, latent rollout, beam width `16`, depths `{4,16}`,
 8 boards, one job for `oracle_goal_projected_euclidean_distance` and one job
 for `predicted_goal_projected_euclidean_distance`.
+
+Best rows:
+
+| Variant | Best oracle projected | Best predicted projected |
+|---|---|---|
+| `FB_M0_goalpred_mse` | `0/8`, h `2.375` | `0/8`, h `44.5` |
+| `FB_M1_terminal_progress_bad_fix1` | `0/8`, h `46.375` | `0/8`, h `49.875` |
+| `FB_M2_hindsight_bad_fix1` | `8/8`, h `0.0` | `0/8`, h `40.875` |
+| `FB_M3_contrastive_bad_fix1` | `0/8`, h `48.875` | `0/8`, h `48.875` |
+| `FB_M4_terminal_progress_asym_fix1` | `0/8`, h `28.375` | `0/8`, h `44.125` |
+| `FB_M5_hindsight_asym_fix1` | `8/8`, h `0.0` | `0/8`, h `44.25` |
+| `SV_*` | `0/8`, h about `49-51` | `0/8`, h about `49-51` |
+
+Interpretation: full-board hindsight metric supervision works as an oracle
+projected planning geometry. Predicted-goal planning remains unsolved, and the
+single-vector latent is not viable in this fast sweep.
 
 ## Active: Delta-JEPA / Single-State Ablation
 
