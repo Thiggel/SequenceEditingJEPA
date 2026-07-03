@@ -1,13 +1,11 @@
 # Experiment Plan
 
-Last updated: 2026-07-03 10:13 CEST
+Last updated: 2026-07-03 10:35 CEST
 
-## Prepared Delta-JEPA / Single-State Ablation
-
-Do not submit until explicitly approved.
+## Submitted Delta-JEPA / Single-State Ablation
 
 Fidelity audit note: targeted Delta-JEPA tests added on 2026-07-03 now pass.
-The sweep is implemented but remains unsubmitted until explicitly approved.
+The sweep was submitted after approval on 2026-07-03.
 
 The Delta-JEPA paper's core recipe uses:
 
@@ -28,7 +26,7 @@ Implemented knobs:
 - single-state encoding uses a learned CLS token prepended to board tokens,
   not mean pooling
 
-Prepared train variants:
+Submitted train variants:
 
 | Variant | Latent | Dynamics target | EMA | Goal regularizer |
 |---|---|---|---|---|
@@ -45,14 +43,28 @@ Prepared train variants:
 the core dynamics target is online, so an EMA target encoder would not affect
 that objective.
 
-Prepared eval per variant:
+Eval per variant:
 
 - `mpc_beam`
 - latent rollout and symbolic re-encode
 - beam width `16`
 - beam depths `{4,16}`
 - 8 boards
-- oracle raw L2 and predicted raw L2
+- separate dependency-held oracle raw L2 eval for every variant
+- separate dependency-held predicted raw L2 eval only for goal-trained variants
+
+Job map:
+
+| Variant | Train | Oracle eval | Predicted eval |
+|---|---:|---:|---:|
+| `FB_online_noema_nogoal` | `3808221` | `3808222` | n/a |
+| `FB_online_noema_goal` | `3808223` | `3808224` | `3808225` |
+| `FB_stopgrad_noema_nogoal` | `3808226` | `3808227` | n/a |
+| `FB_stopgrad_noema_goal` | `3808228` | `3808229` | `3808230` |
+| `FB_stopgrad_ema_nogoal` | `3808231` | `3808232` | n/a |
+| `FB_stopgrad_ema_goal` | `3808233` | `3808234` | `3808235` |
+| `SV_online_nogoal` | `3808236` | `3808237` | n/a |
+| `SV_online_goal` | `3808238` | `3808239` | `3808240` |
 
 ## Active Grid: Minimal-Aux Objective Factorization
 

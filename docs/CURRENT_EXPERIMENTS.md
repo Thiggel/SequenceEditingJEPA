@@ -1,14 +1,16 @@
 # Current Experiments
 
-Last updated: 2026-07-03 10:13 CEST
+Last updated: 2026-07-03 10:35 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-## Prepared, Not Submitted: Delta-JEPA / Single-State Ablation
+## Active: Delta-JEPA / Single-State Ablation
 
-Implementation and fidelity fixes are complete. No jobs were submitted.
+Implementation and fidelity fixes are complete. The eight train variants were
+submitted as independent Slurm jobs so each eval can depend on its matching
+checkpoint.
 
-Prepared scripts:
+Scripts:
 
 - `scripts/slurm/run_grid_goal_delta_jepa_train.slurm`
 - `scripts/slurm/run_grid_goal_delta_jepa_eval.slurm`
@@ -20,10 +22,32 @@ Grid:
 - single hidden-state board latent with learned CLS encoder token, causal
   history predictor, Delta-JEPA, and goal regularizer off/on: 2 variants
 
-Delta-JEPA defaults in the prepared jobs: `dynamics_target_mode=online_no_stopgrad`,
+Delta-JEPA defaults in these jobs: `dynamics_target_mode=online_no_stopgrad`,
 no SIGReg/VICReg, `delta_action_weight=10`, LDAD horizons `[1,2,3,4,5]`,
 one-step latent forward prediction, and no temporal/ranking/corruption
 auxiliaries.
+
+Train/eval jobs:
+
+| Variant | Train | Oracle eval | Predicted eval |
+|---|---:|---:|---:|
+| `FB_online_noema_nogoal` | `3808221` | `3808222` | n/a |
+| `FB_online_noema_goal` | `3808223` | `3808224` | `3808225` |
+| `FB_stopgrad_noema_nogoal` | `3808226` | `3808227` | n/a |
+| `FB_stopgrad_noema_goal` | `3808228` | `3808229` | `3808230` |
+| `FB_stopgrad_ema_nogoal` | `3808231` | `3808232` | n/a |
+| `FB_stopgrad_ema_goal` | `3808233` | `3808234` | `3808235` |
+| `SV_online_nogoal` | `3808236` | `3808237` | n/a |
+| `SV_online_goal` | `3808238` | `3808239` | `3808240` |
+
+Eval is dependency-held per checkpoint and split by goal-distance mode:
+
+- oracle rows use `oracle_goal_raw_euclidean_distance`
+- predicted rows use `predicted_goal_raw_euclidean_distance` only for
+  goal-trained variants
+- output dirs are suffixed with `_oracle` or `_predicted`
+- each eval uses `mpc_beam`, latent rollout plus symbolic re-encode, beam width
+  `16`, depths `{4,16}`, and 8 boards
 
 Fidelity fixes:
 
