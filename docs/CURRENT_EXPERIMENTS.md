@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 17:21 CEST
+Last updated: 2026-07-03 17:23 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -54,13 +54,14 @@ Job map:
 | single CLS | one-step | `3809178,3809180,3809182,3809184,3809186,3809188,3809190,3809192` | `3809179,3809181,3809183,3809185,3809187,3809189,3809191,3809193` |
 | single CLS | `K8_smooth_count` | `3809194,3809196,3809198,3809200,3809202,3809204,3809206,3809208` | `3809195,3809197,3809199,3809201,3809203,3809205,3809207,3809209` |
 
-State at 17:21 CEST: 28/32 Delta train jobs completed with exit `0:0`.
+State at 17:23 CEST: 28/32 Delta train jobs completed with exit `0:0`.
 The only active train jobs are final single-CLS `K8_smooth_count` rows
 `3809202`, `3809204`, `3809206`, and `3809208` on `rtxpro6k` node `a2142`;
 logs show finite losses and empty stderr. High-LDAD rows have large pre-clip
 gradient norms, but grad clipping is active and no NaNs/OOMs have appeared.
-All Delta eval jobs are still queued; most dependencies are satisfied but jobs
-are waiting on priority/resources. Value/IQL train jobs remain pending.
+Delta eval jobs `3809147` and `3809149` have started; remaining evals are
+waiting on priority/resources or final train dependencies. Value/IQL train jobs
+remain pending.
 
 ## Complete: Metric/Value Geometry Ablation
 
