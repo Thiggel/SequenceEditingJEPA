@@ -13,6 +13,7 @@ The audit blockers are fixed:
 - counterfactual sequences supervise primitive dynamics and hierarchy chunks
   when sampled depth covers the hierarchy level
 - multi-horizon waypoint configs produce one latent per horizon
+- `E4_waypoint_h4_h8_h16` eval tracks horizon 4 by default
 - hierarchical beam preserves editable overwrite mode into primitive tracking
 - oversight defaults to 12-hour checks and mechanical eval repair is enabled
   by default

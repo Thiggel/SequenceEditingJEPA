@@ -81,7 +81,7 @@ case "${BASE_VARIANT}" in
   E3_waypoint_h16)
     PLANNERS="waypoint_beam"; SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"; WAYPOINT_HORIZON="16" ;;
   E4_waypoint_h4_h8_h16)
-    PLANNERS="waypoint_beam"; SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"; WAYPOINT_HORIZON="${WAYPOINT_HORIZON:-16}" ;;
+    PLANNERS="waypoint_beam"; SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"; WAYPOINT_HORIZON="4" ;;
   E5_waypoint_h16_hierarchy|V3_waypoint_asym_hindsight|I0_integrated_waypoint_asym|I1_integrated_waypoint_iql|I2_integrated_best_delta_if_gate_passes)
     PLANNERS="waypoint_beam,waypoint_hierarchical_beam"; SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"; WAYPOINT_HORIZON="16" ;;
   V1_asym_hindsight|V2_iql_quasi)

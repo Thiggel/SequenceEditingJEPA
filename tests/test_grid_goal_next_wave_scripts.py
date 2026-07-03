@@ -1993,6 +1993,18 @@ def test_weekend_integrated_delta_variant_is_also_paired_and_eval_suffix_strips_
     )
 
 
+def test_weekend_multi_horizon_waypoint_eval_tracks_first_waypoint_by_default(tmp_path):
+    args = _capture_weekend_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_weekend_eval.slurm",
+        variant="E4_waypoint_h4_h8_h16",
+        checkpoint=True,
+    )
+
+    assert args[args.index("--planners") + 1] == "waypoint_beam"
+    assert args[args.index("--waypoint-horizon") + 1] == "4"
+
+
 def test_weekend_submit_wrapper_uses_individual_dependency_held_eval_jobs(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     fake_bin = tmp_path / "bin"
