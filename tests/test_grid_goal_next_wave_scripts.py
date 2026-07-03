@@ -2048,11 +2048,11 @@ def test_weekend_submit_wrapper_uses_individual_dependency_held_eval_jobs(tmp_pa
     assert "grid_goal_weekend\ttrain=900001" in result.stdout
 
 
-def test_weekend_oversight_wrapper_defaults_to_twelve_hour_cadence():
+def test_weekend_oversight_wrapper_defaults_to_six_hour_cadence():
     repo_root = Path(__file__).resolve().parents[1]
     script = (repo_root / "scripts/experiments/submit_grid_goal_weekend_oversight.sh").read_text()
 
-    assert 'CADENCE_HOURS="${CADENCE_HOURS:-12}"' in script
+    assert 'CADENCE_HOURS="${CADENCE_HOURS:-6}"' in script
 
 
 def test_weekend_oversight_repairs_use_replacement_run_suffix(tmp_path, monkeypatch):

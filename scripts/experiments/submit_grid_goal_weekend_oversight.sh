@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 mkdir -p logs
 
 COUNT="${COUNT:-20}"
-CADENCE_HOURS="${CADENCE_HOURS:-12}"
+CADENCE_HOURS="${CADENCE_HOURS:-6}"
 RUN_SUFFIX="${RUN_SUFFIX:-${GRID_GOAL_WEEKEND_RUN_SUFFIX:-}}"
 
 for index in $(seq 0 "$((COUNT - 1))"); do

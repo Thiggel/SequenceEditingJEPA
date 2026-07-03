@@ -10,7 +10,7 @@ from typing import Any
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Twelve-hour oversight for the counterfactual/editable Grid Goal weekend wave.")
+    parser = argparse.ArgumentParser(description="Six-hour oversight for the counterfactual/editable Grid Goal weekend wave.")
     parser.add_argument("--manifest", type=Path, default=Path("scripts/experiments/grid_goal_weekend_manifest.json"))
     parser.add_argument("--work-root", type=Path, default=Path(os.environ.get("PUZZLE_JEPA_WORK_ROOT", ".")))
     parser.add_argument("--report-root", type=Path, default=Path("../sequence-editing-report"))

@@ -11,7 +11,7 @@
     "Which isolated winners combine constructively in an integrated recipe?"
   ],
   "oversight": {
-    "cadence_hours": 12,
+    "cadence_hours": 6,
     "allowed_autonomy": [
       "summarize results and update report docs",
       "resubmit mechanical failures with the same variant",
