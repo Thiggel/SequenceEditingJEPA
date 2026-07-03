@@ -486,6 +486,9 @@ class GridTokenGoalJEPA(nn.Module):
         metric_bad_margin: float = 1.0,
         metric_hindsight_max_horizon: int = 8,
         metric_contrastive_temperature: float = 0.1,
+        metric_distance_type: str = "euclidean",
+        metric_iql_gamma: float = 0.98,
+        metric_iql_expectile: float = 0.8,
         bad_state_weight: float = 0.0,
         bad_state_planning_weight: float = 0.0,
         distance_mode: str = "tokenwise",
@@ -662,7 +665,7 @@ class GridTokenGoalJEPA(nn.Module):
         self.policy_query = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model), nn.SiLU(), nn.Linear(d_model, d_model))
         self.policy_action = nn.Linear(d_model, d_model, bias=False)
         self.distance_projector = nn.Linear(d_model, distance_dim)
-        allowed_metric_modes = {"none", "terminal_progress", "hindsight", "contrastive"}
+        allowed_metric_modes = {"none", "terminal_progress", "hindsight", "contrastive", "iql", "success", "success_iql", "terminal_value"}
         if metric_geometry_mode not in allowed_metric_modes:
             raise ValueError(f"metric_geometry_mode must be one of {sorted(allowed_metric_modes)}.")
         self.metric_geometry_mode = str(metric_geometry_mode)
@@ -677,6 +680,15 @@ class GridTokenGoalJEPA(nn.Module):
         self.metric_contrastive_temperature = float(metric_contrastive_temperature)
         if self.metric_contrastive_temperature <= 0.0:
             raise ValueError("metric_contrastive_temperature must be positive.")
+        if metric_distance_type not in {"euclidean", "quasimetric"}:
+            raise ValueError("metric_distance_type must be 'euclidean' or 'quasimetric'.")
+        self.metric_distance_type = str(metric_distance_type)
+        self.metric_iql_gamma = float(metric_iql_gamma)
+        if not (0.0 < self.metric_iql_gamma <= 1.0):
+            raise ValueError("metric_iql_gamma must be in (0, 1].")
+        self.metric_iql_expectile = float(metric_iql_expectile)
+        if not (0.0 < self.metric_iql_expectile < 1.0):
+            raise ValueError("metric_iql_expectile must be in (0, 1).")
         self.bad_state_weight = float(bad_state_weight)
         self.bad_state_planning_weight = float(bad_state_planning_weight)
         self.metric_src_projector = nn.Linear(d_model, distance_dim)
@@ -684,6 +696,9 @@ class GridTokenGoalJEPA(nn.Module):
             self.metric_goal_projector = nn.Linear(d_model, distance_dim)
         else:
             self.metric_goal_projector = self.metric_src_projector
+        self.metric_success_tokens = nn.Parameter(torch.empty(self.max_rows * self.max_cols, distance_dim))
+        nn.init.normal_(self.metric_success_tokens, std=0.02)
+        self.metric_value_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.bad_state_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.sigreg_weight = float(sigreg_weight)
         self.goal_mse_weight = float(goal_mse_weight)
@@ -1007,6 +1022,16 @@ class GridTokenGoalJEPA(nn.Module):
             mask,
         )
 
+    def success_distance(self, state_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
+        source = self._project_metric_source(state_latents)
+        return self._metric_distance_from_projected(source, self._success_tokens_like(source), mask)
+
+    def terminal_value(self, state_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
+        summary = _masked_summary(state_latents, mask)
+        return F.softplus(self.metric_value_head(summary.float()).squeeze(-1))
+
     def bad_state_logits(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
         mask = _latent_active_mask(active_mask, token_count=latents.shape[-2])
         summary = _masked_summary(latents, mask)
@@ -1050,9 +1075,23 @@ class GridTokenGoalJEPA(nn.Module):
                 f"{tuple(source_projected.shape)} and {tuple(goal_projected.shape)}."
             )
         mask = _latent_active_mask(mask, token_count=source_projected.shape[-2])
-        per_token = (source_projected - goal_projected).square().sum(dim=-1)
+        if self.metric_distance_type == "quasimetric":
+            per_token = F.relu(goal_projected - source_projected).square().sum(dim=-1)
+        else:
+            per_token = (source_projected - goal_projected).square().sum(dim=-1)
         weights = mask.float()
         return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
+
+    def _success_tokens_like(self, projected: torch.Tensor) -> torch.Tensor:
+        token_count = projected.shape[-2]
+        if token_count == self.metric_success_tokens.shape[0]:
+            success = self.metric_success_tokens
+        elif token_count == 1:
+            success = self.metric_success_tokens.mean(dim=0, keepdim=True)
+        else:
+            success = self.metric_success_tokens[:token_count]
+        view_shape = (1,) * (projected.ndim - 2) + tuple(success.shape)
+        return success.reshape(view_shape).expand_as(projected)
 
     def score_action_prior(
         self,
@@ -1734,6 +1773,33 @@ class GridTokenGoalJEPA(nn.Module):
                 masks & metric_rows[:, None],
                 bad_labels & masks,
             )
+        elif self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "iql":
+            metric_geometry_loss = self._iql_metric_loss(
+                state_latents,
+                target_state_latents,
+                goal_target,
+                active_mask,
+                masks & metric_rows[:, None],
+            )
+        elif self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "success":
+            metric_geometry_loss = self._success_metric_loss(
+                state_latents,
+                active_mask,
+                masks & metric_rows[:, None],
+            )
+        elif self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "success_iql":
+            metric_geometry_loss = self._success_iql_metric_loss(
+                state_latents,
+                target_state_latents,
+                active_mask,
+                masks & metric_rows[:, None],
+            )
+        elif self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "terminal_value":
+            metric_geometry_loss = self._terminal_value_metric_loss(
+                state_latents,
+                active_mask,
+                masks & metric_rows[:, None],
+            )
 
         loss = dynamics_loss
         if self.dense_future_weight > 0.0:
@@ -1937,6 +2003,106 @@ class GridTokenGoalJEPA(nn.Module):
         candidates = torch.cat(negative_summaries, dim=0)
         logits = -torch.cdist(anchors.float(), candidates.float()).square() / self.metric_contrastive_temperature
         return F.cross_entropy(logits, positive_labels)
+
+    def _iql_metric_loss(
+        self,
+        state_latents: torch.Tensor,
+        target_state_latents: torch.Tensor,
+        terminal_goal_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        if frames <= 1:
+            return state_latents.sum() * 0.0
+        valid = masks[:, :-1] & masks[:, 1:]
+        if not bool(valid.any()):
+            return state_latents.sum() * 0.0
+        goal = terminal_goal_latents[:, None].expand(batch, frames - 1, token_count, self.d_model)
+        mask = active_mask[:, None].expand(batch, frames - 1, *active_mask.shape[-2:]).reshape(
+            batch * (frames - 1),
+            *active_mask.shape[-2:],
+        )
+        current_d = self._metric_distance_to_target(
+            state_latents[:, :-1].reshape(batch * (frames - 1), token_count, self.d_model),
+            goal.reshape(batch * (frames - 1), token_count, self.d_model),
+            mask,
+        ).reshape(batch, frames - 1)
+        next_d = self._metric_distance_to_target(
+            target_state_latents[:, 1:].reshape(batch * (frames - 1), token_count, self.d_model),
+            goal.reshape(batch * (frames - 1), token_count, self.d_model),
+            mask,
+        ).reshape(batch, frames - 1)
+        current_v = -_safe_sqrt(current_d)
+        next_v = -_safe_sqrt(next_d).detach()
+        residual = -1.0 + self.metric_iql_gamma * next_v - current_v
+        return _masked_mean(_expectile_square(residual, self.metric_iql_expectile), valid)
+
+    def _success_metric_loss(
+        self,
+        state_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        if not bool(masks.any()):
+            return state_latents.sum() * 0.0
+        distances = self.success_distance(
+            state_latents.reshape(batch * frames, token_count, self.d_model),
+            active_mask[:, None].expand(batch, frames, *active_mask.shape[-2:]).reshape(batch * frames, *active_mask.shape[-2:]),
+        ).reshape(batch, frames)
+        targets = _remaining_fraction_targets(masks)
+        return _masked_mean(F.huber_loss(_safe_sqrt(distances), targets, reduction="none"), masks)
+
+    def _success_iql_metric_loss(
+        self,
+        state_latents: torch.Tensor,
+        target_state_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        if frames <= 1:
+            return state_latents.sum() * 0.0
+        valid = masks[:, :-1] & masks[:, 1:]
+        if not bool(valid.any()):
+            return state_latents.sum() * 0.0
+        mask = active_mask[:, None].expand(batch, frames - 1, *active_mask.shape[-2:]).reshape(
+            batch * (frames - 1),
+            *active_mask.shape[-2:],
+        )
+        current_d = self.success_distance(
+            state_latents[:, :-1].reshape(batch * (frames - 1), token_count, self.d_model),
+            mask,
+        ).reshape(batch, frames - 1)
+        next_d = self.success_distance(
+            target_state_latents[:, 1:].reshape(batch * (frames - 1), token_count, self.d_model),
+            mask,
+        ).reshape(batch, frames - 1)
+        current_v = -_safe_sqrt(current_d)
+        next_v = -_safe_sqrt(next_d).detach()
+        residual = -1.0 + self.metric_iql_gamma * next_v - current_v
+        return _masked_mean(_expectile_square(residual, self.metric_iql_expectile), valid) + self._success_metric_loss(
+            state_latents,
+            active_mask,
+            masks,
+        )
+
+    def _terminal_value_metric_loss(
+        self,
+        state_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        if not bool(masks.any()):
+            return state_latents.sum() * 0.0
+        values = self.terminal_value(
+            state_latents.reshape(batch * frames, token_count, self.d_model),
+            active_mask[:, None].expand(batch, frames, *active_mask.shape[-2:]).reshape(batch * frames, *active_mask.shape[-2:]),
+        ).reshape(batch, frames)
+        targets = _remaining_fraction_targets(masks)
+        return _masked_mean(F.huber_loss(values, targets, reduction="none"), masks)
 
     def _delta_action_objective(
         self,
@@ -2264,6 +2430,11 @@ def _remaining_fraction_targets(masks: torch.Tensor) -> torch.Tensor:
 
 def _safe_sqrt(values: torch.Tensor, eps: float = 1.0e-6) -> torch.Tensor:
     return (values.clamp_min(0.0) + eps).sqrt()
+
+
+def _expectile_square(residual: torch.Tensor, expectile: float) -> torch.Tensor:
+    weights = torch.where(residual < 0.0, 1.0 - float(expectile), float(expectile))
+    return weights.to(dtype=residual.dtype, device=residual.device) * residual.square()
 
 
 def _sudoku_bad_state_labels(boards: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:

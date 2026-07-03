@@ -39,6 +39,8 @@ ScoreMode = Literal[
     "predicted_goal_delta_top5_raw_euclidean_distance",
     "oracle_goal_projected_euclidean_distance",
     "predicted_goal_projected_euclidean_distance",
+    "success_metric_distance",
+    "terminal_value",
 ]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
 PlannerMode = Literal["mpc_beam", "categorical_cem", "hierarchical_cem", "hierarchical_beam"]
@@ -1273,6 +1275,18 @@ def latent_distance(
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask) + raw_tokenwise_cosine_distance(latent, target_goal, mask)
     if metric == "projected_euclidean_distance":
         scores = model.metric_distance(latent, target_goal, mask)
+        bad_weight = float(getattr(model, "bad_state_planning_weight", 0.0) or 0.0)
+        if bad_weight > 0.0:
+            scores = scores + bad_weight * torch.sigmoid(model.bad_state_logits(latent, mask)).to(dtype=scores.dtype)
+        return scores
+    if metric == "success_metric_distance":
+        scores = model.success_distance(latent, mask)
+        bad_weight = float(getattr(model, "bad_state_planning_weight", 0.0) or 0.0)
+        if bad_weight > 0.0:
+            scores = scores + bad_weight * torch.sigmoid(model.bad_state_logits(latent, mask)).to(dtype=scores.dtype)
+        return scores
+    if metric == "terminal_value":
+        scores = model.terminal_value(latent, mask)
         bad_weight = float(getattr(model, "bad_state_planning_weight", 0.0) or 0.0)
         if bad_weight > 0.0:
             scores = scores + bad_weight * torch.sigmoid(model.bad_state_logits(latent, mask)).to(dtype=scores.dtype)

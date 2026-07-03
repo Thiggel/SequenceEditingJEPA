@@ -68,6 +68,9 @@ model:
   metric_bad_margin: 1.0
   metric_hindsight_max_horizon: 8
   metric_contrastive_temperature: 0.1
+  metric_distance_type: euclidean
+  metric_iql_gamma: 0.98
+  metric_iql_expectile: 0.8
   bad_state_weight: 0.0
   bad_state_planning_weight: 0.0
   distance_mode: tokenwise

@@ -173,7 +173,7 @@ def test_sudoku_bad_state_labels_detect_wrong_digit_and_duplicates():
     assert bool(_sudoku_bad_state_labels(duplicate, batch.goals)[0, 2])
 
 
-@pytest.mark.parametrize("metric_geometry_mode", ["terminal_progress", "hindsight", "contrastive"])
+@pytest.mark.parametrize("metric_geometry_mode", ["terminal_progress", "hindsight", "contrastive", "iql", "success", "success_iql", "terminal_value"])
 def test_metric_geometry_losses_are_reported_and_finite(metric_geometry_mode):
     batch = _small_batch(batch_size=2)
     model = _small_model(
@@ -212,6 +212,42 @@ def test_metric_geometry_losses_are_reported_and_finite(metric_geometry_mode):
     grads = [param.grad.detach() for param in model.parameters() if param.grad is not None]
     assert grads
     assert all(torch.isfinite(grad).all() for grad in grads)
+
+
+def test_quasimetric_distance_is_directional_and_self_zero():
+    model = _small_model(metric_distance_type="quasimetric")
+    source = torch.tensor([[[0.0, 2.0] + [0.0] * 14]], dtype=torch.float32)
+    goal = torch.tensor([[[2.0, 3.0] + [0.0] * 14]], dtype=torch.float32)
+    mask = torch.ones(1, 1, dtype=torch.bool)
+
+    forward = model._metric_distance_from_projected(source, goal, mask)
+    backward = model._metric_distance_from_projected(goal, source, mask)
+    same = model._metric_distance_from_projected(source, source, mask)
+
+    assert same.item() == pytest.approx(0.0)
+    assert forward.item() == pytest.approx(5.0)
+    assert backward.item() == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("score_mode", ["success_metric_distance", "terminal_value"])
+def test_non_oracle_value_planner_scores_do_not_require_goal_latents(score_mode):
+    batch = _small_batch(batch_size=1)
+    model = _small_model(metric_geometry_mode="success_iql", metric_geometry_weight=1.0)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    bogus_goal = torch.zeros_like(state)
+
+    scores = latent_distance(
+        model,
+        state,
+        predicted_goal=bogus_goal,
+        oracle_goal=bogus_goal,
+        mask=batch.active_mask,
+        score_mode=score_mode,
+    )
+
+    assert scores.shape == (1,)
+    assert torch.isfinite(scores).all()
 
 
 def test_metric_projected_planner_distance_uses_metric_heads_not_legacy_projector():

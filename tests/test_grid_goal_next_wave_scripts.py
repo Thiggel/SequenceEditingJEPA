@@ -162,6 +162,18 @@ HORIZON_ABLATION_VARIANTS = (
     "K16_smooth_count",
 )
 
+VALUE_GEOMETRY_VARIANTS = (
+    "V0_base",
+    "V1_hindsight_metric",
+    "V2_iql_euclidean",
+    "V3_iql_quasimetric",
+    "V4_terminal_value",
+    "V5_success_vector",
+    "V6_success_vector_iql",
+    "V7_success_vector_q",
+    "V8_bad_state_iql_quasi",
+)
+
 DELTA_JEPA_VARIANTS = (
     "FB_online_noema_nogoal",
     "FB_online_noema_goal",
@@ -723,6 +735,56 @@ def _capture_metric_geometry_args(
     )
     if score_kind is not None:
         env["SCORE_KIND"] = score_kind
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_value_geometry_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    variant: str,
+    checkpoint: bool = False,
+) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{variant}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        run_root = work / "runs" / "grid_goal_value_geometry" / f"grid_goal_value_geometry_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
+    env.pop("TRANSITIONS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "VARIANT": variant,
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
     subprocess.run(
         ["bash", script],
         cwd=repo_root,
@@ -1339,6 +1401,90 @@ def test_metric_geometry_eval_uses_projected_oracle_or_predicted_scores(tmp_path
     assert predicted[predicted.index("--scores") + 1] == "predicted_goal_projected_euclidean_distance"
     assert oracle[oracle.index("--transitions") + 1] == "latent_rollout"
     assert oracle[oracle.index("--planners") + 1] == "mpc_beam"
+
+
+def test_value_geometry_has_expected_variant_grid():
+    assert len(VALUE_GEOMETRY_VARIANTS) == 9
+    assert set(VALUE_GEOMETRY_VARIANTS) == {
+        "V0_base",
+        "V1_hindsight_metric",
+        "V2_iql_euclidean",
+        "V3_iql_quasimetric",
+        "V4_terminal_value",
+        "V5_success_vector",
+        "V6_success_vector_iql",
+        "V7_success_vector_q",
+        "V8_bad_state_iql_quasi",
+    }
+
+
+def test_value_geometry_train_uses_best_k8_base_and_iql_quasimetric_knobs(tmp_path):
+    args = _capture_value_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_value_geometry_train.slurm",
+        variant="V3_iql_quasimetric",
+    )
+
+    assert "training.max_steps=5000" in args
+    assert "training.batch_size=8" in args
+    assert "model.dropout=0.0" in args
+    assert "model.action_conditioning=affected_marker" in args
+    assert "model.predict_delta=false" in args
+    assert "model.use_ema_target_encoder=true" in args
+    assert "model.dense_rollout_all_steps=true" in args
+    assert "model.dense_rollout_weighting=smooth_count" in args
+    assert "model.multi_step_horizons=[8]" in args
+    assert "model.metric_geometry_mode=iql" in args
+    assert "model.metric_geometry_weight=1.0" in args
+    assert "model.metric_goal_mse_weight=1.0" in args
+    assert "model.metric_distance_type=quasimetric" in args
+    assert "model.metric_asymmetric_projection=true" in args
+
+
+def test_value_geometry_success_q_variant_trains_policy_prior_for_planning(tmp_path):
+    args = _capture_value_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_value_geometry_train.slurm",
+        variant="V7_success_vector_q",
+    )
+
+    assert "model.metric_geometry_mode=success_iql" in args
+    assert "model.policy_prior_weight=0.1" in args
+    assert "model.policy_prior_planning_weight=0.1" in args
+
+
+def test_value_geometry_eval_routes_scores_by_variant(tmp_path):
+    base = _capture_value_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_value_geometry_eval.slurm",
+        variant="V0_base",
+        checkpoint=True,
+    )
+    iql = _capture_value_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_value_geometry_eval.slurm",
+        variant="V2_iql_euclidean",
+        checkpoint=True,
+    )
+    success = _capture_value_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_value_geometry_eval.slurm",
+        variant="V6_success_vector_iql",
+        checkpoint=True,
+    )
+    value = _capture_value_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_value_geometry_eval.slurm",
+        variant="V4_terminal_value",
+        checkpoint=True,
+    )
+
+    assert base[base.index("--scores") + 1] == "oracle_goal_raw_euclidean_distance,predicted_goal_raw_euclidean_distance"
+    assert iql[iql.index("--scores") + 1] == "oracle_goal_projected_euclidean_distance,predicted_goal_projected_euclidean_distance"
+    assert success[success.index("--scores") + 1] == "success_metric_distance"
+    assert value[value.index("--scores") + 1] == "terminal_value"
+    assert iql[iql.index("--beam-depths") + 1] == "1,2,4,16"
+    assert iql[iql.index("--transitions") + 1] == "latent_rollout,symbolic_reencode"
 
 
 def test_minaux_factor_has_expected_unique_variant_count():
