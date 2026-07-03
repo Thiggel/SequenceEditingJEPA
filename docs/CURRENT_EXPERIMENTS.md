@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 08:44 CEST
+Last updated: 2026-07-03 09:22 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -18,6 +18,8 @@ Main result:
 - Predicted-goal planning remains unsolved: every predicted-goal row is `0/8`.
 - Dropout was a major hidden variable for the refactored/smooth objectives,
   but uniform/gamma/K16 single-rollout objectives are still structurally weaker.
+- Operational default changed after this result: `model.dropout` is now `0.0`
+  in `configs/puzzle/grid_goal_sudoku.yaml`.
 
 Best rows:
 

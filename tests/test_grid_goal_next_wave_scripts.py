@@ -148,6 +148,13 @@ MINAUX_FACTOR_VARIANTS = (
 )
 
 
+def test_grid_goal_sudoku_config_defaults_to_dropout_off():
+    repo_root = Path(__file__).resolve().parents[1]
+    config = (repo_root / "configs" / "puzzle" / "grid_goal_sudoku.yaml").read_text()
+
+    assert "\n  dropout: 0.0\n" in config
+
+
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
     work = tmp_path / "work"

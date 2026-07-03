@@ -19,7 +19,7 @@ model:
   goal_layers: 6
   num_heads: 8
   mlp_ratio: 4.0
-  dropout: 0.1
+  dropout: 0.0
   sigreg_weight: 0.1
   goal_mse_weight: 1.0
   goal_nce_weight: 0.1
