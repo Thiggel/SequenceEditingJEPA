@@ -1152,8 +1152,10 @@ def test_delta_jepa_full_board_online_variant_uses_paper_target_and_no_stability
     assert "model.goal_mse_weight=0.0" in args
     assert "model.goal_target_mode=online_no_stopgrad" in args
     assert "model.goal_conditioning=context_current" in args
-    assert "model.multi_step_horizons=[1]" in args
-    assert "model.dense_future_weight=0.0" in args
+    assert "model.multi_step_horizons=[8]" in args
+    assert "model.dense_future_weight=1.0" in args
+    assert "model.dense_rollout_all_steps=true" in args
+    assert "model.dense_rollout_weighting=smooth_count" in args
 
 
 def test_delta_jepa_full_board_factorial_variants_toggle_stopgrad_ema_and_goal(tmp_path):

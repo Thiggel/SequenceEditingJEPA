@@ -1,11 +1,13 @@
 # Experiment Plan
 
-Last updated: 2026-07-03 10:35 CEST
+Last updated: 2026-07-03 11:18 CEST
 
 ## Submitted Delta-JEPA / Single-State Ablation
 
 Fidelity audit note: targeted Delta-JEPA tests added on 2026-07-03 now pass.
-The sweep was submitted after approval on 2026-07-03.
+The initial one-step sweep was submitted after approval on 2026-07-03, then
+superseded after the horizon ablation showed `K8_smooth_count` is the current
+best base. Replacement runs use K8 dense rollout with smooth/count weighting.
 
 The Delta-JEPA paper's core recipe uses:
 
@@ -53,18 +55,72 @@ Eval per variant:
 - separate dependency-held oracle raw L2 eval for every variant
 - separate dependency-held predicted raw L2 eval only for goal-trained variants
 
-Job map:
+Replacement K8/smooth-count job map:
 
 | Variant | Train | Oracle eval | Predicted eval |
 |---|---:|---:|---:|
-| `FB_online_noema_nogoal` | `3808221` | `3808222` | n/a |
-| `FB_online_noema_goal` | `3808223` | `3808224` | `3808225` |
-| `FB_stopgrad_noema_nogoal` | `3808226` | `3808227` | n/a |
-| `FB_stopgrad_noema_goal` | `3808228` | `3808229` | `3808230` |
-| `FB_stopgrad_ema_nogoal` | `3808231` | `3808232` | n/a |
-| `FB_stopgrad_ema_goal` | `3808233` | `3808234` | `3808235` |
-| `SV_online_nogoal` | `3808236` | `3808237` | n/a |
-| `SV_online_goal` | `3808238` | `3808239` | `3808240` |
+| `FB_online_noema_nogoal` | `3808387` | `3808388` | n/a |
+| `FB_online_noema_goal` | `3808389` | `3808390` | `3808391` |
+| `FB_stopgrad_noema_nogoal` | `3808392` | `3808393` | n/a |
+| `FB_stopgrad_noema_goal` | `3808394` | `3808395` | `3808396` |
+| `FB_stopgrad_ema_nogoal` | `3808397` | `3808398` | n/a |
+| `FB_stopgrad_ema_goal` | `3808399` | `3808400` | `3808401` |
+| `SV_online_nogoal` | `3808402` | `3808403` | n/a |
+| `SV_online_goal` | `3808404` | `3808405` | `3808406` |
+
+## Proposed Non-Oracle Metric/Goal Geometry Ablations
+
+Use `K8_smooth_count` as the fixed dynamics base unless explicitly ablated.
+Run every goal/metric option for both latent representations:
+
+- `FB`: full board token latent, default tokenwise metric projection
+- `SV`: single CLS board latent, pooled/global metric projection
+
+Implement a separate planning metric projection `P` instead of using raw
+dynamics latents directly:
+
+- source projection: `u_s = P_src(E(s))`
+- goal projection: `v_g = P_goal(E(g))` for asymmetric variants, otherwise
+  shared `P`
+- target branch uses EMA/stop-grad for goal metric targets
+- planner score uses metric distance in this projected space, with optional
+  bad-state penalty
+
+First proposed train variants per representation:
+
+| Variant | Losses / Head | Question |
+|---|---|---|
+| `M0_goalpred_mse` | current goal predictor in projected metric space | Baseline non-oracle goal prediction after separating metric geometry from dynamics latents. |
+| `M1_terminal_progress_bad` | terminal progress regression + bad-state head + bad-margin + goal predictor | Does calibrated terminal progress create useful Euclidean value geometry? |
+| `M2_hindsight_bad` | hindsight future-state distance regression + bad-state head + bad-margin + goal predictor | Does using every future state as a goal improve reachability geometry? |
+| `M3_contrastive_bad` | InfoNCE future-vs-bad/unrelated goals + bad-state head + goal predictor | Is relative closeness easier than distance calibration? |
+| `M4_terminal_progress_asym` | `M1` with separate source/goal projections | Does irreversible Sudoku need directional geometry? |
+| `M5_hindsight_asym` | `M2` with separate source/goal projections | Does asymmetric hindsight distance improve over symmetric hindsight? |
+
+Second-stage variants, only after M1/M2/M3 identifies a useful metric:
+
+| Variant | Add-on | Question |
+|---|---|---|
+| `Q_pairwise` | action advantage/ranking head from learned distance drop | Does local learned action value improve planning beyond rollout distance? |
+| `Q_listwise` | listwise legal-action policy target from learned distance drop | Is exhaustive action ranking more stable than pairwise ranking? |
+| `G_multimodal` | K predicted goal embeddings with soft-min target | Avoid averaged fake goals for multimodal tasks; lower priority for Sudoku. |
+
+Eval for every train variant:
+
+- oracle metric goal: `P_target(E_target(s_T))`
+- predicted metric goal: `G(E(s_0), context)` when the variant has a goal predictor
+- `mpc_beam`, latent rollout first
+- beam width `16`, depths `{4,16}` for fast pass
+- 8 boards initially; promote winners to larger eval
+
+Diagnostics to add before broad sweeps:
+
+- metric-distance monotonicity to terminal
+- hindsight distance ordering, e.g. `D(s_t,s_{t+1}) < D(s_t,s_{t+3}) < D(s_t,s_{t+8})`
+- bad-state AUC and planned bad-state entry rate
+- oracle-goal vs predicted-goal metric gap
+- top-positive action accuracy under projected metric distance
+- nearest neighbors in metric space, split by success/bad/unrelated states
 
 ## Active Grid: Minimal-Aux Objective Factorization
 

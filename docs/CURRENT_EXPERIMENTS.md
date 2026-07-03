@@ -1,14 +1,16 @@
 # Current Experiments
 
-Last updated: 2026-07-03 11:05 CEST
+Last updated: 2026-07-03 11:18 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 ## Active: Delta-JEPA / Single-State Ablation
 
-Implementation and fidelity fixes are complete. The eight train variants were
-submitted as independent Slurm jobs so each eval can depend on its matching
-checkpoint.
+Implementation and fidelity fixes are complete. The first Delta submission used
+one-step dynamics and was superseded after the horizon ablation showed
+`K8_smooth_count` is the current best base. The old Delta evals were canceled;
+replacement K8/smooth-count train variants were submitted as independent Slurm
+jobs so each eval can depend on its matching checkpoint.
 
 Scripts:
 
@@ -24,21 +26,22 @@ Grid:
 
 Delta-JEPA defaults in these jobs: `dynamics_target_mode=online_no_stopgrad`,
 no SIGReg/VICReg, `delta_action_weight=10`, LDAD horizons `[1,2,3,4,5]`,
-one-step latent forward prediction, and no temporal/ranking/corruption
+K8 dense rollout with `dense_rollout_all_steps=true` and
+`dense_rollout_weighting=smooth_count`, and no temporal/ranking/corruption
 auxiliaries.
 
 Train/eval jobs:
 
 | Variant | Train | Oracle eval | Predicted eval |
 |---|---:|---:|---:|
-| `FB_online_noema_nogoal` | `3808221` | `3808222` | n/a |
-| `FB_online_noema_goal` | `3808223` | `3808224` | `3808225` |
-| `FB_stopgrad_noema_nogoal` | `3808226` | `3808227` | n/a |
-| `FB_stopgrad_noema_goal` | `3808228` | `3808229` | `3808230` |
-| `FB_stopgrad_ema_nogoal` | `3808231` | `3808232` | n/a |
-| `FB_stopgrad_ema_goal` | `3808233` | `3808234` | `3808235` |
-| `SV_online_nogoal` | `3808236` | `3808237` | n/a |
-| `SV_online_goal` | `3808238` | `3808239` | `3808240` |
+| `FB_online_noema_nogoal` | `3808387` | `3808388` | n/a |
+| `FB_online_noema_goal` | `3808389` | `3808390` | `3808391` |
+| `FB_stopgrad_noema_nogoal` | `3808392` | `3808393` | n/a |
+| `FB_stopgrad_noema_goal` | `3808394` | `3808395` | `3808396` |
+| `FB_stopgrad_ema_nogoal` | `3808397` | `3808398` | n/a |
+| `FB_stopgrad_ema_goal` | `3808399` | `3808400` | `3808401` |
+| `SV_online_nogoal` | `3808402` | `3808403` | n/a |
+| `SV_online_goal` | `3808404` | `3808405` | `3808406` |
 
 Eval is dependency-held per checkpoint and split by goal-distance mode:
 
@@ -49,12 +52,15 @@ Eval is dependency-held per checkpoint and split by goal-distance mode:
 - each eval uses `mpc_beam`, latent rollout plus symbolic re-encode, beam width
   `16`, depths `{4,16}`, and 8 boards
 
-Current Slurm state at 10:48 CEST:
+Current Slurm state at 11:18 CEST:
 
-- `SV_online_nogoal` train `3808236` completed; oracle eval `3808237` is
-  running.
-- The other seven train jobs are still running but have reached late training
-  steps; their evals remain dependency-held.
+- replacement train jobs `3808387`, `3808389`, `3808392`, `3808394`,
+  `3808397`, `3808399`, `3808402`, `3808404` are pending on
+  `rtxpro6k,a100`
+- replacement eval jobs are dependency-held
+- superseded one-step Delta evals `3808222`, `3808224`, `3808225`, `3808227`,
+  `3808229`, `3808230`, `3808232`, `3808234`, `3808235`, `3808237`,
+  `3808239`, `3808240` were canceled
 
 Fidelity fixes:
 

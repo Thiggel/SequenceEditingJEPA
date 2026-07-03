@@ -101,11 +101,13 @@ python -m puzzle_jepa.train.grid_goal_sudoku \
   "model.goal_target_mode=online_no_stopgrad" \
   "model.goal_conditioning=${GOAL_CONDITIONING}" \
   "model.goal_conditioning_detach_state=false" \
-  "model.dense_future_weight=0.0" \
-  "model.dense_rollout_all_steps=false" \
+  "model.dense_future_weight=${DENSE_FUTURE_WEIGHT:-1.0}" \
+  "model.dense_rollout_all_steps=true" \
   "model.dense_rollout_variable_starts=false" \
   "model.dense_rollout_refactor_mode=none" \
-  "model.multi_step_horizons=[1]" \
+  "model.dense_rollout_weighting=smooth_count" \
+  "model.dense_rollout_gamma=${DENSE_ROLLOUT_GAMMA:-0.8}" \
+  "model.multi_step_horizons=[8]" \
   "model.hierarchy_levels=[]" \
   "model.hierarchy_loss_weight=0.0" \
   "model.hierarchy_dense_future_weight=0.0" \
