@@ -1,10 +1,13 @@
 # Experiment Plan
 
-Last updated: 2026-07-03 09:51 CEST
+Last updated: 2026-07-03 10:13 CEST
 
 ## Prepared Delta-JEPA / Single-State Ablation
 
 Do not submit until explicitly approved.
+
+Fidelity audit note: targeted Delta-JEPA tests added on 2026-07-03 now pass.
+The sweep is implemented but remains unsubmitted until explicitly approved.
 
 The Delta-JEPA paper's core recipe uses:
 
@@ -22,6 +25,8 @@ Implemented knobs:
 - `model.delta_action_horizons`
 - `model.latent_representation={grid,single}`
 - `model.goal_conditioning=context_current`
+- single-state encoding uses a learned CLS token prepended to board tokens,
+  not mean pooling
 
 Prepared train variants:
 
@@ -31,12 +36,14 @@ Prepared train variants:
 | `FB_online_noema_goal` | full board | online/no stop-grad | off | on |
 | `FB_stopgrad_noema_nogoal` | full board | stop-grad | off | off |
 | `FB_stopgrad_noema_goal` | full board | stop-grad | off | on |
-| `FB_online_ema_nogoal` | full board | online/no stop-grad | on | off |
-| `FB_online_ema_goal` | full board | online/no stop-grad | on | on |
 | `FB_stopgrad_ema_nogoal` | full board | stop-grad | on | off |
 | `FB_stopgrad_ema_goal` | full board | stop-grad | on | on |
 | `SV_online_nogoal` | single vector | online/no stop-grad | off | off |
 | `SV_online_goal` | single vector | online/no stop-grad | off | on |
+
+`online_no_stopgrad + use_ema_target_encoder=true` is intentionally invalid:
+the core dynamics target is online, so an EMA target encoder would not affect
+that objective.
 
 Prepared eval per variant:
 

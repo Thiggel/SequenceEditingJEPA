@@ -509,6 +509,8 @@ class GridTokenGoalJEPA(nn.Module):
         self.action_film = nn.Sequential(nn.SiLU(), nn.Linear(d_model, 2 * d_model))
         self.old_local_concat = nn.Linear(2 * d_model, d_model) if action_conditioning == "old_local_concat" else None
         if self.latent_representation == "single":
+            self.single_state_cls = nn.Parameter(torch.empty(1, 1, d_model))
+            nn.init.normal_(self.single_state_cls, std=0.02)
             self.single_state_norm = nn.LayerNorm(d_model)
             self.single_goal_query = nn.Parameter(torch.empty(1, d_model))
             nn.init.normal_(self.single_goal_query, std=0.02)
@@ -523,6 +525,7 @@ class GridTokenGoalJEPA(nn.Module):
             self.predictor = None
             self.predictor_out = None
         else:
+            self.single_state_cls = None
             self.single_state_norm = None
             self.single_goal_query = None
             self.history_predictor = None
@@ -662,6 +665,8 @@ class GridTokenGoalJEPA(nn.Module):
         self.delta_action_max_steps = int(delta_action_max_steps)
         if self.delta_action_max_steps <= 0:
             raise ValueError("delta_action_max_steps must be positive.")
+        if self.delta_action_weight > 0.0 and not self.delta_action_horizons:
+            raise ValueError("delta_action_horizons must be non-empty when delta_action_weight is positive.")
         if self.delta_action_horizons and max(self.delta_action_horizons) > self.delta_action_max_steps:
             raise ValueError("delta_action_horizons cannot exceed delta_action_max_steps.")
         self.delta_action_decoder = LatentDifferenceActionDecoder(
@@ -707,13 +712,17 @@ class GridTokenGoalJEPA(nn.Module):
         self.regularizer = str(regularizer)
         self.use_ema_target_encoder = bool(use_ema_target_encoder)
         self.ema_decay = float(ema_decay)
+        if self.use_ema_target_encoder and self.dynamics_target_mode == "online_no_stopgrad":
+            raise ValueError("use_ema_target_encoder=true is incompatible with dynamics_target_mode='online_no_stopgrad'.")
         self.target_single_state_norm = None
+        self.target_single_state_cls = None
         if self.use_ema_target_encoder:
             self.target_embedder = GridTokenEmbedder(d_model=d_model)
             self.target_state_encoder = BidirectionalTransformer(
                 num_layers=state_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
             )
             if self.latent_representation == "single":
+                self.target_single_state_cls = nn.Parameter(torch.empty(1, 1, d_model))
                 self.target_single_state_norm = nn.LayerNorm(d_model)
             self._reset_ema_target_encoder()
 
@@ -742,11 +751,13 @@ class GridTokenGoalJEPA(nn.Module):
         tokens = self.embedder(
             state, role=ROLE_STATE, known_mask=clue_mask, editable_mask=editable_mask, active_mask=active_mask
         )
-        encoded = self.state_encoder(tokens, context_latents)
         if self.latent_representation == "single":
-            if self.single_state_norm is None:
-                raise RuntimeError("single_state_norm was not initialized.")
-            return self.single_state_norm(_masked_summary(encoded, active_mask.reshape(active_mask.shape[0], -1))).unsqueeze(1)
+            if self.single_state_cls is None or self.single_state_norm is None:
+                raise RuntimeError("Single-state CLS encoder was not initialized.")
+            cls = self.single_state_cls.to(dtype=tokens.dtype).expand(tokens.shape[0], -1, -1)
+            encoded = self.state_encoder(torch.cat([cls, tokens], dim=1), context_latents)
+            return self.single_state_norm(encoded[:, :1])
+        encoded = self.state_encoder(tokens, context_latents)
         return encoded
 
     def encode_state_target(
@@ -765,13 +776,13 @@ class GridTokenGoalJEPA(nn.Module):
             tokens = self.target_embedder(
                 state, role=ROLE_STATE, known_mask=clue_mask, editable_mask=editable_mask, active_mask=active_mask
             )
-            encoded = self.target_state_encoder(tokens, context_latents)
             if self.latent_representation == "single":
-                if self.target_single_state_norm is None:
-                    raise RuntimeError("target_single_state_norm was not initialized.")
-                return self.target_single_state_norm(
-                    _masked_summary(encoded, active_mask.reshape(active_mask.shape[0], -1))
-                ).unsqueeze(1)
+                if self.target_single_state_cls is None or self.target_single_state_norm is None:
+                    raise RuntimeError("Target single-state CLS encoder was not initialized.")
+                cls = self.target_single_state_cls.to(dtype=tokens.dtype).expand(tokens.shape[0], -1, -1)
+                encoded = self.target_state_encoder(torch.cat([cls, tokens], dim=1), context_latents)
+                return self.target_single_state_norm(encoded[:, :1])
+            encoded = self.target_state_encoder(tokens, context_latents)
             return encoded
         finally:
             self.target_state_encoder.train(was_training)
@@ -889,6 +900,8 @@ class GridTokenGoalJEPA(nn.Module):
         decay = self.ema_decay if decay is None else float(decay)
         _ema_update(self.target_embedder, self.embedder, decay)
         _ema_update(self.target_state_encoder, self.state_encoder, decay)
+        if self.target_single_state_cls is not None and self.single_state_cls is not None:
+            self.target_single_state_cls.data.mul_(decay).add_(self.single_state_cls.data, alpha=1.0 - decay)
         if self.target_single_state_norm is not None and self.single_state_norm is not None:
             _ema_update(self.target_single_state_norm, self.single_state_norm, decay)
 
@@ -1932,6 +1945,9 @@ class GridTokenGoalJEPA(nn.Module):
         self.target_embedder.load_state_dict(self.embedder.state_dict())
         self.target_state_encoder.load_state_dict(self.state_encoder.state_dict())
         modules = [self.target_embedder, self.target_state_encoder]
+        if self.target_single_state_cls is not None and self.single_state_cls is not None:
+            self.target_single_state_cls.data.copy_(self.single_state_cls.data)
+            self.target_single_state_cls.requires_grad_(False)
         if self.target_single_state_norm is not None and self.single_state_norm is not None:
             self.target_single_state_norm.load_state_dict(self.single_state_norm.state_dict())
             modules.append(self.target_single_state_norm)

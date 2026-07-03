@@ -17,8 +17,6 @@ VARIANTS=(
   FB_online_noema_goal
   FB_stopgrad_noema_nogoal
   FB_stopgrad_noema_goal
-  FB_online_ema_nogoal
-  FB_online_ema_goal
   FB_stopgrad_ema_nogoal
   FB_stopgrad_ema_goal
   SV_online_nogoal

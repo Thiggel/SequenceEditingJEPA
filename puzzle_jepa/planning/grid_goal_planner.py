@@ -845,17 +845,22 @@ def _beam_plan_once_latent(
         score_mode=score_mode,
         device=device,
     )
-    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = [(0.0, board.copy(), [], start_latent)]
+    use_history = _uses_single_state_history(model, start_latent)
+    start_history = start_latent.unsqueeze(1) if use_history else None
+    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None, torch.Tensor | None]] = [
+        (0.0, board.copy(), [], start_latent, start_history)
+    ]
     best: tuple[float, list[WorldAction]] | None = None
     action_evals = 0
     base_progress_mode = _progress_base_score_mode(score_mode)
     target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
     for _ in range(max(1, int(beam_depth))):
         parent_latents: list[torch.Tensor] = []
+        parent_histories: list[torch.Tensor] = []
         leaves: list[np.ndarray] = []
         seqs: list[list[WorldAction]] = []
         actions: list[WorldAction] = []
-        for _, node_board, seq, latent in beam:
+        for _, node_board, seq, latent, history in beam:
             if latent is None:
                 raise RuntimeError("Latent rollout beam node is missing its latent state.")
             for action in legal_fill_actions(node_board, allow_conflicts=True):
@@ -864,12 +869,16 @@ def _beam_plan_once_latent(
                 except ValueError:
                     continue
                 parent_latents.append(latent)
+                if use_history:
+                    if history is None:
+                        raise RuntimeError("Single-state latent rollout beam node is missing its history.")
+                    parent_histories.append(history)
                 leaves.append(leaf)
                 seqs.append([*seq, action])
                 actions.append(action)
         if not leaves:
             break
-        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = []
+        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None, torch.Tensor | None]] = []
         mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
         for start in range(0, len(leaves), chunk_size):
             end = min(len(leaves), start + chunk_size)
@@ -880,7 +889,13 @@ def _beam_plan_once_latent(
                 device=device,
             )
             context_t = context_latents.expand(parent_batch.shape[0], -1, -1)
-            next_latents = model.predict_next(parent_batch, action_t, context_t)
+            if use_history:
+                parent_history_batch = torch.cat(parent_histories[start:end], dim=0)
+                action_history_t = _actions_to_tensor(seqs[start:end], device=device)
+                next_latents = model.predict_next_sequence(parent_history_batch, action_history_t, context_t)[:, -1]
+            else:
+                parent_history_batch = None
+                next_latents = model.predict_next(parent_batch, action_t, context_t)
             chunk_mask = mask_t.expand(parent_batch.shape[0], -1, -1)
             if base_progress_mode is not None:
                 next_score = raw_tokenwise_euclidean_distance(next_latents, _expand_tokens_like(target_goal, next_latents), chunk_mask)
@@ -917,7 +932,13 @@ def _beam_plan_once_latent(
             for offset, score in enumerate(scores):
                 idx = start + offset
                 latent = next_latents[offset : offset + 1].detach()
-                candidates.append((score, leaves[idx], seqs[idx], latent))
+                if use_history:
+                    if parent_history_batch is None:
+                        raise RuntimeError("Single-state parent history was not built.")
+                    history = torch.cat([parent_history_batch[offset : offset + 1], latent.unsqueeze(1)], dim=1).detach()
+                else:
+                    history = None
+                candidates.append((score, leaves[idx], seqs[idx], latent, history))
                 if best is None or score < best[0]:
                     best = (score, seqs[idx])
             candidates.sort(key=lambda item: item[0])
@@ -946,27 +967,36 @@ def _latent_beam_candidates(
     device: torch.device,
     chunk_size: int = 2048,
 ) -> tuple[list[tuple[float, list[WorldAction], torch.Tensor]], int]:
-    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor]] = [(0.0, board.copy(), [], start_latent)]
+    use_history = _uses_single_state_history(model, start_latent)
+    start_history = start_latent.unsqueeze(1) if use_history else None
+    beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor, torch.Tensor | None]] = [
+        (0.0, board.copy(), [], start_latent, start_history)
+    ]
     action_evals = 0
     kept: list[tuple[float, list[WorldAction], torch.Tensor]] = []
     for _ in range(max(1, int(beam_depth))):
         parent_latents: list[torch.Tensor] = []
+        parent_histories: list[torch.Tensor] = []
         leaves: list[np.ndarray] = []
         seqs: list[list[WorldAction]] = []
         actions: list[WorldAction] = []
-        for _, node_board, seq, latent in beam:
+        for _, node_board, seq, latent, history in beam:
             for action in legal_fill_actions(node_board, allow_conflicts=True):
                 try:
                     leaf = apply_fill_action(node_board, action, allow_conflicts=True)
                 except ValueError:
                     continue
                 parent_latents.append(latent)
+                if use_history:
+                    if history is None:
+                        raise RuntimeError("Single-state latent rollout beam node is missing its history.")
+                    parent_histories.append(history)
                 leaves.append(leaf)
                 seqs.append([*seq, action])
                 actions.append(action)
         if not leaves:
             break
-        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor]] = []
+        candidates: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor, torch.Tensor | None]] = []
         mask_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
         for start in range(0, len(leaves), chunk_size):
             end = min(len(leaves), start + chunk_size)
@@ -977,7 +1007,13 @@ def _latent_beam_candidates(
                 device=device,
             )
             context_t = context_latents.expand(parent_batch.shape[0], -1, -1)
-            next_latents = model.predict_next(parent_batch, action_t, context_t)
+            if use_history:
+                parent_history_batch = torch.cat(parent_histories[start:end], dim=0)
+                action_history_t = _actions_to_tensor(seqs[start:end], device=device)
+                next_latents = model.predict_next_sequence(parent_history_batch, action_history_t, context_t)[:, -1]
+            else:
+                parent_history_batch = None
+                next_latents = model.predict_next(parent_batch, action_t, context_t)
             chunk_mask = mask_t.expand(parent_batch.shape[0], -1, -1)
             if _is_delta_topk_score(score_mode):
                 score_values = delta_topk_raw_euclidean_distances(
@@ -1013,11 +1049,18 @@ def _latent_beam_candidates(
             scores = [float(x) for x in score_values.detach().cpu().tolist()]
             for offset, score in enumerate(scores):
                 idx = start + offset
-                candidates.append((score, leaves[idx], seqs[idx], next_latents[offset : offset + 1].detach()))
+                latent = next_latents[offset : offset + 1].detach()
+                if use_history:
+                    if parent_history_batch is None:
+                        raise RuntimeError("Single-state parent history was not built.")
+                    history = torch.cat([parent_history_batch[offset : offset + 1], latent.unsqueeze(1)], dim=1).detach()
+                else:
+                    history = None
+                candidates.append((score, leaves[idx], seqs[idx], latent, history))
             action_evals += end - start
         candidates.sort(key=lambda item: item[0])
         beam = candidates[: max(1, int(beam_width))]
-        kept = [(score, seq, latent) for score, _, seq, latent in beam]
+        kept = [(score, seq, latent) for score, _, seq, latent, _ in beam]
     return kept, action_evals
 
 
@@ -1325,13 +1368,22 @@ def _score_cem_sequences(
         )
         latents = start_latent.expand(seq_ids.shape[0], -1, -1)
         context = context_latents.expand(seq_ids.shape[0], -1, -1)
+        if _uses_single_state_history(model, latents):
+            state_history = latents.unsqueeze(1)
+            action_history = []
         for step in range(seq_ids.shape[1]):
             actions = torch.as_tensor(
                 [[ACTION_VOCAB[int(action_id)].row, ACTION_VOCAB[int(action_id)].col, ACTION_VOCAB[int(action_id)].value] for action_id in seq_ids[:, step]],
                 dtype=torch.long,
                 device=device,
             )
-            latents = model.predict_next(latents, actions, context)
+            if _uses_single_state_history(model, latents):
+                action_history.append(actions)
+                action_history_t = torch.stack(action_history, dim=1)
+                latents = model.predict_next_sequence(state_history, action_history_t, context)[:, -1]
+                state_history = torch.cat([state_history, latents.unsqueeze(1)], dim=1)
+            else:
+                latents = model.predict_next(latents, actions, context)
     mask = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(latents.shape[0], -1, -1)
     target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
     if _is_changed_cell_score(score_mode):
@@ -1421,6 +1473,18 @@ def _apply_policy_prior_bias(
         return scores
     priors = model.score_action_prior(parent_latents, target_goal, context_latents, active_mask, actions)
     return scores - weight * priors.to(dtype=scores.dtype)
+
+
+def _uses_single_state_history(model: GridTokenGoalJEPA, latents: torch.Tensor) -> bool:
+    return bool(getattr(model, "latent_representation", "grid") == "single" and latents.shape[-2] == 1)
+
+
+def _actions_to_tensor(sequences: list[list[WorldAction]], *, device: torch.device) -> torch.Tensor:
+    return torch.as_tensor(
+        [[[action.row, action.col, action.value] for action in sequence] for sequence in sequences],
+        dtype=torch.long,
+        device=device,
+    )
 
 
 def _prepare_token_mask(mask: torch.Tensor, *, token_count: int) -> torch.Tensor:

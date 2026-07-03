@@ -17,8 +17,6 @@ VARIANTS=(
   FB_online_noema_goal
   FB_stopgrad_noema_nogoal
   FB_stopgrad_noema_goal
-  FB_online_ema_nogoal
-  FB_online_ema_goal
   FB_stopgrad_ema_nogoal
   FB_stopgrad_ema_goal
   SV_online_nogoal
@@ -40,15 +38,13 @@ LATENT_REPRESENTATION="grid"
 DYNAMICS_TARGET_MODE="online_no_stopgrad"
 USE_EMA="false"
 GOAL_MSE_WEIGHT="0.0"
-GOAL_CONDITIONING="initial_current"
+GOAL_CONDITIONING="context_current"
 
 case "${SELECTED_VARIANT}" in
   FB_online_noema_nogoal) ;;
   FB_online_noema_goal) GOAL_MSE_WEIGHT="1.0" ;;
   FB_stopgrad_noema_nogoal) DYNAMICS_TARGET_MODE="target_stopgrad" ;;
   FB_stopgrad_noema_goal) DYNAMICS_TARGET_MODE="target_stopgrad"; GOAL_MSE_WEIGHT="1.0" ;;
-  FB_online_ema_nogoal) USE_EMA="true" ;;
-  FB_online_ema_goal) USE_EMA="true"; GOAL_MSE_WEIGHT="1.0" ;;
   FB_stopgrad_ema_nogoal) DYNAMICS_TARGET_MODE="target_stopgrad"; USE_EMA="true" ;;
   FB_stopgrad_ema_goal) DYNAMICS_TARGET_MODE="target_stopgrad"; USE_EMA="true"; GOAL_MSE_WEIGHT="1.0" ;;
   SV_online_nogoal) LATENT_REPRESENTATION="single"; GOAL_CONDITIONING="context_current" ;;

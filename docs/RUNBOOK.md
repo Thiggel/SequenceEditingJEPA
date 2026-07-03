@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-03 09:51 CEST
+Last updated: 2026-07-03 10:13 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -45,7 +45,7 @@ Goal-JEPA** for Sudoku.
   `scripts/slurm/run_grid_goal_clean17_train.slurm`,
   `scripts/slurm/run_grid_goal_clean17_eval.slurm`, and
   `scripts/experiments/submit_grid_goal_clean17.sh`
-- Prepared Delta-JEPA train/eval, not submitted:
+- Prepared Delta-JEPA train/eval, implemented and not submitted:
   `scripts/slurm/run_grid_goal_delta_jepa_train.slurm` and
   `scripts/slurm/run_grid_goal_delta_jepa_eval.slurm`
 

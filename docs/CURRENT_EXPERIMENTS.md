@@ -1,12 +1,12 @@
 # Current Experiments
 
-Last updated: 2026-07-03 09:51 CEST
+Last updated: 2026-07-03 10:13 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 ## Prepared, Not Submitted: Delta-JEPA / Single-State Ablation
 
-Implementation and tests are complete, but no jobs were submitted.
+Implementation and fidelity fixes are complete. No jobs were submitted.
 
 Prepared scripts:
 
@@ -15,15 +15,24 @@ Prepared scripts:
 
 Grid:
 
-- full board latent with Delta-JEPA LDAD, crossing online vs stop-grad dynamics
-  target, EMA off/on, and goal regularizer off/on: 8 variants
-- single hidden-state board latent with causal history predictor, Delta-JEPA,
-  and goal regularizer off/on: 2 variants
+- full board latent with Delta-JEPA LDAD, crossing meaningful dynamics target
+  modes and goal regularizer off/on: 6 variants
+- single hidden-state board latent with learned CLS encoder token, causal
+  history predictor, Delta-JEPA, and goal regularizer off/on: 2 variants
 
 Delta-JEPA defaults in the prepared jobs: `dynamics_target_mode=online_no_stopgrad`,
 no SIGReg/VICReg, `delta_action_weight=10`, LDAD horizons `[1,2,3,4,5]`,
 one-step latent forward prediction, and no temporal/ranking/corruption
 auxiliaries.
+
+Fidelity fixes:
+
+- `delta_action_weight > 0` now requires non-empty `delta_action_horizons`.
+- `use_ema_target_encoder=true` is rejected with `online_no_stopgrad`
+  dynamics, because that combination would be a no-op.
+- Single-state latent-rollout planning now passes growing state/action history
+  to the causal predictor.
+- Full-board Delta goal variants use `goal_conditioning=context_current`.
 
 ## Active: Horizon-Length Ablation
 

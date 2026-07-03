@@ -1738,7 +1738,7 @@ def test_delta_jepa_ldad_decodes_each_configured_horizon():
     assert all(shape[-2] == 81 for _, shape, _ in calls)
 
 
-def test_goal_online_no_stopgrad_uses_online_goal_encoder_even_when_ema_exists():
+def test_goal_online_no_stopgrad_uses_online_goal_encoder_without_ema_target():
     batch = _small_batch(batch_size=1)
     model = _small_model(
         sigreg_weight=0.0,
@@ -1751,7 +1751,7 @@ def test_goal_online_no_stopgrad_uses_online_goal_encoder_even_when_ema_exists()
         regularizer="none",
         dynamics_target_mode="online_no_stopgrad",
         goal_target_mode="online_no_stopgrad",
-        use_ema_target_encoder=True,
+        use_ema_target_encoder=False,
     )
 
     output = model(
@@ -1768,7 +1768,11 @@ def test_goal_online_no_stopgrad_uses_online_goal_encoder_even_when_ema_exists()
     assert output.goal_target_latents.requires_grad
     output.loss.backward()
     assert any(param.grad is not None for param in model.state_encoder.parameters())
-    assert all(param.grad is None for param in model.target_state_encoder.parameters())
+
+
+def test_online_dynamics_target_rejects_ema_target_encoder_noop():
+    with pytest.raises(ValueError, match="use_ema_target_encoder"):
+        _small_model(dynamics_target_mode="online_no_stopgrad", use_ema_target_encoder=True)
 
 
 def test_single_hidden_state_represents_board_with_one_token_and_causal_history_predictor():
@@ -1791,6 +1795,8 @@ def test_single_hidden_state_represents_board_with_one_token_and_causal_history_
     context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
     first_state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
 
+    assert model.single_state_cls is not None
+    assert model.single_state_cls.shape == (1, 1, 32)
     assert first_state.shape == (2, 1, 32)
     output = model(
         batch.boards,
@@ -1807,6 +1813,9 @@ def test_single_hidden_state_represents_board_with_one_token_and_causal_history_
     assert output.predicted_next_latents.shape[:3] == (2, batch.boards.shape[1] - 1, 1)
     assert output.predicted_goal_latents.shape == (2, 1, 32)
     assert output.delta_action_loss.item() > 0.0
+    output.loss.backward()
+    assert model.single_state_cls.grad is not None
+    assert model.single_state_cls.grad.abs().sum() > 0.0
 
 
 def test_single_hidden_state_planner_distances_accept_board_masks():

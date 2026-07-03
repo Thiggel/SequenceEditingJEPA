@@ -167,8 +167,6 @@ DELTA_JEPA_VARIANTS = (
     "FB_online_noema_goal",
     "FB_stopgrad_noema_nogoal",
     "FB_stopgrad_noema_goal",
-    "FB_online_ema_nogoal",
-    "FB_online_ema_goal",
     "FB_stopgrad_ema_nogoal",
     "FB_stopgrad_ema_goal",
     "SV_online_nogoal",
@@ -1128,8 +1126,8 @@ def test_horizon_ablation_eval_is_flat_latent_mpc_for_oracle_and_predicted_goals
 
 
 def test_delta_jepa_has_expected_variant_grid():
-    assert len(DELTA_JEPA_VARIANTS) == 10
-    assert len(set(DELTA_JEPA_VARIANTS)) == 10
+    assert len(DELTA_JEPA_VARIANTS) == 8
+    assert len(set(DELTA_JEPA_VARIANTS)) == 8
     assert {variant.split("_")[0] for variant in DELTA_JEPA_VARIANTS} == {"FB", "SV"}
 
 
@@ -1153,6 +1151,7 @@ def test_delta_jepa_full_board_online_variant_uses_paper_target_and_no_stability
     assert "model.delta_action_decoder_layers=3" in args
     assert "model.goal_mse_weight=0.0" in args
     assert "model.goal_target_mode=online_no_stopgrad" in args
+    assert "model.goal_conditioning=context_current" in args
     assert "model.multi_step_horizons=[1]" in args
     assert "model.dense_future_weight=0.0" in args
 
@@ -1163,19 +1162,11 @@ def test_delta_jepa_full_board_factorial_variants_toggle_stopgrad_ema_and_goal(t
         script="scripts/slurm/run_grid_goal_delta_jepa_train.slurm",
         variant="FB_stopgrad_ema_goal",
     )
-    online_ema = _capture_delta_jepa_args(
-        tmp_path,
-        script="scripts/slurm/run_grid_goal_delta_jepa_train.slurm",
-        variant="FB_online_ema_goal",
-    )
 
     assert "model.dynamics_target_mode=target_stopgrad" in stopgrad
     assert "model.use_ema_target_encoder=true" in stopgrad
     assert "model.goal_mse_weight=1.0" in stopgrad
-    assert "model.goal_conditioning=initial_current" in stopgrad
-    assert "model.dynamics_target_mode=online_no_stopgrad" in online_ema
-    assert "model.use_ema_target_encoder=true" in online_ema
-    assert "model.goal_mse_weight=1.0" in online_ema
+    assert "model.goal_conditioning=context_current" in stopgrad
 
 
 def test_delta_jepa_single_vector_variant_uses_one_hidden_state_and_current_goal_context(tmp_path):
