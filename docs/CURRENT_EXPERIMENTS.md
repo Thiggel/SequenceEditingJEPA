@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 17:23 CEST
+Last updated: 2026-07-03 18:03 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -22,8 +22,10 @@ full-board K8 smooth-count dynamics recipe.
 | `V8_bad_state_iql_quasi` | `3809252` | `3809253` | projected + stronger bad-state terms |
 
 Eval uses `mpc_beam`, beam width `16`, depths `{1,2,4,16}`, latent rollout
-and symbolic re-encode, 8 boards. Jobs request `rtxpro6k,a100`; at 17:21 CEST
-all train jobs are pending for resources and evals are dependency-held.
+and symbolic re-encode, 8 boards. Jobs request `rtxpro6k,a100`; at 18:03 CEST
+`V0_base` train job `3809236` is complete, jobs `3809238`-`3809252` are
+running on `rtxpro6k`, and eval `3809237` is pending for resources while the
+remaining evals are dependency-held.
 
 ## Active: Delta-JEPA LDAD Tuning Wave
 
@@ -54,14 +56,11 @@ Job map:
 | single CLS | one-step | `3809178,3809180,3809182,3809184,3809186,3809188,3809190,3809192` | `3809179,3809181,3809183,3809185,3809187,3809189,3809191,3809193` |
 | single CLS | `K8_smooth_count` | `3809194,3809196,3809198,3809200,3809202,3809204,3809206,3809208` | `3809195,3809197,3809199,3809201,3809203,3809205,3809207,3809209` |
 
-State at 17:23 CEST: 28/32 Delta train jobs completed with exit `0:0`.
-The only active train jobs are final single-CLS `K8_smooth_count` rows
-`3809202`, `3809204`, `3809206`, and `3809208` on `rtxpro6k` node `a2142`;
-logs show finite losses and empty stderr. High-LDAD rows have large pre-clip
-gradient norms, but grad clipping is active and no NaNs/OOMs have appeared.
-Delta eval jobs `3809147` and `3809149` have started; remaining evals are
-waiting on priority/resources or final train dependencies. Value/IQL train jobs
-remain pending.
+State at 18:03 CEST: all 32 Delta train jobs completed with exit `0:0`.
+Eval jobs `3809147`, `3809149`, `3809151`, `3809153`, `3809155`, and
+`3809157` are running on `rtxpro6k` node `a2142`; remaining evals are waiting
+on priority/resources. Eval logs have not emitted result summaries yet and
+stderr is empty.
 
 ## Complete: Metric/Value Geometry Ablation
 
