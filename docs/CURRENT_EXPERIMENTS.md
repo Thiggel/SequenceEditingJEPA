@@ -1,8 +1,29 @@
 # Current Experiments
 
-Last updated: 2026-07-03 15:45 CEST
+Last updated: 2026-07-03 16:06 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+## Active: Value/IQL Planning-Geometry Wave
+
+This sweep tests value-function alternatives on top of the current best
+full-board K8 smooth-count dynamics recipe.
+
+| Variant | Train | Eval | Score |
+|---|---:|---:|---|
+| `V0_base` | `3809236` | `3809237` | oracle/predicted raw L2 |
+| `V1_hindsight_metric` | `3809238` | `3809239` | oracle/predicted projected |
+| `V2_iql_euclidean` | `3809240` | `3809241` | oracle/predicted projected |
+| `V3_iql_quasimetric` | `3809242` | `3809243` | oracle/predicted projected |
+| `V4_terminal_value` | `3809244` | `3809245` | scalar terminal value |
+| `V5_success_vector` | `3809246` | `3809247` | learned success target |
+| `V6_success_vector_iql` | `3809248` | `3809249` | learned success target |
+| `V7_success_vector_q` | `3809250` | `3809251` | success target + policy prior |
+| `V8_bad_state_iql_quasi` | `3809252` | `3809253` | projected + stronger bad-state terms |
+
+Eval uses `mpc_beam`, beam width `16`, depths `{1,2,4,16}`, latent rollout
+and symbolic re-encode, 8 boards. Jobs request `rtxpro6k,a100`; at 16:06 CEST
+all train jobs are pending for resources and evals are dependency-held.
 
 ## Active: Delta-JEPA LDAD Tuning Wave
 

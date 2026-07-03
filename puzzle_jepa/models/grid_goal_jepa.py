@@ -698,6 +698,8 @@ class GridTokenGoalJEPA(nn.Module):
             self.metric_goal_projector = self.metric_src_projector
         self.metric_success_tokens = nn.Parameter(torch.empty(self.max_rows * self.max_cols, distance_dim))
         nn.init.normal_(self.metric_success_tokens, std=0.02)
+        self.metric_success_policy_tokens = nn.Parameter(torch.empty(self.max_rows * self.max_cols, d_model))
+        nn.init.normal_(self.metric_success_policy_tokens, std=0.02)
         self.metric_value_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.bad_state_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.sigreg_weight = float(sigreg_weight)
@@ -1031,6 +1033,17 @@ class GridTokenGoalJEPA(nn.Module):
         mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
         summary = _masked_summary(state_latents, mask)
         return F.softplus(self.metric_value_head(summary.float()).squeeze(-1))
+
+    def success_policy_goal_like(self, state_latents: torch.Tensor) -> torch.Tensor:
+        token_count = state_latents.shape[-2]
+        if token_count == self.metric_success_policy_tokens.shape[0]:
+            goal = self.metric_success_policy_tokens
+        elif token_count == 1:
+            goal = self.metric_success_policy_tokens.mean(dim=0, keepdim=True)
+        else:
+            goal = self.metric_success_policy_tokens[:token_count]
+        view_shape = (1,) * (state_latents.ndim - 2) + tuple(goal.shape)
+        return goal.reshape(view_shape).expand_as(state_latents)
 
     def bad_state_logits(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
         mask = _latent_active_mask(active_mask, token_count=latents.shape[-2])

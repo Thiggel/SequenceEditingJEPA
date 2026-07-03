@@ -929,6 +929,7 @@ def _beam_plan_once_latent(
                 context_t,
                 chunk_mask,
                 action_t,
+                score_mode=score_mode,
             )
             scores = [float(x) for x in score_values.detach().cpu().tolist()]
             for offset, score in enumerate(scores):
@@ -1047,6 +1048,7 @@ def _latent_beam_candidates(
                 context_t,
                 chunk_mask,
                 action_t,
+                score_mode=score_mode,
             )
             scores = [float(x) for x in score_values.detach().cpu().tolist()]
             for offset, score in enumerate(scores):
@@ -1181,6 +1183,7 @@ def _beam_plan_once_symbolic(
                 context_latents.expand(parent_latents.shape[0], -1, -1),
                 mask_t,
                 action_t,
+                score_mode=score_mode,
             )
         scores = [float(x) for x in score_values.detach().cpu().tolist()]
         action_evals += len(leaves)
@@ -1485,10 +1488,14 @@ def _apply_policy_prior_bias(
     context_latents: torch.Tensor,
     active_mask: torch.Tensor,
     actions: torch.Tensor,
+    *,
+    score_mode: str,
 ) -> torch.Tensor:
     weight = _policy_prior_planning_weight(model)
     if weight <= 0.0:
         return scores
+    if _score_metric_name(score_mode) in {"success_metric_distance", "terminal_value"}:
+        target_goal = model.success_policy_goal_like(parent_latents)
     priors = model.score_action_prior(parent_latents, target_goal, context_latents, active_mask, actions)
     return scores - weight * priors.to(dtype=scores.dtype)
 
