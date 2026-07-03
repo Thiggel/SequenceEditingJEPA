@@ -1656,3 +1656,170 @@ def test_temporal_straightening_uses_full_grid_latent_not_mean_summary():
     loss = _temporal_straightening_loss(states, goal, masks=masks, active_mask=active_mask)
 
     assert loss.item() == pytest.approx(1.0, abs=1.0e-8)
+
+
+def test_delta_jepa_online_target_mode_does_not_call_target_encoder():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+        dynamics_target_mode="online_no_stopgrad",
+        goal_target_mode="online_no_stopgrad",
+        delta_action_weight=10.0,
+        delta_action_horizons=(1, 2),
+        use_ema_target_encoder=False,
+    )
+
+    def fail_encode_state_target(*args, **kwargs):
+        raise AssertionError("Delta-JEPA online target mode should not use the target encoder path")
+
+    model.encode_state_target = fail_encode_state_target
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert output.delta_action_loss.item() > 0.0
+    torch.testing.assert_close(
+        output.loss.detach(),
+        output.dynamics_loss + 10.0 * output.delta_action_loss,
+    )
+
+
+def test_delta_jepa_ldad_decodes_each_configured_horizon():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+        dynamics_target_mode="online_no_stopgrad",
+        goal_target_mode="online_no_stopgrad",
+        delta_action_weight=1.0,
+        delta_action_horizons=(1, 3),
+    )
+    calls = []
+    original_forward = model.delta_action_decoder.forward
+
+    def record_forward(delta_tokens, active_mask, steps):
+        calls.append((int(steps), tuple(delta_tokens.shape), tuple(active_mask.shape)))
+        return original_forward(delta_tokens, active_mask, steps)
+
+    model.delta_action_decoder.forward = record_forward
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert output.delta_action_loss.item() > 0.0
+    assert [call[0] for call in calls] == [1, 3]
+    assert all(shape[-2] == 81 for _, shape, _ in calls)
+
+
+def test_goal_online_no_stopgrad_uses_online_goal_encoder_even_when_ema_exists():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        sigreg_weight=0.0,
+        goal_mse_weight=1.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+        dynamics_target_mode="online_no_stopgrad",
+        goal_target_mode="online_no_stopgrad",
+        use_ema_target_encoder=True,
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert output.goal_target_latents.requires_grad
+    output.loss.backward()
+    assert any(param.grad is not None for param in model.state_encoder.parameters())
+    assert all(param.grad is None for param in model.target_state_encoder.parameters())
+
+
+def test_single_hidden_state_represents_board_with_one_token_and_causal_history_predictor():
+    batch = _small_batch(batch_size=2)
+    model = _small_model(
+        latent_representation="single",
+        goal_conditioning="context_current",
+        sigreg_weight=0.0,
+        goal_mse_weight=1.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+        dynamics_target_mode="online_no_stopgrad",
+        delta_action_weight=1.0,
+        delta_action_horizons=(1,),
+    )
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    first_state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    assert first_state.shape == (2, 1, 32)
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert output.state_latents.shape[:3] == (2, batch.boards.shape[1], 1)
+    assert output.predicted_next_latents.shape[:3] == (2, batch.boards.shape[1] - 1, 1)
+    assert output.predicted_goal_latents.shape == (2, 1, 32)
+    assert output.delta_action_loss.item() > 0.0
+
+
+def test_single_hidden_state_planner_distances_accept_board_masks():
+    action = WorldAction(3, 4, 5)
+    a = torch.tensor([[[1.0, 2.0]], [[2.0, 2.0]]])
+    b = torch.zeros_like(a)
+    mask = torch.ones((2, 9, 9), dtype=torch.bool)
+
+    raw = raw_tokenwise_euclidean_distance(a, b, mask)
+    changed = changed_cell_raw_euclidean_distances(a, b, [action, action])
+    affected = affected_context_raw_euclidean_distances(a, b, [action, action])
+
+    expected = a.square().sum(dim=-1).sqrt().squeeze(-1)
+    torch.testing.assert_close(raw, expected)
+    torch.testing.assert_close(changed, expected)
+    torch.testing.assert_close(affected, expected)

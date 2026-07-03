@@ -1,6 +1,51 @@
 # Experiment Plan
 
-Last updated: 2026-07-02 14:48 CEST
+Last updated: 2026-07-03 09:51 CEST
+
+## Prepared Delta-JEPA / Single-State Ablation
+
+Do not submit until explicitly approved.
+
+The Delta-JEPA paper's core recipe uses:
+
+- latent forward prediction to the same online encoder's next-state embedding
+- no stop-gradient target branch in the core dynamics MSE
+- no frozen/EMA target encoder in the core method
+- no SIGReg/VICReg distribution-matching regularizer
+- a Latent Difference Action Decoder (LDAD) that predicts actions from
+  latent displacement `z_{t+N} - z_t`
+
+Implemented knobs:
+
+- `model.dynamics_target_mode={online_no_stopgrad,target_stopgrad}`
+- `model.delta_action_weight`
+- `model.delta_action_horizons`
+- `model.latent_representation={grid,single}`
+- `model.goal_conditioning=context_current`
+
+Prepared train variants:
+
+| Variant | Latent | Dynamics target | EMA | Goal regularizer |
+|---|---|---|---|---|
+| `FB_online_noema_nogoal` | full board | online/no stop-grad | off | off |
+| `FB_online_noema_goal` | full board | online/no stop-grad | off | on |
+| `FB_stopgrad_noema_nogoal` | full board | stop-grad | off | off |
+| `FB_stopgrad_noema_goal` | full board | stop-grad | off | on |
+| `FB_online_ema_nogoal` | full board | online/no stop-grad | on | off |
+| `FB_online_ema_goal` | full board | online/no stop-grad | on | on |
+| `FB_stopgrad_ema_nogoal` | full board | stop-grad | on | off |
+| `FB_stopgrad_ema_goal` | full board | stop-grad | on | on |
+| `SV_online_nogoal` | single vector | online/no stop-grad | off | off |
+| `SV_online_goal` | single vector | online/no stop-grad | off | on |
+
+Prepared eval per variant:
+
+- `mpc_beam`
+- latent rollout and symbolic re-encode
+- beam width `16`
+- beam depths `{4,16}`
+- 8 boards
+- oracle raw L2 and predicted raw L2
 
 ## Active Grid: Minimal-Aux Objective Factorization
 

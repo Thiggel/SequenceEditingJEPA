@@ -25,6 +25,11 @@ model:
   goal_nce_weight: 0.1
   goal_distance_field_weight: 0.0
   goal_target_mode: target_stopgrad
+  dynamics_target_mode: target_stopgrad
+  delta_action_weight: 0.0
+  delta_action_horizons: [1]
+  delta_action_decoder_layers: 3
+  delta_action_max_steps: 16
   progress_rank_weight: 1.0
   action_rank_weight: 1.0
   temporal_straightening_weight: 0.1
@@ -56,6 +61,8 @@ model:
   policy_prior_mode: pairwise
   policy_prior_planning_weight: 0.0
   distance_mode: tokenwise
+  latent_representation: grid
+  max_history_steps: 128
   action_conditioning: action_token
   predict_delta: false
   dynamics_weighting: uniform

@@ -1423,11 +1423,20 @@ def _apply_policy_prior_bias(
     return scores - weight * priors.to(dtype=scores.dtype)
 
 
+def _prepare_token_mask(mask: torch.Tensor, *, token_count: int) -> torch.Tensor:
+    if mask.ndim == 3:
+        mask = mask.reshape(mask.shape[0], -1)
+    if mask.shape[-1] == token_count:
+        return mask
+    if int(token_count) == 1:
+        return torch.ones((*mask.shape[:-1], 1), dtype=torch.bool, device=mask.device)
+    return mask
+
+
 def raw_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     if a.shape != b.shape:
         raise ValueError(f"Raw distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
-    if mask.ndim == 3:
-        mask = mask.reshape(mask.shape[0], -1)
+    mask = _prepare_token_mask(mask, token_count=a.shape[-2])
     if mask.shape != a.shape[:-1]:
         raise ValueError(f"Raw distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
     per_token = (a.float() - b.float()).square().sum(dim=-1).sqrt()
@@ -1438,8 +1447,7 @@ def raw_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: tor
 def raw_tokenwise_squared_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     if a.shape != b.shape:
         raise ValueError(f"Raw squared distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
-    if mask.ndim == 3:
-        mask = mask.reshape(mask.shape[0], -1)
+    mask = _prepare_token_mask(mask, token_count=a.shape[-2])
     if mask.shape != a.shape[:-1]:
         raise ValueError(f"Raw squared distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
     per_token = (a.float() - b.float()).square().sum(dim=-1)
@@ -1450,8 +1458,7 @@ def raw_tokenwise_squared_euclidean_distance(a: torch.Tensor, b: torch.Tensor, m
 def raw_full_board_mse_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     if a.shape != b.shape:
         raise ValueError(f"Raw MSE distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
-    if mask.ndim == 3:
-        mask = mask.reshape(mask.shape[0], -1)
+    mask = _prepare_token_mask(mask, token_count=a.shape[-2])
     if mask.shape != a.shape[:-1]:
         raise ValueError(f"Raw MSE distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
     per_token = (a.float() - b.float()).square().mean(dim=-1)
@@ -1462,8 +1469,7 @@ def raw_full_board_mse_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Te
 def raw_tokenwise_cosine_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     if a.shape != b.shape:
         raise ValueError(f"Raw cosine distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
-    if mask.ndim == 3:
-        mask = mask.reshape(mask.shape[0], -1)
+    mask = _prepare_token_mask(mask, token_count=a.shape[-2])
     if mask.shape != a.shape[:-1]:
         raise ValueError(f"Raw cosine distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
     per_token = 1.0 - torch.nn.functional.cosine_similarity(a.float(), b.float(), dim=-1, eps=1.0e-6)
@@ -1474,8 +1480,7 @@ def raw_tokenwise_cosine_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.
 def projected_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor, projector: torch.nn.Module) -> torch.Tensor:
     if a.shape != b.shape:
         raise ValueError(f"Projected distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
-    if mask.ndim == 3:
-        mask = mask.reshape(mask.shape[0], -1)
+    mask = _prepare_token_mask(mask, token_count=a.shape[-2])
     if mask.shape != a.shape[:-1]:
         raise ValueError(f"Projected distance mask must have shape {tuple(a.shape[:-1])}, got {tuple(mask.shape)}.")
     per_token = (projector(a.float()) - projector(b.float())).square().sum(dim=-1).sqrt()
@@ -1486,6 +1491,8 @@ def projected_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mas
 def changed_cell_raw_euclidean_distance(a: torch.Tensor, b: torch.Tensor, action: WorldAction) -> torch.Tensor:
     if a.shape != b.shape:
         raise ValueError(f"Changed-cell distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
+    if a.shape[-2] == 1:
+        return (a[..., 0, :].float() - b[..., 0, :].float()).square().sum(dim=-1).sqrt()
     idx = int(action.row) * 9 + int(action.col)
     if idx < 0 or idx >= a.shape[-2]:
         raise ValueError(f"Action cell index {idx} is outside token count {a.shape[-2]}.")
@@ -1497,6 +1504,8 @@ def changed_cell_raw_euclidean_distances(a: torch.Tensor, b: torch.Tensor, actio
         raise ValueError(f"Changed-cell distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
     if len(actions) != a.shape[0]:
         raise ValueError(f"Expected one action per batch item, got {len(actions)} actions for batch size {a.shape[0]}.")
+    if a.shape[-2] == 1:
+        return (a[:, 0, :].float() - b[:, 0, :].float()).square().sum(dim=-1).sqrt()
     indices = torch.as_tensor([int(action.row) * 9 + int(action.col) for action in actions], dtype=torch.long, device=a.device)
     if bool(((indices < 0) | (indices >= a.shape[-2])).any().item()):
         raise ValueError(f"Action cell indices must be inside token count {a.shape[-2]}.")
@@ -1518,6 +1527,8 @@ def affected_context_raw_euclidean_distances(
         raise ValueError(f"Affected-context distance inputs must have matching shapes, got {tuple(a.shape)} and {tuple(b.shape)}.")
     if len(actions) != a.shape[0]:
         raise ValueError(f"Expected one action per batch item, got {len(actions)} actions for batch size {a.shape[0]}.")
+    if a.shape[-2] == 1:
+        return (a[:, 0, :].float() - b[:, 0, :].float()).square().sum(dim=-1).sqrt()
     if a.shape[-2] != rows * cols:
         raise ValueError(f"Expected {rows * cols} board tokens for a {rows}x{cols} grid, got {a.shape[-2]}.")
     action_t = torch.as_tensor(
@@ -1555,8 +1566,7 @@ def delta_topk_raw_euclidean_distances(
     goal_latents = _expand_tokens_like(goal_latents, next_latents)
     if goal_latents.shape != next_latents.shape:
         raise ValueError(f"Goal latents must expand to {tuple(next_latents.shape)}, got {tuple(goal_latents.shape)}.")
-    if mask.ndim == 3:
-        mask = mask.reshape(mask.shape[0], -1)
+    mask = _prepare_token_mask(mask, token_count=next_latents.shape[-2])
     if mask.shape != next_latents.shape[:-1]:
         raise ValueError(f"Delta top-k mask must have shape {tuple(next_latents.shape[:-1])}, got {tuple(mask.shape)}.")
     delta = (next_latents.float() - previous_latents.float()).square().sum(dim=-1)
@@ -1592,7 +1602,7 @@ def _prepare_goal_latents(
         context_latents,
         active_t,
         initial_latents=initial_latents if model.goal_conditioning == "initial_current" else None,
-        current_latents=initial_latents if model.goal_conditioning == "initial_current" else None,
+        current_latents=initial_latents if model.goal_conditioning in {"initial_current", "context_current"} else None,
     )
     oracle_goal = model.encode_state(goal_t, context_latents, clue_t, edit_t, active_t)
     return context_latents, predicted_goal, oracle_goal, initial_latents
@@ -1611,7 +1621,7 @@ def _predict_goal_for_board(
     device: torch.device,
 ) -> torch.Tensor:
     active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
-    if model.goal_conditioning != "initial_current":
+    if model.goal_conditioning not in {"initial_current", "context_current"}:
         return model.predict_goal(context_latents, active_t)
     board_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
     clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device)
@@ -1620,6 +1630,6 @@ def _predict_goal_for_board(
     return model.predict_goal(
         context_latents,
         active_t,
-        initial_latents=initial_latents,
+        initial_latents=initial_latents if model.goal_conditioning == "initial_current" else None,
         current_latents=current_latents,
     )

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-02 10:08 CEST
+Last updated: 2026-07-03 09:51 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -45,8 +45,11 @@ Goal-JEPA** for Sudoku.
   `scripts/slurm/run_grid_goal_clean17_train.slurm`,
   `scripts/slurm/run_grid_goal_clean17_eval.slurm`, and
   `scripts/experiments/submit_grid_goal_clean17.sh`
+- Prepared Delta-JEPA train/eval, not submitted:
+  `scripts/slurm/run_grid_goal_delta_jepa_train.slurm` and
+  `scripts/slurm/run_grid_goal_delta_jepa_eval.slurm`
 
-Current clean17 jobs are documented in `docs/CURRENT_EXPERIMENTS.md` and
+Current active/prepared jobs are documented in `docs/CURRENT_EXPERIMENTS.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`. All previous
 LeWM/CLS/value-head jobs were cancelled or completed before this reset.
 

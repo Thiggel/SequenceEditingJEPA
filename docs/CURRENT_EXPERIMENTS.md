@@ -1,8 +1,29 @@
 # Current Experiments
 
-Last updated: 2026-07-03 09:45 CEST
+Last updated: 2026-07-03 09:51 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+## Prepared, Not Submitted: Delta-JEPA / Single-State Ablation
+
+Implementation and tests are complete, but no jobs were submitted.
+
+Prepared scripts:
+
+- `scripts/slurm/run_grid_goal_delta_jepa_train.slurm`
+- `scripts/slurm/run_grid_goal_delta_jepa_eval.slurm`
+
+Grid:
+
+- full board latent with Delta-JEPA LDAD, crossing online vs stop-grad dynamics
+  target, EMA off/on, and goal regularizer off/on: 8 variants
+- single hidden-state board latent with causal history predictor, Delta-JEPA,
+  and goal regularizer off/on: 2 variants
+
+Delta-JEPA defaults in the prepared jobs: `dynamics_target_mode=online_no_stopgrad`,
+no SIGReg/VICReg, `delta_action_weight=10`, LDAD horizons `[1,2,3,4,5]`,
+one-step latent forward prediction, and no temporal/ranking/corruption
+auxiliaries.
 
 ## Active: Horizon-Length Ablation
 

@@ -162,6 +162,19 @@ HORIZON_ABLATION_VARIANTS = (
     "K16_smooth_count",
 )
 
+DELTA_JEPA_VARIANTS = (
+    "FB_online_noema_nogoal",
+    "FB_online_noema_goal",
+    "FB_stopgrad_noema_nogoal",
+    "FB_stopgrad_noema_goal",
+    "FB_online_ema_nogoal",
+    "FB_online_ema_goal",
+    "FB_stopgrad_ema_nogoal",
+    "FB_stopgrad_ema_goal",
+    "SV_online_nogoal",
+    "SV_online_goal",
+)
+
 
 def test_grid_goal_sudoku_config_defaults_to_dropout_off():
     repo_root = Path(__file__).resolve().parents[1]
@@ -584,6 +597,56 @@ def _capture_horizon_ablation_args(
     env = os.environ.copy()
     env.pop("PLANNERS", None)
     env.pop("SCORES", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "VARIANT": variant,
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_delta_jepa_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    variant: str,
+    checkpoint: bool = False,
+) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{variant}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        run_root = work / "runs" / "grid_goal_delta_jepa" / f"grid_goal_delta_jepa_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
+    env.pop("TRANSITIONS", None)
     env.update(
         {
             "WORK": str(work),
@@ -1057,6 +1120,89 @@ def test_horizon_ablation_eval_is_flat_latent_mpc_for_oracle_and_predicted_goals
 
     assert args[args.index("--planners") + 1] == "mpc_beam"
     assert args[args.index("--transitions") + 1] == "latent_rollout"
+    assert args[args.index("--beam-widths") + 1] == "16"
+    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert args[args.index("--scores") + 1] == (
+        "oracle_goal_raw_euclidean_distance,predicted_goal_raw_euclidean_distance"
+    )
+
+
+def test_delta_jepa_has_expected_variant_grid():
+    assert len(DELTA_JEPA_VARIANTS) == 10
+    assert len(set(DELTA_JEPA_VARIANTS)) == 10
+    assert {variant.split("_")[0] for variant in DELTA_JEPA_VARIANTS} == {"FB", "SV"}
+
+
+def test_delta_jepa_full_board_online_variant_uses_paper_target_and_no_stability_regularizer(tmp_path):
+    args = _capture_delta_jepa_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_delta_jepa_train.slurm",
+        variant="FB_online_noema_nogoal",
+    )
+
+    assert "training.max_steps=5000" in args
+    assert "training.batch_size=8" in args
+    assert "training.learning_rate=1.0e-4" in args
+    assert "model.latent_representation=grid" in args
+    assert "model.dynamics_target_mode=online_no_stopgrad" in args
+    assert "model.use_ema_target_encoder=false" in args
+    assert "model.regularizer=none" in args
+    assert "model.sigreg_weight=0.0" in args
+    assert "model.delta_action_weight=10.0" in args
+    assert "model.delta_action_horizons=[1,2,3,4,5]" in args
+    assert "model.delta_action_decoder_layers=3" in args
+    assert "model.goal_mse_weight=0.0" in args
+    assert "model.goal_target_mode=online_no_stopgrad" in args
+    assert "model.multi_step_horizons=[1]" in args
+    assert "model.dense_future_weight=0.0" in args
+
+
+def test_delta_jepa_full_board_factorial_variants_toggle_stopgrad_ema_and_goal(tmp_path):
+    stopgrad = _capture_delta_jepa_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_delta_jepa_train.slurm",
+        variant="FB_stopgrad_ema_goal",
+    )
+    online_ema = _capture_delta_jepa_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_delta_jepa_train.slurm",
+        variant="FB_online_ema_goal",
+    )
+
+    assert "model.dynamics_target_mode=target_stopgrad" in stopgrad
+    assert "model.use_ema_target_encoder=true" in stopgrad
+    assert "model.goal_mse_weight=1.0" in stopgrad
+    assert "model.goal_conditioning=initial_current" in stopgrad
+    assert "model.dynamics_target_mode=online_no_stopgrad" in online_ema
+    assert "model.use_ema_target_encoder=true" in online_ema
+    assert "model.goal_mse_weight=1.0" in online_ema
+
+
+def test_delta_jepa_single_vector_variant_uses_one_hidden_state_and_current_goal_context(tmp_path):
+    args = _capture_delta_jepa_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_delta_jepa_train.slurm",
+        variant="SV_online_goal",
+    )
+
+    assert "model.latent_representation=single" in args
+    assert "model.max_history_steps=128" in args
+    assert "model.dynamics_target_mode=online_no_stopgrad" in args
+    assert "model.use_ema_target_encoder=false" in args
+    assert "model.goal_conditioning=context_current" in args
+    assert "model.goal_mse_weight=1.0" in args
+
+
+def test_delta_jepa_eval_is_independent_fast_mpc_with_oracle_and_predicted_goals(tmp_path):
+    args = _capture_delta_jepa_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_delta_jepa_eval.slurm",
+        variant="FB_online_noema_goal",
+        checkpoint=True,
+    )
+
+    assert args[args.index("--planners") + 1] == "mpc_beam"
+    assert args[args.index("--transitions") + 1] == "latent_rollout,symbolic_reencode"
     assert args[args.index("--beam-widths") + 1] == "16"
     assert args[args.index("--beam-depths") + 1] == "4,16"
     assert args[args.index("--scores") + 1] == (
