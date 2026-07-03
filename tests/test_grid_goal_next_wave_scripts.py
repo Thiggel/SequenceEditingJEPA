@@ -1265,7 +1265,7 @@ def test_delta_jepa_eval_is_independent_fast_mpc_with_oracle_and_predicted_goals
     assert args[args.index("--planners") + 1] == "mpc_beam"
     assert args[args.index("--transitions") + 1] == "latent_rollout,symbolic_reencode"
     assert args[args.index("--beam-widths") + 1] == "16"
-    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert args[args.index("--beam-depths") + 1] == "1,2,4,16"
     assert args[args.index("--scores") + 1] == (
         "oracle_goal_raw_euclidean_distance,predicted_goal_raw_euclidean_distance"
     )

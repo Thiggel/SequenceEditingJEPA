@@ -49,7 +49,7 @@ python -m puzzle_jepa.eval.grid_goal_planner_matrix \
   --output-dir "${EVAL_OUTPUT_DIR}" \
   --examples "${EVAL_EXAMPLES:-8}" \
   --beam-widths "${BEAM_WIDTHS:-16}" \
-  --beam-depths "${BEAM_DEPTHS:-4,16}" \
+  --beam-depths "${BEAM_DEPTHS:-1,2,4,16}" \
   --scores "${SCORES:-oracle_goal_raw_euclidean_distance,predicted_goal_raw_euclidean_distance}" \
   --transitions "${TRANSITIONS:-latent_rollout,symbolic_reencode}" \
   --planners "${PLANNERS:-mpc_beam}" \
