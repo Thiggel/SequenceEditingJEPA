@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 16:17 CEST
+Last updated: 2026-07-03 17:21 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -22,7 +22,7 @@ full-board K8 smooth-count dynamics recipe.
 | `V8_bad_state_iql_quasi` | `3809252` | `3809253` | projected + stronger bad-state terms |
 
 Eval uses `mpc_beam`, beam width `16`, depths `{1,2,4,16}`, latent rollout
-and symbolic re-encode, 8 boards. Jobs request `rtxpro6k,a100`; at 16:17 CEST
+and symbolic re-encode, 8 boards. Jobs request `rtxpro6k,a100`; at 17:21 CEST
 all train jobs are pending for resources and evals are dependency-held.
 
 ## Active: Delta-JEPA LDAD Tuning Wave
@@ -54,13 +54,13 @@ Job map:
 | single CLS | one-step | `3809178,3809180,3809182,3809184,3809186,3809188,3809190,3809192` | `3809179,3809181,3809183,3809185,3809187,3809189,3809191,3809193` |
 | single CLS | `K8_smooth_count` | `3809194,3809196,3809198,3809200,3809202,3809204,3809206,3809208` | `3809195,3809197,3809199,3809201,3809203,3809205,3809207,3809209` |
 
-State at 16:17 CEST: full-board one-step train jobs
-`3809146,3809148,3809150,3809152,3809154,3809156,3809158,3809160`
-completed with exit `0:0`. Full-board `K8_smooth_count` train jobs
-`3809162,3809164,3809166,3809168,3809170` are running on `rtxpro6k` node
-`a2142` with finite losses and empty stderr. Remaining train jobs are pending
-for resources; eval jobs for completed trains are pending for resources, and
-later evals are dependency-held. No current failures/OOMs/timeouts.
+State at 17:21 CEST: 28/32 Delta train jobs completed with exit `0:0`.
+The only active train jobs are final single-CLS `K8_smooth_count` rows
+`3809202`, `3809204`, `3809206`, and `3809208` on `rtxpro6k` node `a2142`;
+logs show finite losses and empty stderr. High-LDAD rows have large pre-clip
+gradient norms, but grad clipping is active and no NaNs/OOMs have appeared.
+All Delta eval jobs are still queued; most dependencies are satisfied but jobs
+are waiting on priority/resources. Value/IQL train jobs remain pending.
 
 ## Complete: Metric/Value Geometry Ablation
 
