@@ -4,7 +4,7 @@ Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 # Current Experiments
 
-Last updated: 2026-07-03 21:28 CEST
+Last updated: 2026-07-03T21:43:12
 
 ## Active: Counterfactual Editable Weekend Wave
 
@@ -19,15 +19,16 @@ Research questions:
 
 Current summary:
 - run suffix: `_mb4ga2`
+- oversight cadence: `6` hours
+- repair evals enabled: `True`
 - completed checkpoints: 0
 - total planner rows: 0
 
 Operational state:
 - Active replacement train array: `3809648`, variants `0-29`, suffix `_mb4ga2`, `BATCH_SIZE=4`, `GRADIENT_ACCUMULATION_STEPS=2`, effective batch `8`.
 - Dependency-held replacement eval jobs: `3809649`-`3809678`, one per train array element, same `_mb4ga2` suffix.
-- Oversight jobs: `3809681`-`3809700`, every 12 hours, repair evals enabled, same `_mb4ga2` suffix.
-- Initial unsuffixed train/eval submission: train array `3809578`, eval jobs `3809579`-`3809608`. Several counterfactual-heavy tasks OOMed at micro-batch `8` on 96GB RTX Pro 6000. The `_mb4ga2` replacement wave supersedes it without deleting logs.
-- First submission issue was the cluster policy rejecting explicit `--mem` for GPU jobs; code commit `4697236` removed explicit memory. Follow-up code commits `3ed00d3` and `4215449` changed weekend train defaults to micro-batch 4 / accumulation 2 and made oversight GPU/suffix-aware.
+- Superseded pending 12h oversight jobs `3809682`-`3809700` were canceled.
+- Active 6h oversight cadence: `3809723`-`3809742`, repair evals enabled, same `_mb4ga2` suffix.
 
 Insights:
 
