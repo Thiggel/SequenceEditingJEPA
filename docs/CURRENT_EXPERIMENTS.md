@@ -16,6 +16,8 @@ The audit blockers are fixed:
 - hierarchical beam preserves editable overwrite mode into primitive tracking
 - oversight defaults to 12-hour checks and mechanical eval repair is enabled
   by default
+- second-pass check fixed affected-context counterfactual loss layout for the
+  actual weekend training recipe
 
 Important invariant: every Delta-JEPA experiment has both a full-grid latent
 run and a single learned-CLS latent run. Oversight follow-ups must preserve

@@ -481,6 +481,7 @@ def test_counterfactual_sequences_supervise_hierarchy_predictor_without_main_tra
         hierarchy_levels=(2,),
         hierarchy_loss_weight=1.0,
         counterfactual_dynamics_weight=1.0,
+        dynamics_weighting="affected_context",
         goal_mse_weight=0.0,
         goal_nce_weight=0.0,
         progress_rank_weight=0.0,

@@ -1641,9 +1641,9 @@ class GridTokenGoalJEPA(nn.Module):
             cf_actions_flat = counterfactual_action_sequences.reshape(batch * cf_pairs * cf_depth, 3)
             cf_predicted = self.predict_next(cf_source_latents, cf_actions_flat, cf_context_steps)
             cf_error = self._dynamics_error(
-                cf_predicted[:, None],
-                cf_target_latents[:, None],
-                cf_actions_flat,
+                cf_predicted.reshape(batch, cf_pairs * cf_depth, token_count, self.d_model),
+                cf_target_latents.reshape(batch, cf_pairs * cf_depth, token_count, self.d_model),
+                counterfactual_action_sequences.reshape(batch, cf_pairs * cf_depth, 3),
                 rows=rows,
                 cols=cols,
             ).reshape(batch, cf_pairs, cf_depth)
