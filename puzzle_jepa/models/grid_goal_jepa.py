@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 
 import torch
@@ -17,11 +18,14 @@ class GridGoalJEPAOutput:
     loss: torch.Tensor
     dynamics_loss: torch.Tensor
     dense_future_loss: torch.Tensor
+    counterfactual_dynamics_loss: torch.Tensor
     hierarchy_loss: torch.Tensor
     sigreg_loss: torch.Tensor
     goal_mse_loss: torch.Tensor
     goal_nce_loss: torch.Tensor
     goal_distance_field_loss: torch.Tensor
+    waypoint_loss: torch.Tensor
+    waypoint_final_loss: torch.Tensor
     progress_rank_loss: torch.Tensor
     action_rank_loss: torch.Tensor
     policy_prior_loss: torch.Tensor
@@ -444,8 +448,10 @@ class GridTokenGoalJEPA(nn.Module):
         goal_distance_field_weight: float = 0.0,
         goal_target_mode: str = "target_stopgrad",
         dynamics_target_mode: str = "target_stopgrad",
+        counterfactual_dynamics_weight: float = 0.0,
         delta_action_weight: float = 0.0,
         delta_action_horizons: tuple[int, ...] = (1,),
+        delta_action_mode: str = "ordered",
         delta_action_decoder_layers: int = 3,
         delta_action_max_steps: int = 16,
         progress_rank_weight: float = 1.0,
@@ -471,6 +477,9 @@ class GridTokenGoalJEPA(nn.Module):
         shared_hierarchy_predictor: bool = False,
         goal_conditioning: str = "initial_current",
         goal_conditioning_detach_state: bool = False,
+        waypoint_horizons: tuple[int, ...] = (),
+        waypoint_loss_weight: float = 0.0,
+        waypoint_final_weight: float = 0.0,
         progress_rank_target: str = "predicted",
         action_rank_mode: str = "pairwise",
         action_rank_target: str = "predicted",
@@ -641,6 +650,18 @@ class GridTokenGoalJEPA(nn.Module):
         self.goal_decoder = BidirectionalTransformer(
             num_layers=goal_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
         )
+        if self.latent_representation == "single":
+            self.single_waypoint_query = nn.Parameter(torch.empty(1, d_model))
+            nn.init.normal_(self.single_waypoint_query, std=0.02)
+        else:
+            self.single_waypoint_query = None
+        self.waypoint_decoder = BidirectionalTransformer(
+            num_layers=goal_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
+        )
+        self.waypoint_final_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
+        self.waypoint_horizons = tuple(sorted({int(horizon) for horizon in waypoint_horizons if int(horizon) > 0}))
+        self.waypoint_loss_weight = float(waypoint_loss_weight)
+        self.waypoint_final_weight = float(waypoint_final_weight)
         allowed_progress_targets = {"predicted", "oracle", "both", "none"}
         if progress_rank_target not in allowed_progress_targets:
             raise ValueError(f"progress_rank_target must be one of {sorted(allowed_progress_targets)}.")
@@ -714,8 +735,13 @@ class GridTokenGoalJEPA(nn.Module):
         if dynamics_target_mode not in allowed_dynamics_target_modes:
             raise ValueError(f"dynamics_target_mode must be one of {sorted(allowed_dynamics_target_modes)}.")
         self.dynamics_target_mode = str(dynamics_target_mode)
+        self.counterfactual_dynamics_weight = float(counterfactual_dynamics_weight)
         self.delta_action_weight = float(delta_action_weight)
         self.delta_action_horizons = tuple(sorted({int(h) for h in delta_action_horizons if int(h) > 0}))
+        allowed_delta_action_modes = {"ordered", "set"}
+        if delta_action_mode not in allowed_delta_action_modes:
+            raise ValueError(f"delta_action_mode must be one of {sorted(allowed_delta_action_modes)}.")
+        self.delta_action_mode = str(delta_action_mode)
         self.delta_action_max_steps = int(delta_action_max_steps)
         if self.delta_action_max_steps <= 0:
             raise ValueError("delta_action_max_steps must be positive.")
@@ -751,6 +777,7 @@ class GridTokenGoalJEPA(nn.Module):
             "old_local_concat",
             "action_cross_attention",
             "adaln_action",
+            "affected_marker_adaln",
         }
         if action_conditioning not in allowed_action_conditioning:
             raise ValueError(f"action_conditioning must be one of {sorted(allowed_action_conditioning)}.")
@@ -1007,6 +1034,21 @@ class GridTokenGoalJEPA(nn.Module):
                 memory = torch.cat([context_latents, current], dim=-2)
         return self.goal_decoder(queries, memory)
 
+    def predict_waypoint(
+        self,
+        context_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        current_latents: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.latent_representation == "single":
+            if self.single_waypoint_query is None:
+                raise RuntimeError("single_waypoint_query was not initialized.")
+            queries = self.single_waypoint_query.view(1, 1, -1).expand(context_latents.shape[0], -1, -1)
+        else:
+            queries = self.embedder.query_tokens(active_mask)
+        memory = torch.cat([context_latents, current_latents], dim=-2)
+        return self.waypoint_decoder(queries, memory)
+
     def distance(self, state_latents: torch.Tensor, goal_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
         mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
         if self.distance_mode == "mean_pooled":
@@ -1188,6 +1230,10 @@ class GridTokenGoalJEPA(nn.Module):
         positive_actions: torch.Tensor | None = None,
         negative_actions: torch.Tensor | None = None,
         corrupt_goals: torch.Tensor | None = None,
+        counterfactual_states: torch.Tensor | None = None,
+        counterfactual_actions: torch.Tensor | None = None,
+        counterfactual_next_boards: torch.Tensor | None = None,
+        counterfactual_mask: torch.Tensor | None = None,
     ) -> GridGoalJEPAOutput:
         batch, frames = boards.shape[:2]
         rows, cols = boards.shape[-2:]
@@ -1489,6 +1535,45 @@ class GridTokenGoalJEPA(nn.Module):
         else:
             dense_future_loss = state_latents.sum() * 0.0
 
+        counterfactual_dynamics_loss = state_latents.sum() * 0.0
+        if (
+            counterfactual_states is not None
+            and counterfactual_actions is not None
+            and counterfactual_next_boards is not None
+            and counterfactual_mask is not None
+            and bool(counterfactual_mask.any())
+        ):
+            if counterfactual_states.shape[:2] != counterfactual_actions.shape[:2]:
+                raise ValueError("counterfactual_states and counterfactual_actions must share [batch, pairs].")
+            if counterfactual_states.shape != counterfactual_next_boards.shape:
+                raise ValueError("counterfactual_states and counterfactual_next_boards must have matching shapes.")
+            cf_pairs = counterfactual_states.shape[1]
+            cf_context = context_latents[:, None].expand(batch, cf_pairs, context_token_count, self.d_model).reshape(
+                batch * cf_pairs,
+                context_token_count,
+                self.d_model,
+            )
+            cf_clue = clue_mask[:, None].expand(batch, cf_pairs, rows, cols).reshape(batch * cf_pairs, rows, cols)
+            cf_edit = editable_mask[:, None].expand(batch, cf_pairs, rows, cols).reshape(batch * cf_pairs, rows, cols)
+            cf_active = active_mask[:, None].expand(batch, cf_pairs, rows, cols).reshape(batch * cf_pairs, rows, cols)
+            cf_states_flat = counterfactual_states.reshape(batch * cf_pairs, rows, cols)
+            cf_next_flat = counterfactual_next_boards.reshape(batch * cf_pairs, rows, cols)
+            cf_latents = self.encode_state(cf_states_flat, cf_context, cf_clue, cf_edit, cf_active)
+            if self.dynamics_target_mode == "online_no_stopgrad":
+                cf_targets = self.encode_state(cf_next_flat, cf_context, cf_clue, cf_edit, cf_active)
+            else:
+                with torch.no_grad():
+                    cf_targets = self.encode_state_target(cf_next_flat, cf_context, cf_clue, cf_edit, cf_active)
+            cf_predicted = self.predict_next(cf_latents, counterfactual_actions.reshape(batch * cf_pairs, 3), cf_context)
+            cf_error = self._dynamics_error(
+                cf_predicted.reshape(batch, cf_pairs, token_count, self.d_model),
+                cf_targets.reshape(batch, cf_pairs, token_count, self.d_model),
+                counterfactual_actions,
+                rows=rows,
+                cols=cols,
+            )
+            counterfactual_dynamics_loss = _masked_mean(cf_error, counterfactual_mask)
+
         hierarchy_terms = []
         hierarchy_dense_terms = []
         for level in self.hierarchy_levels:
@@ -1586,6 +1671,47 @@ class GridTokenGoalJEPA(nn.Module):
         else:
             goal_nce_loss = zero_loss
 
+        oracle_rows = torch.zeros_like(masks[:, 0], dtype=torch.bool) if oracle_mask is None else oracle_mask
+        waypoint_loss = zero_loss
+        waypoint_final_loss = zero_loss
+        if (self.waypoint_loss_weight > 0.0 or self.waypoint_final_weight > 0.0) and self.waypoint_horizons:
+            waypoint_terms = []
+            waypoint_final_terms = []
+            lengths = masks.long().sum(dim=1).clamp_min(1)
+            frame_ids = torch.arange(frames, device=boards.device)[None].expand(batch, frames)
+            flat_current = state_latents.reshape(batch * frames, token_count, self.d_model)
+            waypoint_pred_sequence = self.predict_waypoint(
+                flat_context,
+                flat_active,
+                flat_current.detach() if self.goal_conditioning_detach_state else flat_current,
+            ).reshape(batch, frames, token_count, self.d_model)
+            for horizon in self.waypoint_horizons:
+                target_ids = torch.minimum(frame_ids + int(horizon), (lengths - 1)[:, None])
+                gather_ids = target_ids[:, :, None, None].expand(batch, frames, token_count, self.d_model)
+                waypoint_target = torch.gather(target_state_latents, dim=1, index=gather_ids)
+                valid = masks & oracle_rows[:, None]
+                token_error = (waypoint_pred_sequence - waypoint_target.detach()).square().mean(dim=-1)
+                token_valid = latent_active_flat[:, None].expand(batch, frames, token_count) & valid[:, :, None]
+                waypoint_terms.append(_masked_mean(token_error, token_valid) / (float(horizon) ** 0.5))
+                if self.waypoint_final_weight > 0.0:
+                    final_targets = (frame_ids + int(horizon) >= lengths[:, None]).to(dtype=state_latents.dtype)
+                    final_logits = self.waypoint_final_head(
+                        _masked_summary(
+                            waypoint_pred_sequence.reshape(batch * frames, token_count, self.d_model),
+                            latent_active_flat[:, None].expand(batch, frames, token_count).reshape(batch * frames, token_count),
+                        )
+                    ).reshape(batch, frames)
+                    waypoint_final_terms.append(
+                        _masked_mean(
+                            F.binary_cross_entropy_with_logits(final_logits, final_targets, reduction="none"),
+                            valid,
+                        )
+                    )
+            if waypoint_terms:
+                waypoint_loss = torch.stack(waypoint_terms).mean()
+            if waypoint_final_terms:
+                waypoint_final_loss = torch.stack(waypoint_final_terms).mean()
+
         predicted_distances = self.distance(
             state_latents.reshape(batch * frames, token_count, self.d_model),
             predicted_goal_sequence.reshape(batch * frames, token_count, self.d_model),
@@ -1606,7 +1732,6 @@ class GridTokenGoalJEPA(nn.Module):
             )
         else:
             goal_distance_field_loss = zero_loss
-        oracle_rows = torch.zeros_like(masks[:, 0], dtype=torch.bool) if oracle_mask is None else oracle_mask
         progress_masks = masks & oracle_rows[:, None]
         if self.progress_rank_weight > 0.0:
             progress_rank_loss = self._progress_rank_objective(predicted_distances, oracle_distances, progress_masks)
@@ -1735,7 +1860,15 @@ class GridTokenGoalJEPA(nn.Module):
             metric_goal_weights = latent_active_flat[:, None].expand(batch, frames, token_count) & masks[:, :, None]
             metric_goal_mse_loss = _masked_mean(metric_goal_token_error, metric_goal_weights)
 
-        bad_labels = _sudoku_bad_state_labels(boards, goals)
+        needs_bad_labels = (
+            self.bad_state_weight > 0.0
+            or self.metric_bad_margin_weight > 0.0
+            or (self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "contrastive")
+        )
+        if needs_bad_labels:
+            bad_labels = _sudoku_bad_state_labels(boards, goals)
+        else:
+            bad_labels = torch.zeros_like(masks, dtype=torch.bool)
         bad_state_loss = zero_loss
         if self.bad_state_weight > 0.0:
             bad_logits = self.bad_state_logits(
@@ -1817,6 +1950,8 @@ class GridTokenGoalJEPA(nn.Module):
         loss = dynamics_loss
         if self.dense_future_weight > 0.0:
             loss = loss + self.dense_future_weight * dense_future_loss
+        if self.counterfactual_dynamics_weight > 0.0:
+            loss = loss + self.counterfactual_dynamics_weight * counterfactual_dynamics_loss
         if self.hierarchy_loss_weight > 0.0:
             loss = loss + self.hierarchy_loss_weight * hierarchy_loss
         if self.sigreg_weight > 0.0:
@@ -1827,6 +1962,10 @@ class GridTokenGoalJEPA(nn.Module):
             loss = loss + self.goal_nce_weight * goal_nce_loss
         if self.goal_distance_field_weight > 0.0:
             loss = loss + self.goal_distance_field_weight * goal_distance_field_loss
+        if self.waypoint_loss_weight > 0.0:
+            loss = loss + self.waypoint_loss_weight * waypoint_loss
+        if self.waypoint_final_weight > 0.0:
+            loss = loss + self.waypoint_final_weight * waypoint_final_loss
         if self.progress_rank_weight > 0.0:
             loss = loss + self.progress_rank_weight * progress_rank_loss
         if self.action_rank_weight > 0.0:
@@ -1851,11 +1990,14 @@ class GridTokenGoalJEPA(nn.Module):
             loss=loss,
             dynamics_loss=dynamics_loss.detach(),
             dense_future_loss=dense_future_loss.detach(),
+            counterfactual_dynamics_loss=counterfactual_dynamics_loss.detach(),
             hierarchy_loss=hierarchy_loss.detach(),
             sigreg_loss=sigreg_loss.detach(),
             goal_mse_loss=goal_mse_loss.detach(),
             goal_nce_loss=goal_nce_loss.detach(),
             goal_distance_field_loss=goal_distance_field_loss.detach(),
+            waypoint_loss=waypoint_loss.detach(),
+            waypoint_final_loss=waypoint_final_loss.detach(),
             progress_rank_loss=progress_rank_loss.detach(),
             action_rank_loss=action_rank_loss.detach(),
             policy_prior_loss=policy_prior_loss.detach(),
@@ -2156,10 +2298,22 @@ class GridTokenGoalJEPA(nn.Module):
             rows = action_sequence[..., 0].clamp(0, self.max_rows - 1)
             cols = action_sequence[..., 1].clamp(0, self.max_cols - 1)
             digits = action_sequence[..., 2].clamp(0, 9)
-            row_loss = F.cross_entropy(row_logits[valid_flat].reshape(-1, self.max_rows), rows[valid_flat].reshape(-1))
-            col_loss = F.cross_entropy(col_logits[valid_flat].reshape(-1, self.max_cols), cols[valid_flat].reshape(-1))
-            digit_loss = F.cross_entropy(digit_logits[valid_flat].reshape(-1, 10), digits[valid_flat].reshape(-1))
-            terms.append((row_loss + col_loss + digit_loss) / 3.0)
+            if self.delta_action_mode == "set" and horizon > 1:
+                terms.append(
+                    _order_invariant_action_sequence_loss(
+                        row_logits[valid_flat],
+                        col_logits[valid_flat],
+                        digit_logits[valid_flat],
+                        rows[valid_flat],
+                        cols[valid_flat],
+                        digits[valid_flat],
+                    )
+                )
+            else:
+                row_loss = F.cross_entropy(row_logits[valid_flat].reshape(-1, self.max_rows), rows[valid_flat].reshape(-1))
+                col_loss = F.cross_entropy(col_logits[valid_flat].reshape(-1, self.max_cols), cols[valid_flat].reshape(-1))
+                digit_loss = F.cross_entropy(digit_logits[valid_flat].reshape(-1, 10), digits[valid_flat].reshape(-1))
+                terms.append((row_loss + col_loss + digit_loss) / 3.0)
         if not terms:
             return state_latents.sum() * 0.0
         return torch.stack(terms).mean()
@@ -2276,6 +2430,13 @@ class GridTokenGoalJEPA(nn.Module):
                 raise ValueError("AdaLN action conditioning requires an action embedding.")
             scale, shift = self.action_film(action_embedding).chunk(2, dim=-1)
             return state_latent * (1.0 + scale.unsqueeze(-2)) + shift.unsqueeze(-2)
+        if self.action_conditioning == "affected_marker_adaln":
+            if action_embedding is None:
+                raise ValueError("Affected-marker AdaLN action conditioning requires an action embedding.")
+            marker = self.affected_marker.to(dtype=state_latent.dtype, device=state_latent.device).expand_as(state_latent[:, 0])
+            conditioned = _add_at_action_positions(state_latent, action, marker, rows=self.max_rows, cols=self.max_cols)
+            scale, shift = self.action_film(action_embedding).chunk(2, dim=-1)
+            return conditioned * (1.0 + scale.unsqueeze(-2)) + shift.unsqueeze(-2)
         if self.action_conditioning == "old_local_value":
             values = self._old_local_action_values(action, state_latent.dtype)
             return _add_at_action_positions(state_latent, action, values, rows=self.max_rows, cols=self.max_cols)
@@ -2614,6 +2775,39 @@ def _distance_field_distillation_loss(
     if not losses:
         return predicted_distances.sum() * 0.0
     return torch.stack(losses).mean()
+
+
+def _order_invariant_action_sequence_loss(
+    row_logits: torch.Tensor,
+    col_logits: torch.Tensor,
+    digit_logits: torch.Tensor,
+    rows: torch.Tensor,
+    cols: torch.Tensor,
+    digits: torch.Tensor,
+) -> torch.Tensor:
+    if row_logits.ndim != 3 or rows.ndim != 2:
+        raise ValueError("Order-invariant LDAD expects logits [batch, steps, classes] and labels [batch, steps].")
+    batch, steps = rows.shape
+    if steps <= 1:
+        row_loss = F.cross_entropy(row_logits.reshape(-1, row_logits.shape[-1]), rows.reshape(-1))
+        col_loss = F.cross_entropy(col_logits.reshape(-1, col_logits.shape[-1]), cols.reshape(-1))
+        digit_loss = F.cross_entropy(digit_logits.reshape(-1, digit_logits.shape[-1]), digits.reshape(-1))
+        return (row_loss + col_loss + digit_loss) / 3.0
+    row_logp = F.log_softmax(row_logits, dim=-1)
+    col_logp = F.log_softmax(col_logits, dim=-1)
+    digit_logp = F.log_softmax(digit_logits, dim=-1)
+    row_cost = -row_logp.gather(2, rows[:, None, :].expand(batch, steps, steps))
+    col_cost = -col_logp.gather(2, cols[:, None, :].expand(batch, steps, steps))
+    digit_cost = -digit_logp.gather(2, digits[:, None, :].expand(batch, steps, steps))
+    pair_cost = (row_cost + col_cost + digit_cost) / 3.0
+    permutations = torch.as_tensor(
+        list(itertools.permutations(range(steps))),
+        dtype=torch.long,
+        device=pair_cost.device,
+    )
+    query_ids = torch.arange(steps, device=pair_cost.device)
+    assignment_costs = pair_cost[:, query_ids[None], permutations].mean(dim=-1)
+    return assignment_costs.min(dim=-1).values.mean()
 
 
 def _temporal_straightening_loss(

@@ -17,6 +17,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     run_categorical_cem_mpc,
     run_hierarchical_beam_mpc,
     run_hierarchical_cem_mpc,
+    run_waypoint_beam_mpc,
 )
 
 
@@ -104,6 +105,8 @@ def run_planner_matrix(
     high_cem_temperature: float = 1.0,
     high_cem_codebook: str = "none",
     high_cem_codebook_size: int = 0,
+    allow_overwrite: bool = False,
+    waypoint_horizon: int = 8,
 ) -> list[dict[str, Any]]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = _read_completed_matrix_keys(output_path)
@@ -115,7 +118,15 @@ def run_planner_matrix(
                 for score in scores:
                     for beam_width in beam_widths:
                         for beam_depth in beam_depths:
-                            key = (planner, transition, score, beam_width, beam_depth)
+                            key = (
+                                planner,
+                                transition,
+                                score,
+                                beam_width,
+                                beam_depth,
+                                bool(allow_overwrite),
+                                int(waypoint_horizon) if str(planner).startswith("waypoint_") else 0,
+                            )
                             if key in completed:
                                 continue
                             solved = 0
@@ -135,6 +146,7 @@ def run_planner_matrix(
                                         beam_depth=beam_depth,
                                         max_steps=max_steps,
                                         device=device,
+                                        allow_overwrite=allow_overwrite,
                                     )
                                 elif planner == "categorical_cem":
                                     result = run_categorical_cem_mpc(
@@ -152,6 +164,7 @@ def run_planner_matrix(
                                         cem_elites=cem_elites,
                                         cem_momentum=cem_momentum,
                                         seed=example_index,
+                                        allow_overwrite=allow_overwrite,
                                     )
                                 elif planner == "hierarchical_cem":
                                     result = run_hierarchical_cem_mpc(
@@ -178,6 +191,7 @@ def run_planner_matrix(
                                         high_cem_codebook=high_cem_codebook,
                                         high_cem_codebook_size=high_cem_codebook_size,
                                         seed=example_index,
+                                        allow_overwrite=allow_overwrite,
                                     )
                                 elif planner == "hierarchical_beam":
                                     result = run_hierarchical_beam_mpc(
@@ -190,6 +204,37 @@ def run_planner_matrix(
                                         beam_depth=beam_depth,
                                         max_steps=max_steps,
                                         device=device,
+                                        allow_overwrite=allow_overwrite,
+                                    )
+                                elif planner == "waypoint_beam":
+                                    result = run_waypoint_beam_mpc(
+                                        model,
+                                        example.state,
+                                        example.goal,
+                                        score_mode=score,  # type: ignore[arg-type]
+                                        transition_mode=transition,  # type: ignore[arg-type]
+                                        beam_width=beam_width,
+                                        beam_depth=beam_depth,
+                                        max_steps=max_steps,
+                                        device=device,
+                                        allow_overwrite=allow_overwrite,
+                                        waypoint_horizon=waypoint_horizon,
+                                        hierarchical=False,
+                                    )
+                                elif planner == "waypoint_hierarchical_beam":
+                                    result = run_waypoint_beam_mpc(
+                                        model,
+                                        example.state,
+                                        example.goal,
+                                        score_mode=score,  # type: ignore[arg-type]
+                                        transition_mode=transition,  # type: ignore[arg-type]
+                                        beam_width=beam_width,
+                                        beam_depth=beam_depth,
+                                        max_steps=max_steps,
+                                        device=device,
+                                        allow_overwrite=allow_overwrite,
+                                        waypoint_horizon=waypoint_horizon,
+                                        hierarchical=True,
                                     )
                                 else:
                                     raise ValueError(f"Unknown planner {planner!r}.")
@@ -214,6 +259,8 @@ def run_planner_matrix(
                                 "high_cem_optimizer": high_cem_optimizer if planner == "hierarchical_cem" else "",
                                 "high_cem_codebook": high_cem_codebook if planner == "hierarchical_cem" else "",
                                 "high_cem_codebook_size": int(high_cem_codebook_size) if planner == "hierarchical_cem" else 0,
+                                "allow_overwrite": bool(allow_overwrite),
+                                "waypoint_horizon": int(waypoint_horizon) if str(planner).startswith("waypoint_") else 0,
                             }
                             handle.write(json.dumps(record, sort_keys=True) + "\n")
                             handle.flush()
@@ -233,10 +280,10 @@ def _ensure_append_starts_on_new_line(path: Path) -> None:
             handle.write(b"\n")
 
 
-def _read_completed_matrix_keys(path: Path) -> set[tuple[str, str, str, int, int]]:
+def _read_completed_matrix_keys(path: Path) -> set[tuple[str, str, str, int, int, bool, int]]:
     if not path.is_file():
         return set()
-    completed: set[tuple[str, str, str, int, int]] = set()
+    completed: set[tuple[str, str, str, int, int, bool, int]] = set()
     with path.open() as handle:
         for line in handle:
             text = line.strip()
@@ -250,13 +297,15 @@ def _read_completed_matrix_keys(path: Path) -> set[tuple[str, str, str, int, int
     return completed
 
 
-def _matrix_key(record: dict[str, Any]) -> tuple[str, str, str, int, int]:
+def _matrix_key(record: dict[str, Any]) -> tuple[str, str, str, int, int, bool, int]:
     return (
         str(record["planner"]),
         str(record["transition_mode"]),
         str(record["score_mode"]),
         int(record["beam_width"]),
         int(record["beam_depth"]),
+        bool(record.get("allow_overwrite", False)),
+        int(record.get("waypoint_horizon", 0)),
     )
 
 
@@ -284,6 +333,8 @@ def main() -> None:
     parser.add_argument("--high-cem-temperature", type=float, default=1.0)
     parser.add_argument("--high-cem-codebook", choices=("none", "init"), default="none")
     parser.add_argument("--high-cem-codebook-size", type=int, default=0)
+    parser.add_argument("--allow-overwrite", action="store_true")
+    parser.add_argument("--waypoint-horizon", type=int, default=8)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--skip-diagnostics", action="store_true")
     args = parser.parse_args()
@@ -321,6 +372,8 @@ def main() -> None:
         high_cem_temperature=args.high_cem_temperature,
         high_cem_codebook=args.high_cem_codebook,
         high_cem_codebook_size=args.high_cem_codebook_size,
+        allow_overwrite=bool(args.allow_overwrite),
+        waypoint_horizon=int(args.waypoint_horizon),
     )
     print(json.dumps({"records": len(records), "output": str(args.output_dir)}, sort_keys=True), flush=True)
 

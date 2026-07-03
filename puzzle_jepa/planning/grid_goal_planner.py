@@ -7,7 +7,7 @@ from typing import Literal
 import numpy as np
 import torch
 
-from puzzle_jepa.data.grid_goal_sudoku import apply_fill_action, legal_fill_actions
+from puzzle_jepa.data.grid_goal_sudoku import apply_fill_action, apply_sudoku_action, legal_fill_actions, legal_sudoku_actions
 from puzzle_jepa.data.worlds import WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights
 
@@ -41,9 +41,11 @@ ScoreMode = Literal[
     "predicted_goal_projected_euclidean_distance",
     "success_metric_distance",
     "terminal_value",
+    "oracle_waypoint_raw_euclidean_distance",
+    "predicted_waypoint_raw_euclidean_distance",
 ]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
-PlannerMode = Literal["mpc_beam", "categorical_cem", "hierarchical_cem", "hierarchical_beam"]
+PlannerMode = Literal["mpc_beam", "categorical_cem", "hierarchical_cem", "hierarchical_beam", "waypoint_beam", "waypoint_hierarchical_beam"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +81,12 @@ def capped_horizon(requested: int, board: np.ndarray) -> int:
     return min(max(1, int(requested)), blanks)
 
 
+def planning_horizon(requested: int, board: np.ndarray, *, allow_overwrite: bool) -> int:
+    if allow_overwrite:
+        return max(1, int(requested))
+    return capped_horizon(requested, board)
+
+
 @torch.no_grad()
 def run_beam_mpc(
     model: GridTokenGoalJEPA,
@@ -91,12 +99,13 @@ def run_beam_mpc(
     beam_depth: int,
     max_steps: int = 81,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> BeamMPCResult:
     start = time.time()
     model.eval()
     current = np.asarray(puzzle, dtype=np.int64).copy()
     actions_taken: list[WorldAction] = []
-    clue_mask = current != 0
+    clue_mask = np.asarray(puzzle, dtype=np.int64) != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
     context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
@@ -104,9 +113,9 @@ def run_beam_mpc(
     )
     action_evals = 0
     for _ in range(max_steps):
-        if np.array_equal(current, goal) or not np.any(current == 0):
+        if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
             break
-        depth = capped_horizon(beam_depth, current)
+        depth = planning_horizon(beam_depth, current, allow_overwrite=allow_overwrite)
         if depth <= 0:
             break
         predicted_goal = _predict_goal_for_board(
@@ -134,12 +143,19 @@ def run_beam_mpc(
             beam_width=beam_width,
             beam_depth=depth,
             device=device,
+            allow_overwrite=allow_overwrite,
         )
         action_evals += evals
         if first is None:
             break
         try:
-            current = apply_fill_action(current, first, allow_conflicts=True)
+            current = apply_sudoku_action(
+                current,
+                first,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            )
         except ValueError:
             break
         actions_taken.append(first)
@@ -175,6 +191,7 @@ def run_categorical_cem_mpc(
     cem_elites: int = 16,
     cem_momentum: float = 0.7,
     seed: int = 0,
+    allow_overwrite: bool = False,
 ) -> BeamMPCResult:
     del beam_width
     start = time.time()
@@ -182,7 +199,7 @@ def run_categorical_cem_mpc(
     model.eval()
     current = np.asarray(puzzle, dtype=np.int64).copy()
     actions_taken: list[WorldAction] = []
-    clue_mask = current != 0
+    clue_mask = np.asarray(puzzle, dtype=np.int64) != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
     context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
@@ -190,9 +207,9 @@ def run_categorical_cem_mpc(
     )
     action_evals = 0
     for _ in range(max_steps):
-        if np.array_equal(current, goal) or not np.any(current == 0):
+        if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
             break
-        depth = capped_horizon(beam_depth, current)
+        depth = planning_horizon(beam_depth, current, allow_overwrite=allow_overwrite)
         if depth <= 0:
             break
         predicted_goal = _predict_goal_for_board(
@@ -204,6 +221,7 @@ def run_categorical_cem_mpc(
             editable_mask,
             active_mask,
             device=device,
+            allow_overwrite=allow_overwrite,
         )
         first, evals = categorical_cem_plan_once(
             model,
@@ -224,12 +242,19 @@ def run_categorical_cem_mpc(
             momentum=cem_momentum,
             rng=rng,
             device=device,
+            allow_overwrite=allow_overwrite,
         )
         action_evals += evals
         if first is None:
             break
         try:
-            current = apply_fill_action(current, first, allow_conflicts=True)
+            current = apply_sudoku_action(
+                current,
+                first,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            )
         except ValueError:
             break
         actions_taken.append(first)
@@ -274,6 +299,7 @@ def run_hierarchical_cem_mpc(
     high_cem_codebook: str = "none",
     high_cem_codebook_size: int = 0,
     seed: int = 0,
+    allow_overwrite: bool = False,
 ) -> BeamMPCResult:
     del beam_width
     if not model.hierarchy_levels:
@@ -283,7 +309,7 @@ def run_hierarchical_cem_mpc(
     model.eval()
     current = np.asarray(puzzle, dtype=np.int64).copy()
     actions_taken: list[WorldAction] = []
-    clue_mask = current != 0
+    clue_mask = np.asarray(puzzle, dtype=np.int64) != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
     context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
@@ -291,9 +317,9 @@ def run_hierarchical_cem_mpc(
     )
     action_evals = 0
     for _ in range(max_steps):
-        if np.array_equal(current, goal) or not np.any(current == 0):
+        if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
             break
-        depth = capped_horizon(beam_depth, current)
+        depth = planning_horizon(beam_depth, current, allow_overwrite=allow_overwrite)
         if depth <= 0:
             break
         predicted_goal = _predict_goal_for_board(
@@ -305,6 +331,7 @@ def run_hierarchical_cem_mpc(
             editable_mask,
             active_mask,
             device=device,
+            allow_overwrite=allow_overwrite,
         )
         _, current_latent = score_board(
             model,
@@ -370,7 +397,13 @@ def run_hierarchical_cem_mpc(
         if first is None:
             break
         try:
-            current = apply_fill_action(current, first, allow_conflicts=True)
+            current = apply_sudoku_action(
+                current,
+                first,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            )
         except ValueError:
             break
         actions_taken.append(first)
@@ -401,6 +434,7 @@ def run_hierarchical_beam_mpc(
     beam_depth: int,
     max_steps: int = 81,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> BeamMPCResult:
     if not model.hierarchy_levels:
         raise ValueError("hierarchical_beam requires a checkpoint trained with hierarchy_levels.")
@@ -408,7 +442,7 @@ def run_hierarchical_beam_mpc(
     model.eval()
     current = np.asarray(puzzle, dtype=np.int64).copy()
     actions_taken: list[WorldAction] = []
-    clue_mask = current != 0
+    clue_mask = np.asarray(puzzle, dtype=np.int64) != 0
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
     context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
@@ -416,9 +450,9 @@ def run_hierarchical_beam_mpc(
     )
     action_evals = 0
     for _ in range(max_steps):
-        if np.array_equal(current, goal) or not np.any(current == 0):
+        if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
             break
-        depth = capped_horizon(beam_depth, current)
+        depth = planning_horizon(beam_depth, current, allow_overwrite=allow_overwrite)
         if depth <= 0:
             break
         predicted_goal = _predict_goal_for_board(
@@ -430,6 +464,7 @@ def run_hierarchical_beam_mpc(
             editable_mask,
             active_mask,
             device=device,
+            allow_overwrite=allow_overwrite,
         )
         _, current_latent = score_board(
             model,
@@ -460,6 +495,7 @@ def run_hierarchical_beam_mpc(
                 level=level,
                 beam_width=beam_width,
                 device=device,
+                allow_overwrite=allow_overwrite,
             )
             action_evals += evals
         first, evals = beam_plan_once(
@@ -482,7 +518,13 @@ def run_hierarchical_beam_mpc(
         if first is None:
             break
         try:
-            current = apply_fill_action(current, first, allow_conflicts=True)
+            current = apply_sudoku_action(
+                current,
+                first,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            )
         except ValueError:
             break
         actions_taken.append(first)
@@ -502,6 +544,196 @@ def run_hierarchical_beam_mpc(
 
 
 @torch.no_grad()
+def run_waypoint_beam_mpc(
+    model: GridTokenGoalJEPA,
+    puzzle: np.ndarray,
+    goal: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    transition_mode: TransitionMode,
+    beam_width: int,
+    beam_depth: int,
+    max_steps: int = 81,
+    device: torch.device,
+    allow_overwrite: bool = False,
+    waypoint_horizon: int = 8,
+    hierarchical: bool = False,
+) -> BeamMPCResult:
+    if hierarchical and not model.hierarchy_levels:
+        raise ValueError("waypoint_hierarchical_beam requires a checkpoint trained with hierarchy_levels.")
+    start = time.time()
+    model.eval()
+    current = np.asarray(puzzle, dtype=np.int64).copy()
+    actions_taken: list[WorldAction] = []
+    clue_mask = np.asarray(puzzle, dtype=np.int64) != 0
+    editable_mask = ~clue_mask
+    active_mask = np.ones((9, 9), dtype=bool)
+    context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
+        model, current, goal, clue_mask, editable_mask, active_mask, device=device
+    )
+    del predicted_goal, oracle_goal, initial_latents
+    action_evals = 0
+    for _ in range(max_steps):
+        if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
+            break
+        depth = planning_horizon(beam_depth, current, allow_overwrite=allow_overwrite)
+        if depth <= 0:
+            break
+        if str(score_mode).startswith("oracle_waypoint_"):
+            waypoint = _oracle_future_waypoint_latents(
+                model,
+                current,
+                goal,
+                context_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                horizon=waypoint_horizon,
+                device=device,
+            )
+        else:
+            waypoint = _predict_waypoint_for_board(
+                model,
+                current,
+                context_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
+            )
+        if hierarchical:
+            first, evals = _waypoint_hierarchical_beam_once(
+                model,
+                current,
+                goal,
+                context_latents,
+                waypoint,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                transition_mode=transition_mode,
+                beam_width=beam_width,
+                beam_depth=depth,
+                device=device,
+                allow_overwrite=allow_overwrite,
+            )
+        else:
+            first, evals = beam_plan_once(
+                model,
+                current,
+                goal,
+                context_latents,
+                waypoint,
+                waypoint,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                score_mode="oracle_goal_raw_euclidean_distance",
+                transition_mode=transition_mode,
+                beam_width=beam_width,
+                beam_depth=depth,
+                device=device,
+                allow_overwrite=allow_overwrite,
+            )
+        action_evals += evals
+        if first is None:
+            break
+        try:
+            current = apply_sudoku_action(
+                current,
+                first,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            )
+        except ValueError:
+            break
+        actions_taken.append(first)
+    return BeamMPCResult(
+        solved=bool(np.array_equal(current, goal)),
+        steps=len(actions_taken),
+        remaining_hamming=hamming_distance(current, goal),
+        actions=actions_taken,
+        final_board=current,
+        score_mode=score_mode,
+        transition_mode=transition_mode,
+        beam_width=beam_width,
+        beam_depth=beam_depth,
+        action_evals=action_evals,
+        elapsed_seconds=time.time() - start,
+    )
+
+
+@torch.no_grad()
+def _waypoint_hierarchical_beam_once(
+    model: GridTokenGoalJEPA,
+    current: np.ndarray,
+    goal: np.ndarray,
+    context_latents: torch.Tensor,
+    waypoint: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    transition_mode: TransitionMode,
+    beam_width: int,
+    beam_depth: int,
+    device: torch.device,
+    allow_overwrite: bool,
+) -> tuple[WorldAction | None, int]:
+    _, current_latent = score_board(
+        model,
+        current,
+        context_latents,
+        waypoint,
+        waypoint,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        score_mode="oracle_goal_raw_euclidean_distance",
+        device=device,
+    )
+    subgoal = waypoint
+    action_evals = 0
+    high_levels = tuple(level for level in sorted(model.hierarchy_levels, reverse=True) if level <= beam_depth)
+    for level in high_levels:
+        subgoal, evals = hierarchical_subgoal_beam(
+            model,
+            current,
+            current_latent,
+            subgoal,
+            context_latents,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            score_mode="oracle_goal_raw_euclidean_distance",
+            level=level,
+            beam_width=beam_width,
+            device=device,
+            allow_overwrite=allow_overwrite,
+        )
+        action_evals += evals
+    first, evals = beam_plan_once(
+        model,
+        current,
+        goal,
+        context_latents,
+        subgoal,
+        subgoal,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        score_mode="oracle_goal_raw_euclidean_distance",
+        transition_mode=transition_mode,
+        beam_width=beam_width,
+        beam_depth=min(beam_depth, min(high_levels) if high_levels else beam_depth),
+        device=device,
+        allow_overwrite=allow_overwrite,
+    )
+    return first, action_evals + evals
+
+
+@torch.no_grad()
 def hierarchical_subgoal_beam(
     model: GridTokenGoalJEPA,
     board: np.ndarray,
@@ -516,6 +748,7 @@ def hierarchical_subgoal_beam(
     level: int,
     beam_width: int,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> tuple[torch.Tensor, int]:
     candidates, evals = _latent_beam_candidates(
         model,
@@ -523,11 +756,13 @@ def hierarchical_subgoal_beam(
         start_latent,
         context_latents,
         goal_latent,
+        clue_mask,
         active_mask,
         score_mode=_subgoal_score_mode(score_mode),  # type: ignore[arg-type]
         beam_width=beam_width,
         beam_depth=level,
         device=device,
+        allow_overwrite=allow_overwrite,
     )
     if not candidates:
         return goal_latent, evals
@@ -569,8 +804,9 @@ def beam_plan_once(
     beam_width: int,
     beam_depth: int,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> tuple[WorldAction | None, int]:
-    depth = capped_horizon(beam_depth, board)
+    depth = planning_horizon(beam_depth, board, allow_overwrite=allow_overwrite)
     if depth <= 0:
         return None, 0
     if transition_mode == "symbolic_reencode":
@@ -587,6 +823,7 @@ def beam_plan_once(
             beam_width=beam_width,
             beam_depth=depth,
             device=device,
+            allow_overwrite=allow_overwrite,
         )
     return _beam_plan_once_latent(
         model,
@@ -594,11 +831,14 @@ def beam_plan_once(
         context_latents,
         predicted_goal,
         oracle_goal,
+        clue_mask,
+        editable_mask,
         active_mask,
         score_mode=score_mode,
         beam_width=beam_width,
         beam_depth=depth,
         device=device,
+        allow_overwrite=allow_overwrite,
     )
 
 
@@ -623,9 +863,10 @@ def categorical_cem_plan_once(
     momentum: float,
     rng: np.random.Generator,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> tuple[WorldAction | None, int]:
     del goal
-    horizon = capped_horizon(horizon, board)
+    horizon = planning_horizon(horizon, board, allow_overwrite=allow_overwrite)
     if horizon <= 0:
         return None, 0
     samples = max(1, int(samples))
@@ -637,7 +878,14 @@ def categorical_cem_plan_once(
     best_first: WorldAction | None = None
     action_evals = 0
     for _ in range(iterations):
-        seq_ids, final_boards = _sample_categorical_action_sequences(board, probs, samples=samples, rng=rng)
+        seq_ids, final_boards = _sample_categorical_action_sequences(
+            board,
+            probs,
+            clue_mask=clue_mask,
+            allow_overwrite=allow_overwrite,
+            samples=samples,
+            rng=rng,
+        )
         scores = _score_cem_sequences(
             model,
             board,
@@ -692,6 +940,7 @@ def hierarchical_subgoal_cem(
     codebook_size: int = 0,
     rng: np.random.Generator,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> tuple[torch.Tensor, int]:
     level = int(level)
     macro_horizon = max(1, int(macro_horizon))
@@ -825,16 +1074,17 @@ def _beam_plan_once_latent(
     context_latents: torch.Tensor,
     predicted_goal: torch.Tensor,
     oracle_goal: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
     active_mask: np.ndarray,
     *,
     score_mode: ScoreMode,
     beam_width: int,
     beam_depth: int,
     device: torch.device,
+    allow_overwrite: bool = False,
     chunk_size: int = 2048,
 ) -> tuple[WorldAction | None, int]:
-    clue_mask = board != 0
-    editable_mask = ~clue_mask
     _, start_latent = score_board(
         model,
         board,
@@ -865,9 +1115,20 @@ def _beam_plan_once_latent(
         for _, node_board, seq, latent, history in beam:
             if latent is None:
                 raise RuntimeError("Latent rollout beam node is missing its latent state.")
-            for action in legal_fill_actions(node_board, allow_conflicts=True):
+            for action in legal_sudoku_actions(
+                node_board,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            ):
                 try:
-                    leaf = apply_fill_action(node_board, action, allow_conflicts=True)
+                    leaf = apply_sudoku_action(
+                        node_board,
+                        action,
+                        clue_mask=clue_mask,
+                        allow_conflicts=True,
+                        allow_overwrite=allow_overwrite,
+                    )
                 except ValueError:
                     continue
                 parent_latents.append(latent)
@@ -962,12 +1223,14 @@ def _latent_beam_candidates(
     start_latent: torch.Tensor,
     context_latents: torch.Tensor,
     target_goal: torch.Tensor,
+    clue_mask: np.ndarray,
     active_mask: np.ndarray,
     *,
     score_mode: ScoreMode,
     beam_width: int,
     beam_depth: int,
     device: torch.device,
+    allow_overwrite: bool = False,
     chunk_size: int = 2048,
 ) -> tuple[list[tuple[float, list[WorldAction], torch.Tensor]], int]:
     use_history = _uses_single_state_history(model, start_latent)
@@ -984,9 +1247,20 @@ def _latent_beam_candidates(
         seqs: list[list[WorldAction]] = []
         actions: list[WorldAction] = []
         for _, node_board, seq, latent, history in beam:
-            for action in legal_fill_actions(node_board, allow_conflicts=True):
+            for action in legal_sudoku_actions(
+                node_board,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            ):
                 try:
-                    leaf = apply_fill_action(node_board, action, allow_conflicts=True)
+                    leaf = apply_sudoku_action(
+                        node_board,
+                        action,
+                        clue_mask=clue_mask,
+                        allow_conflicts=True,
+                        allow_overwrite=allow_overwrite,
+                    )
                 except ValueError:
                     continue
                 parent_latents.append(latent)
@@ -1083,6 +1357,7 @@ def _beam_plan_once_symbolic(
     beam_width: int,
     beam_depth: int,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> tuple[WorldAction | None, int]:
     beam: list[tuple[float, np.ndarray, list[WorldAction], torch.Tensor | None]] = [(0.0, board.copy(), [], None)]
     best: tuple[float, list[WorldAction]] | None = None
@@ -1110,9 +1385,20 @@ def _beam_plan_once_symbolic(
                     score_mode=base_progress_mode,  # type: ignore[arg-type]
                     device=device,
                 )
-            for action in legal_fill_actions(node_board, allow_conflicts=True):
+            for action in legal_sudoku_actions(
+                node_board,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            ):
                 try:
-                    leaf = apply_fill_action(node_board, action, allow_conflicts=True)
+                    leaf = apply_sudoku_action(
+                        node_board,
+                        action,
+                        clue_mask=clue_mask,
+                        allow_conflicts=True,
+                        allow_overwrite=allow_overwrite,
+                    )
                 except ValueError:
                     continue
                 parent_boards.append(node_board)
@@ -1313,6 +1599,8 @@ def _sample_categorical_action_sequences(
     board: np.ndarray,
     probs: np.ndarray,
     *,
+    clue_mask: np.ndarray | None = None,
+    allow_overwrite: bool = False,
     samples: int,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, list[np.ndarray]]:
@@ -1322,7 +1610,7 @@ def _sample_categorical_action_sequences(
     for sample in range(samples):
         current = np.asarray(board, dtype=np.int64).copy()
         for step in range(horizon):
-            valid = _valid_action_vocab_mask(current)
+            valid = _valid_action_vocab_mask(current, clue_mask=clue_mask, allow_overwrite=allow_overwrite)
             if not bool(valid.any()):
                 seq_ids[sample, step:] = seq_ids[sample, max(0, step - 1)]
                 break
@@ -1333,17 +1621,33 @@ def _sample_categorical_action_sequences(
             action_id = int(rng.choice(len(ACTION_VOCAB), p=step_probs))
             seq_ids[sample, step] = action_id
             try:
-                current = apply_fill_action(current, ACTION_VOCAB[action_id], allow_conflicts=True)
+                current = apply_sudoku_action(
+                    current,
+                    ACTION_VOCAB[action_id],
+                    clue_mask=clue_mask,
+                    allow_conflicts=True,
+                    allow_overwrite=allow_overwrite,
+                )
             except ValueError:
                 pass
         final_boards.append(current)
     return seq_ids, final_boards
 
 
-def _valid_action_vocab_mask(board: np.ndarray) -> np.ndarray:
+def _valid_action_vocab_mask(
+    board: np.ndarray,
+    *,
+    clue_mask: np.ndarray | None = None,
+    allow_overwrite: bool = False,
+) -> np.ndarray:
     mask = np.zeros((len(ACTION_VOCAB),), dtype=bool)
     for index, action in enumerate(ACTION_VOCAB):
-        mask[index] = bool(board[action.row, action.col] == 0)
+        if clue_mask is not None and bool(clue_mask[action.row, action.col]):
+            mask[index] = False
+        elif allow_overwrite:
+            mask[index] = int(board[action.row, action.col]) != int(action.value)
+        else:
+            mask[index] = bool(board[action.row, action.col] == 0)
     return mask
 
 
@@ -1708,7 +2012,9 @@ def _predict_goal_for_board(
     active_mask: np.ndarray,
     *,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> torch.Tensor:
+    del allow_overwrite
     active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
     if model.goal_conditioning not in {"initial_current", "context_current"}:
         return model.predict_goal(context_latents, active_t)
@@ -1721,4 +2027,53 @@ def _predict_goal_for_board(
         active_t,
         initial_latents=initial_latents if model.goal_conditioning == "initial_current" else None,
         current_latents=current_latents,
+    )
+
+
+@torch.no_grad()
+def _predict_waypoint_for_board(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    context_latents: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    device: torch.device,
+) -> torch.Tensor:
+    board_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
+    clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device)
+    edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
+    active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+    current_latents = model.encode_state(board_t, context_latents, clue_t, edit_t, active_t)
+    return model.predict_waypoint(context_latents, active_t, current_latents)
+
+
+@torch.no_grad()
+def _oracle_future_waypoint_latents(
+    model: GridTokenGoalJEPA,
+    board: np.ndarray,
+    goal: np.ndarray,
+    context_latents: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    horizon: int,
+    device: torch.device,
+) -> torch.Tensor:
+    waypoint = np.asarray(board, dtype=np.int64).copy()
+    target = np.asarray(goal, dtype=np.int64)
+    editable = ~np.asarray(clue_mask, dtype=bool)
+    differing = np.argwhere(editable & (waypoint != target))
+    for row, col in differing[: max(0, int(horizon))]:
+        waypoint[int(row), int(col)] = int(target[int(row), int(col)])
+    return encode_boards(
+        model,
+        [waypoint],
+        context_latents,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        device=device,
     )

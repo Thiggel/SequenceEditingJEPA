@@ -1,0 +1,124 @@
+{
+  "name": "grid_goal_weekend_cf_edit_waypoint",
+  "run_family": "grid_goal_weekend",
+  "research_questions": [
+    "Does counterfactual branching improve action dependence and latent-rollout top-action accuracy?",
+    "Does making non-given cells editable reduce the irreversibility/asymmetric-distance failure mode?",
+    "Which action conditioning works best once counterfactual branches and editable repairs are present?",
+    "Does receding-horizon waypoint prediction beat one-shot terminal predicted-goal planning?",
+    "Do asymmetric source/goal projections or value-guided quasi-distance improve non-oracle planning?",
+    "Can Delta-JEPA work once data coverage and action conditioning are fixed?",
+    "Which isolated winners combine constructively in an integrated recipe?"
+  ],
+  "oversight": {
+    "cadence_hours": 6,
+    "allowed_autonomy": [
+      "summarize results and update report docs",
+      "resubmit mechanical failures with the same variant",
+      "split slow evals into smaller independent evals",
+      "launch small manifest-scoped tuning follow-ups after all planned rows for a stage complete"
+    ],
+    "forbidden_autonomy": [
+      "invent unrelated architectures",
+      "drop the single-CLS paired variant for any Delta-JEPA follow-up",
+      "cancel active jobs without an explicit supersession reason recorded in LOG.md"
+    ]
+  },
+  "stages": [
+    {
+      "id": "S",
+      "name": "data_action_smoke",
+      "variants": [
+        "S0_anchor_olddata",
+        "S1_counterfactual_fill",
+        "S2_counterfactual_edit",
+        "S3_counterfactual_edit_adaln",
+        "S4_counterfactual_edit_oldlocal"
+      ],
+      "gate": {
+        "min_required_rows_fraction": 1.0,
+        "promote_if_oracle_latent_solved_at_least": 6,
+        "examples": 8
+      }
+    },
+    {
+      "id": "E",
+      "name": "ema_vicreg_hierarchy_waypoint",
+      "variants": [
+        "E0_base_cf_edit",
+        "E1_hierarchy_l4_l8_l16",
+        "E2_waypoint_h8",
+        "E3_waypoint_h16",
+        "E4_waypoint_h4_h8_h16",
+        "E5_waypoint_h16_hierarchy"
+      ],
+      "gate": {
+        "promote_if_predicted_waypoint_hamming_below": 20.0,
+        "examples": 8
+      }
+    },
+    {
+      "id": "D",
+      "name": "delta_jepa_paired",
+      "requires_paired_latents": true,
+      "base_variants": [
+        "D0_online_h1",
+        "D1_online_ordered_h12345",
+        "D2_online_set_h12345",
+        "D3_hybrid_ema_h1",
+        "D4_hybrid_ema_set_h12345",
+        "D5_ema_vicreg_no_ldad"
+      ],
+      "variants": [
+        "D0_online_h1_grid",
+        "D0_online_h1_single",
+        "D1_online_ordered_h12345_grid",
+        "D1_online_ordered_h12345_single",
+        "D2_online_set_h12345_grid",
+        "D2_online_set_h12345_single",
+        "D3_hybrid_ema_h1_grid",
+        "D3_hybrid_ema_h1_single",
+        "D4_hybrid_ema_set_h12345_grid",
+        "D4_hybrid_ema_set_h12345_single",
+        "D5_ema_vicreg_no_ldad_grid",
+        "D5_ema_vicreg_no_ldad_single"
+      ],
+      "gate": {
+        "promote_paper_pure_if_nonzero_oracle_latent_solve": true,
+        "require_latent_std_above": 0.05,
+        "examples": 8
+      }
+    },
+    {
+      "id": "V",
+      "name": "value_asymmetric_geometry",
+      "variants": [
+        "V1_asym_hindsight",
+        "V2_iql_quasi",
+        "V3_waypoint_asym_hindsight"
+      ],
+      "gate": {
+        "promote_if_predicted_or_value_hamming_below": 20.0,
+        "examples": 8
+      }
+    },
+    {
+      "id": "I",
+      "name": "winner_integration",
+      "requires_paired_latents": true,
+      "base_variants": [
+        "I2_integrated_best_delta_if_gate_passes"
+      ],
+      "variants": [
+        "I0_integrated_waypoint_asym",
+        "I1_integrated_waypoint_iql",
+        "I2_integrated_best_delta_if_gate_passes_grid",
+        "I2_integrated_best_delta_if_gate_passes_single"
+      ],
+      "gate": {
+        "broad_eval_if_solve_rate_at_least": 0.5,
+        "examples": 16
+      }
+    }
+  ]
+}

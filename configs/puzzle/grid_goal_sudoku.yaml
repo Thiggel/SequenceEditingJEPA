@@ -26,8 +26,10 @@ model:
   goal_distance_field_weight: 0.0
   goal_target_mode: target_stopgrad
   dynamics_target_mode: target_stopgrad
+  counterfactual_dynamics_weight: 0.0
   delta_action_weight: 0.0
   delta_action_horizons: [1]
+  delta_action_mode: ordered
   delta_action_decoder_layers: 3
   delta_action_max_steps: 16
   progress_rank_weight: 1.0
@@ -53,6 +55,9 @@ model:
   shared_hierarchy_predictor: false
   goal_conditioning: initial_current
   goal_conditioning_detach_state: false
+  waypoint_horizons: []
+  waypoint_loss_weight: 0.0
+  waypoint_final_weight: 0.0
   progress_rank_target: predicted
   action_rank_mode: pairwise
   action_rank_target: predicted
@@ -89,6 +94,12 @@ training:
   batch_size: 64
   gradient_accumulation_steps: 4
   oracle_probability: 0.5
+  allow_overwrite: false
+  editable_noise_probability: 0.0
+  random_max_steps: null
+  counterfactual_branches: 0
+  counterfactual_depth: 1
+  counterfactual_max_pairs: 0
   learning_rate: 1.0e-4
   warmup_steps: 1000
   min_lr_ratio: 0.1

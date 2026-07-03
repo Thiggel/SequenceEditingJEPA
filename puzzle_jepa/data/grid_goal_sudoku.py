@@ -21,6 +21,9 @@ class GridGoalSudokuTrajectory:
     active_mask: np.ndarray
     goal: np.ndarray
     is_oracle: bool
+    counterfactual_states: np.ndarray | None = None
+    counterfactual_actions: np.ndarray | None = None
+    counterfactual_next_boards: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +37,10 @@ class GridGoalSudokuBatch:
     goals: torch.Tensor
     masks: torch.Tensor
     oracle_mask: torch.Tensor
+    counterfactual_states: torch.Tensor | None = None
+    counterfactual_actions: torch.Tensor | None = None
+    counterfactual_next_boards: torch.Tensor | None = None
+    counterfactual_mask: torch.Tensor | None = None
 
 
 def action_to_array(action: WorldAction) -> np.ndarray:
@@ -46,11 +53,43 @@ def array_to_action(values: np.ndarray | torch.Tensor | list[int] | tuple[int, i
 
 
 def legal_fill_actions(board: np.ndarray, *, allow_conflicts: bool = True) -> list[WorldAction]:
-    return SudokuWorld().legal_actions(board, allow_overwrite=False, allow_conflicts=allow_conflicts)
+    return legal_sudoku_actions(board, allow_conflicts=allow_conflicts, allow_overwrite=False)
+
+
+def legal_sudoku_actions(
+    board: np.ndarray,
+    *,
+    clue_mask: np.ndarray | None = None,
+    allow_conflicts: bool = True,
+    allow_overwrite: bool = False,
+) -> list[WorldAction]:
+    return SudokuWorld().legal_actions(
+        board,
+        clue_mask=clue_mask,
+        allow_overwrite=allow_overwrite,
+        allow_conflicts=allow_conflicts,
+    )
 
 
 def apply_fill_action(board: np.ndarray, action: WorldAction, *, allow_conflicts: bool = True) -> np.ndarray:
-    return SudokuWorld().apply(board, action, allow_overwrite=False, allow_conflicts=allow_conflicts)
+    return apply_sudoku_action(board, action, allow_conflicts=allow_conflicts, allow_overwrite=False)
+
+
+def apply_sudoku_action(
+    board: np.ndarray,
+    action: WorldAction,
+    *,
+    clue_mask: np.ndarray | None = None,
+    allow_conflicts: bool = True,
+    allow_overwrite: bool = False,
+) -> np.ndarray:
+    return SudokuWorld().apply(
+        board,
+        action,
+        clue_mask=clue_mask,
+        allow_overwrite=allow_overwrite,
+        allow_conflicts=allow_conflicts,
+    )
 
 
 def corrupt_terminal(goal: np.ndarray, rng: np.random.Generator, *, min_cells: int = 1, max_cells: int = 5) -> np.ndarray:
@@ -71,9 +110,24 @@ def sample_grid_goal_sudoku_trajectory(
     *,
     oracle_probability: float = 0.5,
     allow_conflicts: bool = True,
+    allow_overwrite: bool = False,
+    editable_noise_probability: float = 0.0,
+    counterfactual_branches: int = 0,
+    counterfactual_depth: int = 1,
+    counterfactual_max_pairs: int = 0,
 ) -> GridGoalSudokuTrajectory:
     del oracle_probability
-    return _sample_grid_goal_sudoku_trajectory(example, rng, is_oracle=True, allow_conflicts=allow_conflicts)
+    return _sample_grid_goal_sudoku_trajectory(
+        example,
+        rng,
+        is_oracle=True,
+        allow_conflicts=allow_conflicts,
+        allow_overwrite=allow_overwrite,
+        editable_noise_probability=editable_noise_probability,
+        counterfactual_branches=counterfactual_branches,
+        counterfactual_depth=counterfactual_depth,
+        counterfactual_max_pairs=counterfactual_max_pairs,
+    )
 
 
 def sample_random_grid_goal_sudoku_trajectory(
@@ -81,8 +135,23 @@ def sample_random_grid_goal_sudoku_trajectory(
     rng: np.random.Generator,
     *,
     allow_conflicts: bool = True,
+    allow_overwrite: bool = False,
+    max_steps: int | None = None,
+    counterfactual_branches: int = 0,
+    counterfactual_depth: int = 1,
+    counterfactual_max_pairs: int = 0,
 ) -> GridGoalSudokuTrajectory:
-    return _sample_grid_goal_sudoku_trajectory(example, rng, is_oracle=False, allow_conflicts=allow_conflicts)
+    return _sample_grid_goal_sudoku_trajectory(
+        example,
+        rng,
+        is_oracle=False,
+        allow_conflicts=allow_conflicts,
+        allow_overwrite=allow_overwrite,
+        random_max_steps=max_steps,
+        counterfactual_branches=counterfactual_branches,
+        counterfactual_depth=counterfactual_depth,
+        counterfactual_max_pairs=counterfactual_max_pairs,
+    )
 
 
 def _sample_grid_goal_sudoku_trajectory(
@@ -91,6 +160,12 @@ def _sample_grid_goal_sudoku_trajectory(
     *,
     is_oracle: bool,
     allow_conflicts: bool,
+    allow_overwrite: bool = False,
+    editable_noise_probability: float = 0.0,
+    random_max_steps: int | None = None,
+    counterfactual_branches: int = 0,
+    counterfactual_depth: int = 1,
+    counterfactual_max_pairs: int = 0,
 ) -> GridGoalSudokuTrajectory:
     world = SudokuWorld()
     puzzle = world.validate_state(example.state)
@@ -103,14 +178,65 @@ def _sample_grid_goal_sudoku_trajectory(
     board = puzzle.copy()
     boards = [board.copy()]
     actions: list[np.ndarray] = []
-    for index in order:
-        row, col = (int(x) for x in empty_positions[int(index)])
-        value = int(goal[row, col]) if is_oracle else int(rng.integers(1, 10))
-        action = WorldAction(row=row, col=col, value=value)
-        board = apply_fill_action(board, action, allow_conflicts=allow_conflicts)
-        actions.append(action_to_array(action))
-        boards.append(board.copy())
+    if is_oracle:
+        for index in order:
+            row, col = (int(x) for x in empty_positions[int(index)])
+            if allow_overwrite and editable_noise_probability > 0.0 and rng.random() < editable_noise_probability:
+                wrong_choices = [value for value in range(1, 10) if value != int(goal[row, col])]
+                wrong = int(wrong_choices[int(rng.integers(0, len(wrong_choices)))])
+                wrong_action = WorldAction(row=row, col=col, value=wrong)
+                board = apply_sudoku_action(
+                    board,
+                    wrong_action,
+                    clue_mask=clue_mask,
+                    allow_conflicts=allow_conflicts,
+                    allow_overwrite=allow_overwrite,
+                )
+                actions.append(action_to_array(wrong_action))
+                boards.append(board.copy())
+            action = WorldAction(row=row, col=col, value=int(goal[row, col]))
+            board = apply_sudoku_action(
+                board,
+                action,
+                clue_mask=clue_mask,
+                allow_conflicts=allow_conflicts,
+                allow_overwrite=allow_overwrite,
+            )
+            actions.append(action_to_array(action))
+            boards.append(board.copy())
+    else:
+        steps = int(random_max_steps) if random_max_steps is not None else len(empty_positions)
+        for _ in range(max(0, steps)):
+            legal = legal_sudoku_actions(
+                board,
+                clue_mask=clue_mask,
+                allow_conflicts=allow_conflicts,
+                allow_overwrite=allow_overwrite,
+            )
+            if not legal:
+                break
+            action = legal[int(rng.integers(0, len(legal)))]
+            board = apply_sudoku_action(
+                board,
+                action,
+                clue_mask=clue_mask,
+                allow_conflicts=allow_conflicts,
+                allow_overwrite=allow_overwrite,
+            )
+            actions.append(action_to_array(action))
+            boards.append(board.copy())
     actions.append(PAD_ACTION.copy())
+    counterfactual = _sample_counterfactual_pairs(
+        np.asarray(boards, dtype=np.int64),
+        np.asarray(actions, dtype=np.int64),
+        clue_mask,
+        rng,
+        allow_conflicts=allow_conflicts,
+        allow_overwrite=allow_overwrite,
+        branches=counterfactual_branches,
+        depth=counterfactual_depth,
+        max_pairs=counterfactual_max_pairs,
+    )
     return GridGoalSudokuTrajectory(
         boards=np.asarray(boards, dtype=np.int64),
         actions=np.asarray(actions, dtype=np.int64),
@@ -120,6 +246,87 @@ def _sample_grid_goal_sudoku_trajectory(
         active_mask=active_mask,
         goal=goal.copy(),
         is_oracle=is_oracle,
+        counterfactual_states=counterfactual[0],
+        counterfactual_actions=counterfactual[1],
+        counterfactual_next_boards=counterfactual[2],
+    )
+
+
+def _sample_counterfactual_pairs(
+    boards: np.ndarray,
+    actions: np.ndarray,
+    clue_mask: np.ndarray,
+    rng: np.random.Generator,
+    *,
+    allow_conflicts: bool,
+    allow_overwrite: bool,
+    branches: int,
+    depth: int,
+    max_pairs: int,
+) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    branches = int(branches)
+    depth = max(1, int(depth))
+    max_pairs = int(max_pairs)
+    if branches <= 0 or max_pairs == 0 or boards.shape[0] <= 1:
+        return None, None, None
+    states: list[np.ndarray] = []
+    sampled_actions: list[np.ndarray] = []
+    next_boards: list[np.ndarray] = []
+
+    def add_pair(state: np.ndarray, action: WorldAction) -> np.ndarray | None:
+        if max_pairs > 0 and len(states) >= max_pairs:
+            return None
+        try:
+            nxt = apply_sudoku_action(
+                state,
+                action,
+                clue_mask=clue_mask,
+                allow_conflicts=allow_conflicts,
+                allow_overwrite=allow_overwrite,
+            )
+        except ValueError:
+            return None
+        states.append(np.asarray(state, dtype=np.int64).copy())
+        sampled_actions.append(action_to_array(action))
+        next_boards.append(nxt.copy())
+        return nxt
+
+    for frame in range(boards.shape[0] - 1):
+        if max_pairs > 0 and len(states) >= max_pairs:
+            break
+        true_action = array_to_action(actions[frame])
+        add_pair(boards[frame], true_action)
+        legal = legal_sudoku_actions(
+            boards[frame],
+            clue_mask=clue_mask,
+            allow_conflicts=allow_conflicts,
+            allow_overwrite=allow_overwrite,
+        )
+        if not legal:
+            continue
+        chosen = rng.choice(len(legal), size=min(branches, len(legal)), replace=False)
+        for action_index in np.atleast_1d(chosen):
+            current = add_pair(boards[frame], legal[int(action_index)])
+            if current is None:
+                continue
+            for _ in range(1, depth):
+                legal_next = legal_sudoku_actions(
+                    current,
+                    clue_mask=clue_mask,
+                    allow_conflicts=allow_conflicts,
+                    allow_overwrite=allow_overwrite,
+                )
+                if not legal_next:
+                    break
+                current = add_pair(current, legal_next[int(rng.integers(0, len(legal_next)))])
+                if current is None:
+                    break
+    if not states:
+        return None, None, None
+    return (
+        np.asarray(states, dtype=np.int64),
+        np.asarray(sampled_actions, dtype=np.int64),
+        np.asarray(next_boards, dtype=np.int64),
     )
 
 
@@ -135,6 +342,15 @@ def collate_grid_goal_sudoku_trajectories(
     padded_boards = []
     padded_actions = []
     masks = []
+    cf_lengths = [
+        0 if item.counterfactual_states is None else int(item.counterfactual_states.shape[0])
+        for item in trajectories
+    ]
+    cf_frames = max(cf_lengths, default=0)
+    padded_cf_states = []
+    padded_cf_actions = []
+    padded_cf_next = []
+    cf_masks = []
     for item, length in zip(trajectories, lengths, strict=True):
         boards = np.empty((num_frames, 9, 9), dtype=np.int64)
         actions = np.empty((num_frames, 3), dtype=np.int64)
@@ -148,6 +364,30 @@ def collate_grid_goal_sudoku_trajectories(
         padded_boards.append(boards)
         padded_actions.append(actions)
         masks.append(mask)
+        if cf_frames > 0:
+            cf_states = np.zeros((cf_frames, 9, 9), dtype=np.int64)
+            cf_actions = np.zeros((cf_frames, 3), dtype=np.int64)
+            cf_next = np.zeros((cf_frames, 9, 9), dtype=np.int64)
+            cf_mask = np.zeros((cf_frames,), dtype=bool)
+            cf_len = 0 if item.counterfactual_states is None else int(item.counterfactual_states.shape[0])
+            if cf_len > 0:
+                cf_states[:cf_len] = item.counterfactual_states
+                cf_actions[:cf_len] = item.counterfactual_actions
+                cf_next[:cf_len] = item.counterfactual_next_boards
+                cf_mask[:cf_len] = True
+            padded_cf_states.append(cf_states)
+            padded_cf_actions.append(cf_actions)
+            padded_cf_next.append(cf_next)
+            cf_masks.append(cf_mask)
+    counterfactual_states = None
+    counterfactual_actions = None
+    counterfactual_next_boards = None
+    counterfactual_mask = None
+    if cf_frames > 0:
+        counterfactual_states = torch.as_tensor(np.stack(padded_cf_states), dtype=torch.long, device=device)
+        counterfactual_actions = torch.as_tensor(np.stack(padded_cf_actions), dtype=torch.long, device=device)
+        counterfactual_next_boards = torch.as_tensor(np.stack(padded_cf_next), dtype=torch.long, device=device)
+        counterfactual_mask = torch.as_tensor(np.stack(cf_masks), dtype=torch.bool, device=device)
     return GridGoalSudokuBatch(
         boards=torch.as_tensor(np.stack(padded_boards), dtype=torch.long, device=device),
         actions=torch.as_tensor(np.stack(padded_actions), dtype=torch.long, device=device),
@@ -160,4 +400,8 @@ def collate_grid_goal_sudoku_trajectories(
         goals=torch.as_tensor(np.stack([item.goal for item in trajectories]), dtype=torch.long, device=device),
         masks=torch.as_tensor(np.stack(masks), dtype=torch.bool, device=device),
         oracle_mask=torch.as_tensor([item.is_oracle for item in trajectories], dtype=torch.bool, device=device),
+        counterfactual_states=counterfactual_states,
+        counterfactual_actions=counterfactual_actions,
+        counterfactual_next_boards=counterfactual_next_boards,
+        counterfactual_mask=counterfactual_mask,
     )

@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -199,6 +201,22 @@ METRIC_GEOMETRY_VARIANTS = (
     "SV_M4_terminal_progress_asym",
     "SV_M5_hindsight_asym",
 )
+
+
+def _shell_array_entries(script_text: str, array_name: str) -> list[str]:
+    pattern = rf"{array_name}=\(\n(?P<body>.*?)\n\)"
+    match = re.search(pattern, script_text, flags=re.DOTALL)
+    assert match is not None, f"missing shell array {array_name}"
+    return [
+        line.strip()
+        for line in match.group("body").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
+def _weekend_manifest() -> dict:
+    repo_root = Path(__file__).resolve().parents[1]
+    return json.loads((repo_root / "scripts/experiments/grid_goal_weekend_manifest.json").read_text())
 
 
 def test_grid_goal_sudoku_config_defaults_to_dropout_off():
@@ -1843,3 +1861,174 @@ def test_macro_hwm_eval_ablate_cem_mppi_and_codebook(tmp_path):
     assert mppi_none[mppi_none.index("--planners") + 1] == "hierarchical_cem"
     assert mppi_none[mppi_none.index("--high-cem-optimizer") + 1] == "mppi"
     assert mppi_none[mppi_none.index("--high-cem-codebook") + 1] == "none"
+
+
+def _capture_weekend_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    variant: str,
+    checkpoint: bool = False,
+) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{variant}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        run_root = work / "runs" / "grid_goal_weekend" / f"grid_goal_weekend_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
+    env.pop("TRANSITIONS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "VARIANT": variant,
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def test_weekend_manifest_pairs_every_delta_jepa_variant_with_single_latent_state():
+    manifest = _weekend_manifest()
+    paired_stages = [stage for stage in manifest["stages"] if stage.get("requires_paired_latents")]
+
+    assert paired_stages
+    for stage in paired_stages:
+        variants = set(stage["variants"])
+        for base in stage["base_variants"]:
+            assert f"{base}_grid" in variants
+            assert f"{base}_single" in variants
+
+
+def test_weekend_train_and_eval_scripts_keep_delta_grid_single_pairs_in_sync():
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest = _weekend_manifest()
+    expected = []
+    for stage in manifest["stages"]:
+        expected.extend(stage["variants"])
+    expected_set = set(expected)
+    train_text = (repo_root / "scripts/slurm/run_grid_goal_weekend_train.slurm").read_text()
+    eval_text = (repo_root / "scripts/slurm/run_grid_goal_weekend_eval.slurm").read_text()
+    train_variants = _shell_array_entries(train_text, "VARIANTS")
+    eval_variants = _shell_array_entries(eval_text, "VARIANTS")
+
+    assert train_variants == eval_variants
+    assert set(train_variants) == expected_set
+    paired_bases = {
+        base
+        for stage in manifest["stages"]
+        if stage.get("requires_paired_latents")
+        for base in stage["base_variants"]
+    }
+    for base in paired_bases:
+        assert f"{base}_grid" in train_variants
+        assert f"{base}_single" in train_variants
+
+
+def test_weekend_delta_single_variants_use_single_latent_state_and_grid_variants_use_grid(tmp_path):
+    single_args = _capture_weekend_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_weekend_train.slurm",
+        variant="D2_online_set_h12345_single",
+    )
+    grid_args = _capture_weekend_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_weekend_train.slurm",
+        variant="D2_online_set_h12345_grid",
+    )
+
+    assert "model.latent_representation=single" in single_args
+    assert "model.latent_representation=grid" in grid_args
+    assert "model.delta_action_mode=set" in single_args
+    assert "model.delta_action_mode=set" in grid_args
+    assert "model.dynamics_target_mode=online_no_stopgrad" in single_args
+    assert "model.dynamics_target_mode=online_no_stopgrad" in grid_args
+
+
+def test_weekend_integrated_delta_variant_is_also_paired_and_eval_suffix_strips_to_base(tmp_path):
+    train_args = _capture_weekend_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_weekend_train.slurm",
+        variant="I2_integrated_best_delta_if_gate_passes_single",
+    )
+    eval_args = _capture_weekend_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_weekend_eval.slurm",
+        variant="I2_integrated_best_delta_if_gate_passes_single",
+        checkpoint=True,
+    )
+
+    assert "model.latent_representation=single" in train_args
+    assert "model.delta_action_weight=10.0" in train_args
+    assert eval_args[eval_args.index("--planners") + 1] == "waypoint_beam,waypoint_hierarchical_beam"
+    assert eval_args[eval_args.index("--scores") + 1] == (
+        "oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"
+    )
+
+
+def test_weekend_submit_wrapper_uses_individual_dependency_held_eval_jobs(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls = tmp_path / "sbatch_calls.txt"
+    fake_sbatch = fake_bin / "sbatch"
+    fake_sbatch.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$*\" >> \"${SBATCH_CALLS:?}\"\n"
+        "count=$(wc -l < \"${SBATCH_CALLS:?}\")\n"
+        "printf '900%03d\\n' \"$count\"\n"
+    )
+    fake_sbatch.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PATH": f"{fake_bin}:{env['PATH']}",
+            "SBATCH_CALLS": str(calls),
+            "VARIANT_COUNT": "4",
+            "CONCURRENCY": "4",
+        }
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/experiments/submit_grid_goal_weekend.sh"],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    lines = calls.read_text().splitlines()
+
+    assert len(lines) == 5
+    assert "--array=0-3%4 scripts/slurm/run_grid_goal_weekend_train.slurm" in lines[0]
+    for index, line in enumerate(lines[1:]):
+        assert f"--dependency=afterok:900001_{index}" in line
+        assert f"--export=ALL,VARIANT_INDEX={index}" in line
+        assert "scripts/slurm/run_grid_goal_weekend_eval.slurm" in line
+    assert "grid_goal_weekend\ttrain=900001" in result.stdout

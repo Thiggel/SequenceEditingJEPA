@@ -42,6 +42,10 @@
 - Do not delete active Slurm job logs or cancel active jobs unless explicitly
   asked. It is OK to cancel stale superseded oversight jobs and delete ignored
   local clutter/logs after preserving useful results in the report repo.
+- Delta-JEPA experiment planning invariant: every Delta-JEPA variant must be
+  represented by both a full-grid latent run and a single learned-CLS latent
+  run. Autonomous oversight follow-ups that propose or tune Delta-JEPA must
+  add the paired single-latent variant and keep train/eval scripts in sync.
 
 # CLAUDE.md
 

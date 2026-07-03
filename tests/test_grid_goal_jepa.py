@@ -7,7 +7,10 @@ import torch.nn.functional as F
 
 import puzzle_jepa.models.grid_goal_jepa as grid_goal_jepa_module
 from puzzle_jepa.data.grid_goal_sudoku import (
+    apply_sudoku_action,
+    array_to_action,
     collate_grid_goal_sudoku_trajectories,
+    legal_sudoku_actions,
     sample_grid_goal_sudoku_trajectory,
 )
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
@@ -18,6 +21,8 @@ from puzzle_jepa.models.grid_goal_jepa import (
     _temporal_straightening_loss,
 )
 from puzzle_jepa.planning.grid_goal_planner import (
+    ACTION_VOCAB,
+    _valid_action_vocab_mask,
     _predict_goal_for_board,
     _sample_macro_action_sequences,
     affected_context_raw_euclidean_distances,
@@ -27,6 +32,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     hierarchical_subgoal_cem,
     latent_distance,
     projected_tokenwise_euclidean_distance,
+    planning_horizon,
     raw_full_board_mse_distance,
     raw_tokenwise_cosine_distance,
     raw_tokenwise_euclidean_distance,
@@ -107,6 +113,99 @@ def test_grid_goal_trajectory_is_fill_only_and_context_conditioned():
         assert np.count_nonzero(before != after) == 1
 
 
+def test_editable_counterfactual_sampling_overwrites_only_non_clue_cells_and_collates():
+    rng = np.random.default_rng(11)
+    example = _example()
+    trajectory = sample_grid_goal_sudoku_trajectory(
+        example,
+        rng,
+        oracle_probability=1.0,
+        allow_overwrite=True,
+        editable_noise_probability=1.0,
+        counterfactual_branches=3,
+        counterfactual_depth=2,
+        counterfactual_max_pairs=24,
+    )
+
+    assert trajectory.counterfactual_states is not None
+    assert trajectory.counterfactual_actions is not None
+    assert trajectory.counterfactual_next_boards is not None
+    assert trajectory.counterfactual_states.shape[0] <= 24
+    assert np.all(trajectory.boards[:, trajectory.clue_mask] == example.state[trajectory.clue_mask][None])
+    assert any(
+        before[action.row, action.col] != 0 and after[action.row, action.col] != before[action.row, action.col]
+        for before, action_values, after in zip(trajectory.boards[:-1], trajectory.actions[:-1], trajectory.boards[1:], strict=True)
+        for action in [WorldAction(*[int(x) for x in action_values])]
+    )
+    for state, action_values, next_board in zip(
+        trajectory.counterfactual_states[:5],
+        trajectory.counterfactual_actions[:5],
+        trajectory.counterfactual_next_boards[:5],
+        strict=True,
+    ):
+        expected = apply_sudoku_action(
+            state,
+            array_to_action(action_values),
+            clue_mask=trajectory.clue_mask,
+            allow_conflicts=True,
+            allow_overwrite=True,
+        )
+        assert np.array_equal(next_board, expected)
+
+    batch = collate_grid_goal_sudoku_trajectories([trajectory])
+    assert batch.counterfactual_states is not None
+    assert batch.counterfactual_actions is not None
+    assert batch.counterfactual_next_boards is not None
+    assert bool(batch.counterfactual_mask.any())
+
+
+def test_editable_legal_actions_include_overwrites_but_never_clue_cells():
+    example = _example()
+    board = example.state.copy()
+    clue_mask = board != 0
+    row, col = np.argwhere(~clue_mask)[0]
+    row = int(row)
+    col = int(col)
+    board[row, col] = int(example.goal[row, col])
+
+    fill_only = legal_sudoku_actions(board, clue_mask=clue_mask, allow_conflicts=True, allow_overwrite=False)
+    editable = legal_sudoku_actions(board, clue_mask=clue_mask, allow_conflicts=True, allow_overwrite=True)
+
+    assert all(board[action.row, action.col] == 0 for action in fill_only)
+    assert any(action.row == row and action.col == col and action.value != board[row, col] for action in editable)
+    assert not any(clue_mask[action.row, action.col] for action in editable)
+
+
+def test_editable_planning_keeps_depth_on_full_wrong_board_and_masks_clues():
+    example = _example()
+    full_wrong = example.goal.copy()
+    clue_mask = example.state != 0
+    row, col = np.argwhere(~clue_mask)[0]
+    row = int(row)
+    col = int(col)
+    full_wrong[row, col] = (int(example.goal[row, col]) % 9) + 1
+
+    assert planning_horizon(16, full_wrong, allow_overwrite=False) == 0
+    assert planning_horizon(16, full_wrong, allow_overwrite=True) == 16
+
+    fill_mask = _valid_action_vocab_mask(full_wrong, clue_mask=clue_mask, allow_overwrite=False)
+    edit_mask = _valid_action_vocab_mask(full_wrong, clue_mask=clue_mask, allow_overwrite=True)
+    clue_action_ids = [
+        index
+        for index, action in enumerate(ACTION_VOCAB)
+        if bool(clue_mask[action.row, action.col])
+    ]
+    changed_cell_ids = [
+        index
+        for index, action in enumerate(ACTION_VOCAB)
+        if action.row == row and action.col == col
+    ]
+
+    assert not bool(fill_mask.any())
+    assert not bool(edit_mask[clue_action_ids].any())
+    assert bool(edit_mask[changed_cell_ids].any())
+
+
 def test_model_uses_full_grid_latent_without_cls_vector():
     batch = _small_batch()
     model = _small_model()
@@ -149,6 +248,150 @@ def test_conditional_goal_predictor_depends_on_current_state_latent():
 
     assert initial_goal.shape == (2, 81, 32)
     assert not torch.allclose(initial_goal, current_goal)
+
+
+def test_waypoint_loss_uses_only_successful_trajectory_rows():
+    batch = _small_batch(batch_size=2)
+    model = _small_model(
+        waypoint_horizons=(2,),
+        waypoint_loss_weight=1.0,
+        waypoint_final_weight=0.25,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+    )
+    no_oracle = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=torch.zeros_like(batch.oracle_mask),
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.waypoint_loss.item() > 0.0
+    assert output.waypoint_final_loss.item() > 0.0
+    assert no_oracle.waypoint_loss.item() == pytest.approx(0.0)
+    assert no_oracle.waypoint_final_loss.item() == pytest.approx(0.0)
+
+
+def test_counterfactual_dynamics_loss_is_reported_and_backprops():
+    rng = np.random.default_rng(12)
+    example = _example()
+    trajectories = [
+        sample_grid_goal_sudoku_trajectory(
+            example,
+            rng,
+            oracle_probability=1.0,
+            allow_overwrite=True,
+            counterfactual_branches=2,
+            counterfactual_depth=1,
+            counterfactual_max_pairs=12,
+        )
+        for _ in range(2)
+    ]
+    batch = collate_grid_goal_sudoku_trajectories(trajectories)
+    model = _small_model(
+        counterfactual_dynamics_weight=1.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+        counterfactual_states=batch.counterfactual_states,
+        counterfactual_actions=batch.counterfactual_actions,
+        counterfactual_next_boards=batch.counterfactual_next_boards,
+        counterfactual_mask=batch.counterfactual_mask,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.counterfactual_dynamics_loss.item() > 0.0
+    output.loss.backward()
+    assert any(param.grad is not None and torch.isfinite(param.grad).all() for param in model.parameters())
+
+
+def test_affected_marker_adaln_action_conditioning_changes_prediction_for_same_state():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(action_conditioning="affected_marker_adaln")
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    action_a = torch.tensor([[0, 2, 1]], dtype=torch.long)
+    action_b = torch.tensor([[8, 8, 9]], dtype=torch.long)
+
+    pred_a = model.predict_next(state, action_a, context)
+    pred_b = model.predict_next(state, action_b, context)
+
+    assert pred_a.shape == pred_b.shape == state.shape
+    assert not torch.allclose(pred_a, pred_b)
+
+
+def test_delta_jepa_set_ldad_loss_is_invariant_to_action_order():
+    row_logits = torch.full((1, 2, 9), -8.0)
+    col_logits = torch.full((1, 2, 9), -8.0)
+    digit_logits = torch.full((1, 2, 10), -8.0)
+    row_logits[0, 0, 0] = 8.0
+    col_logits[0, 0, 1] = 8.0
+    digit_logits[0, 0, 2] = 8.0
+    row_logits[0, 1, 3] = 8.0
+    col_logits[0, 1, 4] = 8.0
+    digit_logits[0, 1, 5] = 8.0
+    rows_ab = torch.tensor([[0, 3]])
+    cols_ab = torch.tensor([[1, 4]])
+    digits_ab = torch.tensor([[2, 5]])
+    rows_ba = torch.tensor([[3, 0]])
+    cols_ba = torch.tensor([[4, 1]])
+    digits_ba = torch.tensor([[5, 2]])
+
+    loss_ab = grid_goal_jepa_module._order_invariant_action_sequence_loss(
+        row_logits,
+        col_logits,
+        digit_logits,
+        rows_ab,
+        cols_ab,
+        digits_ab,
+    )
+    loss_ba = grid_goal_jepa_module._order_invariant_action_sequence_loss(
+        row_logits,
+        col_logits,
+        digit_logits,
+        rows_ba,
+        cols_ba,
+        digits_ba,
+    )
+
+    assert loss_ab.item() == pytest.approx(loss_ba.item(), abs=1.0e-7)
 
 
 def test_goal_conditioning_defaults_to_initial_and_current_state():

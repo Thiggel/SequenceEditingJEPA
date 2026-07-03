@@ -85,6 +85,12 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 rng,
                 batch_size=batch_size,
                 oracle_probability=oracle_probability,
+                allow_overwrite=bool(config["training"].get("allow_overwrite", False)),
+                editable_noise_probability=float(config["training"].get("editable_noise_probability", 0.0)),
+                random_max_steps=config["training"].get("random_max_steps"),
+                counterfactual_branches=int(config["training"].get("counterfactual_branches", 0)),
+                counterfactual_depth=int(config["training"].get("counterfactual_depth", 1)),
+                counterfactual_max_pairs=int(config["training"].get("counterfactual_max_pairs", 0)),
                 device=device,
             )
             try:
@@ -120,6 +126,10 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                     positive_actions=positive_actions,
                     negative_actions=negative_actions,
                     corrupt_goals=corrupt_goals,
+                    counterfactual_states=batch.counterfactual_states,
+                    counterfactual_actions=batch.counterfactual_actions,
+                    counterfactual_next_boards=batch.counterfactual_next_boards,
+                    counterfactual_mask=batch.counterfactual_mask,
                 )
             if not torch.isfinite(output.loss.detach()):
                 raise FloatingPointError(f"Non-finite loss at step {step}: {float(output.loss.detach().cpu())}")
@@ -148,11 +158,14 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 "train_loss": float(output.loss.detach().cpu()),
                 "train_dynamics_loss": _output_scalar(output, "dynamics_loss"),
                 "train_dense_future_loss": _output_scalar(output, "dense_future_loss"),
+                "train_counterfactual_dynamics_loss": _output_scalar(output, "counterfactual_dynamics_loss"),
                 "train_hierarchy_loss": _output_scalar(output, "hierarchy_loss"),
                 "train_sigreg_loss": _output_scalar(output, "sigreg_loss"),
                 "train_goal_mse_loss": _output_scalar(output, "goal_mse_loss"),
                 "train_goal_nce_loss": _output_scalar(output, "goal_nce_loss"),
                 "train_goal_distance_field_loss": _output_scalar(output, "goal_distance_field_loss"),
+                "train_waypoint_loss": _output_scalar(output, "waypoint_loss"),
+                "train_waypoint_final_loss": _output_scalar(output, "waypoint_final_loss"),
                 "train_progress_rank_loss": _output_scalar(output, "progress_rank_loss"),
                 "train_action_rank_loss": _output_scalar(output, "action_rank_loss"),
                 "train_policy_prior_loss": _output_scalar(output, "policy_prior_loss"),
@@ -229,15 +242,43 @@ def _sample_batch(
     *,
     batch_size: int,
     oracle_probability: float,
+    allow_overwrite: bool,
+    editable_noise_probability: float,
+    random_max_steps: int | None,
+    counterfactual_branches: int,
+    counterfactual_depth: int,
+    counterfactual_max_pairs: int,
     device: torch.device,
 ):
     trajectories = []
     for _ in range(batch_size):
         example = examples[int(rng.integers(0, len(examples)))]
         if rng.random() < oracle_probability:
-            trajectories.append(sample_grid_goal_sudoku_trajectory(example, rng, allow_conflicts=True))
+            trajectories.append(
+                sample_grid_goal_sudoku_trajectory(
+                    example,
+                    rng,
+                    allow_conflicts=True,
+                    allow_overwrite=allow_overwrite,
+                    editable_noise_probability=editable_noise_probability,
+                    counterfactual_branches=counterfactual_branches,
+                    counterfactual_depth=counterfactual_depth,
+                    counterfactual_max_pairs=counterfactual_max_pairs,
+                )
+            )
         else:
-            trajectories.append(sample_random_grid_goal_sudoku_trajectory(example, rng, allow_conflicts=True))
+            trajectories.append(
+                sample_random_grid_goal_sudoku_trajectory(
+                    example,
+                    rng,
+                    allow_conflicts=True,
+                    allow_overwrite=allow_overwrite,
+                    max_steps=random_max_steps,
+                    counterfactual_branches=counterfactual_branches,
+                    counterfactual_depth=counterfactual_depth,
+                    counterfactual_max_pairs=counterfactual_max_pairs,
+                )
+            )
     return collate_grid_goal_sudoku_trajectories(trajectories, device=device)
 
 
@@ -298,6 +339,10 @@ def _zero_context_masks(batch):
         goals=batch.goals,
         masks=batch.masks,
         oracle_mask=batch.oracle_mask,
+        counterfactual_states=batch.counterfactual_states,
+        counterfactual_actions=batch.counterfactual_actions,
+        counterfactual_next_boards=batch.counterfactual_next_boards,
+        counterfactual_mask=batch.counterfactual_mask,
     )
 
 
