@@ -37,8 +37,18 @@ def load_checkpoint(path: Path, device: torch.device) -> tuple[GridTokenGoalJEPA
     if missing or unexpected:
         model_cfg = dict(config["model"])
         delta_weight = float(model_cfg.get("delta_action_weight", 0.0) or 0.0)
-        allowed_missing = {key for key in missing if key.startswith("delta_action_decoder.")}
-        if not (delta_weight <= 0.0 and missing == allowed_missing and not unexpected):
+        allowed_missing = {key for key in missing if key.startswith("delta_action_decoder.") and delta_weight <= 0.0}
+        legacy_optional_prefixes = (
+            "bad_state_head.",
+            "metric_src_projector.",
+            "metric_goal_projector.",
+            "target_metric_src_projector.",
+            "target_metric_goal_projector.",
+        )
+        allowed_missing.update(
+            key for key in missing if key.startswith(legacy_optional_prefixes)
+        )
+        if missing != allowed_missing or unexpected:
             raise RuntimeError(
                 "Incompatible checkpoint state_dict: "
                 f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"

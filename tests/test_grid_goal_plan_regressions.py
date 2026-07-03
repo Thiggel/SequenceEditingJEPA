@@ -546,6 +546,36 @@ def test_planner_checkpoint_loader_accepts_legacy_checkpoints_without_inactive_d
     assert isinstance(loaded_model, GridTokenGoalJEPA)
 
 
+def test_planner_checkpoint_loader_accepts_legacy_checkpoints_without_metric_heads(tmp_path):
+    model_config = _small_model_config()
+    model = GridTokenGoalJEPA(**model_config)
+    legacy_state = {
+        key: value
+        for key, value in model.state_dict().items()
+        if not key.startswith(
+            (
+                "bad_state_head.",
+                "metric_src_projector.",
+                "metric_goal_projector.",
+                "target_metric_src_projector.",
+                "target_metric_goal_projector.",
+            )
+        )
+    }
+    checkpoint_path = tmp_path / "checkpoint.pt"
+    torch.save(
+        {
+            "model": legacy_state,
+            "config": {"model": model_config, "task": {}, "seed": 0},
+        },
+        checkpoint_path,
+    )
+
+    loaded_model, _ = load_checkpoint(checkpoint_path, torch.device("cpu"))
+
+    assert isinstance(loaded_model, GridTokenGoalJEPA)
+
+
 def test_planner_checkpoint_loader_rejects_missing_active_delta_decoder(tmp_path):
     model_config = _small_model_config(delta_action_weight=1.0, delta_action_horizons=(1,))
     model = GridTokenGoalJEPA(**model_config)

@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 12:35 CEST
+Last updated: 2026-07-03 13:08 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -124,12 +124,17 @@ Eval is dependency-held per checkpoint and split by goal-distance mode:
 - each eval uses `mpc_beam`, latent rollout plus symbolic re-encode, beam width
   `16`, depths `{4,16}`, and 8 boards
 
-Current Slurm state at 11:18 CEST:
+Current Slurm state at 13:08 CEST:
 
 - replacement train jobs `3808387`, `3808389`, `3808392`, `3808394`,
-  `3808397`, `3808399`, `3808402`, `3808404` are pending on
-  `rtxpro6k,a100`
-- replacement eval jobs are dependency-held
+  `3808397`, `3808399`, `3808402`, `3808404` completed successfully
+- evals `3808388`, `3808390`, `3808391`, `3808393`, `3808395`, `3808396`,
+  `3808398`, `3808400`, `3808401`, `3808403`, `3808405`, and `3808406`
+  failed at checkpoint load because the evaluator was too strict about
+  optional metric/bad-state heads added after the checkpoints
+- the loader was fixed and covered by a regression test
+- replacement evals are running: oracle `3808863`-`3808870`, predicted-goal
+  `3808871`-`3808874`
 - superseded one-step Delta evals `3808222`, `3808224`, `3808225`, `3808227`,
   `3808229`, `3808230`, `3808232`, `3808234`, `3808235`, `3808237`,
   `3808239`, `3808240` were canceled
