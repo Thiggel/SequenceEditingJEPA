@@ -6,7 +6,8 @@ Last updated: 2026-07-03 11:00 CEST
 
 K1-K4 evals are complete. K8/K16 evals initially failed after the Delta decoder
 addition changed the current model state dict; repaired eval jobs are running
-as `3808345`-`3808348`.
+as `3808345`-`3808348`. The first repair row for each K8/K16 variant is now
+available.
 
 | Variant | Rows | Best oracle | Best predicted |
 |---|---:|---|---|
@@ -18,10 +19,16 @@ as `3808345`-`3808348`.
 | `K3_smooth_count` | 4 | `0/8`, h `42.5`, d16 | `0/8`, h `48.25`, d16 |
 | `K4_uniform` | 4 | `0/8`, h `35.125`, d4 | `0/8`, h `47.25`, d4 |
 | `K4_smooth_count` | 4 | `0/8`, h `31.75`, d4 | `0/8`, h `46.125`, d16 |
+| `K8_uniform` | 1 so far | `0/8`, h `3.75`, d4 | pending |
+| `K8_smooth_count` | 1 so far | `8/8`, h `0.0`, d4 | pending |
+| `K16_uniform` | 1 so far | `0/8`, h `28.875`, d4 | pending |
+| `K16_smooth_count` | 1 so far | `0/8`, h `4.375`, d4 | pending |
 
 Interpretation so far: clean one-long-rollout K4 improves oracle latent
-planning substantially over K1-K3, and smooth/count is better than uniform at
-K4. It still solves `0/8`; predicted-goal rows remain poor.
+planning substantially over K1-K3. The first K8 repair rows are much stronger:
+`K8_smooth_count` solves `8/8` with oracle raw L2 at depth 4, while
+`K8_uniform` reaches h `3.75`. Predicted-goal rows for K8/K16 are still
+pending.
 
 ## Clean17 and Macro-HWM Waves
 

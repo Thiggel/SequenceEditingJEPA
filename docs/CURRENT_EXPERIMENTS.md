@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 11:00 CEST
+Last updated: 2026-07-03 11:05 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -106,6 +106,9 @@ Current state at 11:00 CEST:
 - The loader compatibility fix is applied. Repair evals are running:
   `K8_uniform` `3808345`, `K8_smooth_count` `3808346`, `K16_uniform`
   `3808347`, `K16_smooth_count` `3808348`.
+- First repair rows: `K8_smooth_count` solves `8/8` with oracle raw L2 at
+  depth 4; `K8_uniform` reaches h `3.75`; `K16_smooth_count` reaches h
+  `4.375`; predicted-goal repair rows are still pending.
 
 ## Previous Sweep Takeaway
 
