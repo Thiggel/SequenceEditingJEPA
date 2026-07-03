@@ -147,12 +147,28 @@ MINAUX_FACTOR_VARIANTS = (
     "A_refactor_equiv_14816_dropout_off_fp32_b4",
 )
 
+HORIZON_ABLATION_VARIANTS = (
+    "K1_uniform",
+    "K1_smooth_count",
+    "K2_uniform",
+    "K2_smooth_count",
+    "K3_uniform",
+    "K3_smooth_count",
+    "K4_uniform",
+    "K4_smooth_count",
+    "K8_uniform",
+    "K8_smooth_count",
+    "K16_uniform",
+    "K16_smooth_count",
+)
+
 
 def test_grid_goal_sudoku_config_defaults_to_dropout_off():
     repo_root = Path(__file__).resolve().parents[1]
     config = (repo_root / "configs" / "puzzle" / "grid_goal_sudoku.yaml").read_text()
 
     assert "\n  dropout: 0.0\n" in config
+    assert "\n  predict_delta: false\n" in config
 
 
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
@@ -529,6 +545,55 @@ def _capture_minaux_factor_args(
     )
     if extra_env:
         env.update(extra_env)
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_horizon_ablation_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    variant: str,
+    checkpoint: bool = False,
+) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{variant}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        run_root = work / "runs" / "grid_goal_horizon_ablation" / f"grid_goal_horizon_ablation_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "VARIANT": variant,
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
     subprocess.run(
         ["bash", script],
         cwd=repo_root,
@@ -937,6 +1002,66 @@ def test_clean17_eval_uses_raw_oracle_only_for_g_none_and_adds_predicted_for_goa
     )
     assert goal_job[goal_job.index("--transitions") + 1] == "latent_rollout"
     assert goal_job[goal_job.index("--beam-depths") + 1] == "4,16"
+
+
+def test_horizon_ablation_has_expected_12_variant_grid():
+    expected = {
+        f"K{horizon}_{weighting}"
+        for horizon in (1, 2, 3, 4, 8, 16)
+        for weighting in ("uniform", "smooth_count")
+    }
+
+    assert set(HORIZON_ABLATION_VARIANTS) == expected
+    assert len(HORIZON_ABLATION_VARIANTS) == 12
+
+
+def test_horizon_ablation_train_uses_one_long_rollout_no_delta_no_hierarchy(tmp_path):
+    uniform = _capture_horizon_ablation_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_horizon_ablation_train.slurm",
+        variant="K3_uniform",
+    )
+    smooth = _capture_horizon_ablation_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_horizon_ablation_train.slurm",
+        variant="K16_smooth_count",
+    )
+
+    for args in (uniform, smooth):
+        assert "training.max_steps=5000" in args
+        assert "training.batch_size=8" in args
+        assert "training.learning_rate=1.0e-4" in args
+        assert "model.dropout=0.0" in args
+        assert "model.predict_delta=false" in args
+        assert "model.dense_rollout_all_steps=true" in args
+        assert "model.dense_rollout_variable_starts=false" in args
+        assert "model.dense_rollout_refactor_mode=none" in args
+        assert "model.hierarchy_levels=[]" in args
+        assert "model.hierarchy_loss_weight=0.0" in args
+        assert "model.goal_conditioning=context" in args
+        assert "model.goal_mse_weight=1.0" in args
+
+    assert "model.multi_step_horizons=[3]" in uniform
+    assert "model.dense_rollout_weighting=uniform" in uniform
+    assert "model.multi_step_horizons=[16]" in smooth
+    assert "model.dense_rollout_weighting=smooth_count" in smooth
+
+
+def test_horizon_ablation_eval_is_flat_latent_mpc_for_oracle_and_predicted_goals(tmp_path):
+    args = _capture_horizon_ablation_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_horizon_ablation_eval.slurm",
+        variant="K8_smooth_count",
+        checkpoint=True,
+    )
+
+    assert args[args.index("--planners") + 1] == "mpc_beam"
+    assert args[args.index("--transitions") + 1] == "latent_rollout"
+    assert args[args.index("--beam-widths") + 1] == "16"
+    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert args[args.index("--scores") + 1] == (
+        "oracle_goal_raw_euclidean_distance,predicted_goal_raw_euclidean_distance"
+    )
 
 
 def test_minaux_factor_has_expected_unique_variant_count():

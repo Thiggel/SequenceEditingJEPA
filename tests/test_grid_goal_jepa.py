@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 import torch
@@ -533,7 +535,7 @@ def test_goal_mse_weight_can_disable_token_goal_mse_objective():
         masks=batch.masks[:, :1],
     )
 
-    assert output.goal_mse_loss.item() > 0.0
+    assert output.goal_mse_loss.item() == pytest.approx(0.0)
     assert output.loss.item() == pytest.approx(0.0, abs=1.0e-6)
 
 
@@ -690,6 +692,48 @@ def test_dense_rollout_all_steps_supervises_every_intermediate_horizon_once():
     assert seen_horizons.count(3) == 1
     assert seen_horizons.count(4) == 1
     assert predict_calls == 5
+
+
+def test_dense_rollout_all_steps_smooth_count_weights_short_horizons_more():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        dense_future_weight=1.0,
+        dense_rollout_all_steps=True,
+        dense_rollout_weighting="smooth_count",
+        multi_step_horizons=(4,),
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+    )
+
+    def fake_dynamics_error(predicted, *args, **kwargs):
+        horizon = int(kwargs.get("horizon", 1))
+        return predicted.new_full(predicted.shape[:2], float(horizon))
+
+    model._dynamics_error = fake_dynamics_error
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    expected_terms = [
+        2.0 * (3.0 / math.sqrt(2.0)),
+        3.0 * (2.0 / math.sqrt(3.0)),
+        4.0 * (1.0 / math.sqrt(4.0)),
+    ]
+    assert output.dynamics_loss.item() == pytest.approx(1.0)
+    assert output.dense_future_loss.item() == pytest.approx(sum(expected_terms) / len(expected_terms))
 
 
 def test_variable_start_dense_rollout_uses_all_available_starts_once():

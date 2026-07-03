@@ -335,7 +335,7 @@ class GridTokenGoalJEPA(nn.Module):
                 "dense_rollout_refactor_mode cannot be combined with dense_rollout_all_steps "
                 "or dense_rollout_variable_starts."
             )
-        allowed_dense_weighting = {"uniform", "inverse_sqrt", "geometric"}
+        allowed_dense_weighting = {"uniform", "inverse_sqrt", "geometric", "smooth_count"}
         if dense_rollout_weighting not in allowed_dense_weighting:
             raise ValueError(f"dense_rollout_weighting must be one of {sorted(allowed_dense_weighting)}.")
         self.dense_rollout_weighting = str(dense_rollout_weighting)
@@ -1537,6 +1537,10 @@ class GridTokenGoalJEPA(nn.Module):
             return 1.0
         if self.dense_rollout_weighting == "inverse_sqrt":
             return float(horizon) ** -0.5
+        if self.dense_rollout_weighting == "smooth_count":
+            max_horizon = max(self.multi_step_horizons) if self.multi_step_horizons else int(horizon)
+            count = max(int(max_horizon) - int(horizon) + 1, 1)
+            return float(count) * (float(horizon) ** -0.5)
         return self.dense_rollout_gamma ** max(int(horizon) - 1, 0)
 
     def _dynamics_error(
