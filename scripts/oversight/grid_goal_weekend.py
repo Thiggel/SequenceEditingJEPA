@@ -15,6 +15,11 @@ def main() -> None:
     parser.add_argument("--work-root", type=Path, default=Path(os.environ.get("PUZZLE_JEPA_WORK_ROOT", ".")))
     parser.add_argument("--report-root", type=Path, default=Path("../sequence-editing-report"))
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--run-suffix",
+        default=os.environ.get("GRID_GOAL_WEEKEND_RUN_SUFFIX", os.environ.get("RUN_SUFFIX", "")),
+        help="Suffix appended to grid_goal_weekend run directories, for replacement waves.",
+    )
     parser.add_argument("--repair-evals", action="store_true", default=os.environ.get("GRID_GOAL_WEEKEND_REPAIR_EVALS", "1") == "1")
     args = parser.parse_args()
 
@@ -22,12 +27,13 @@ def main() -> None:
     validate_delta_pairing(manifest)
     run_root = args.work_root / "runs" / str(manifest["run_family"])
     variants = all_variants(manifest)
-    summary = summarize_variants(run_root, variants)
-    submissions = repair_incomplete_evals(summary, variants) if args.repair_evals else []
+    summary = summarize_variants(run_root, variants, args.run_suffix)
+    submissions = repair_incomplete_evals(summary, variants, args.run_suffix) if args.repair_evals else []
     record = {
         "time": datetime.now().isoformat(timespec="seconds"),
         "manifest": str(args.manifest),
         "run_root": str(run_root),
+        "run_suffix": args.run_suffix,
         "research_questions": manifest.get("research_questions", []),
         "summary": summary,
         "slurm": slurm_snapshot(),
@@ -58,10 +64,10 @@ def all_variants(manifest: dict[str, Any]) -> list[str]:
     return variants
 
 
-def summarize_variants(run_root: Path, variants: list[str]) -> dict[str, Any]:
+def summarize_variants(run_root: Path, variants: list[str], run_suffix: str = "") -> dict[str, Any]:
     by_variant = {}
     for variant in variants:
-        root = run_root / f"grid_goal_weekend_{variant}"
+        root = run_root / f"grid_goal_weekend_{variant}{run_suffix}"
         rows = []
         for matrix in root.glob("planner_eval_*/planner_matrix.jsonl"):
             rows.extend(read_jsonl(matrix))
@@ -139,7 +145,7 @@ def derive_insights(summary: dict[str, Any]) -> list[str]:
     return insights
 
 
-def repair_incomplete_evals(summary: dict[str, Any], variants: list[str]) -> list[dict[str, Any]]:
+def repair_incomplete_evals(summary: dict[str, Any], variants: list[str], run_suffix: str = "") -> list[dict[str, Any]]:
     submissions = []
     for index, variant in enumerate(variants):
         item = summary["variants"].get(variant, {})
@@ -149,7 +155,7 @@ def repair_incomplete_evals(summary: dict[str, Any], variants: list[str]) -> lis
             [
                 "sbatch",
                 "--parsable",
-                f"--export=ALL,VARIANT_INDEX={index}",
+                f"--export=ALL,VARIANT_INDEX={index},RUN_SUFFIX={run_suffix},GRID_GOAL_WEEKEND_RUN_SUFFIX={run_suffix}",
                 "scripts/slurm/run_grid_goal_weekend_eval.slurm",
             ],
             text=True,
@@ -182,6 +188,7 @@ def update_report(report_root: Path, repo_root: Path, manifest: dict[str, Any], 
         *[f"- {question}" for question in manifest.get("research_questions", [])],
         "",
         "Current summary:",
+        f"- run suffix: `{record.get('run_suffix', '')}`",
         f"- completed checkpoints: {record['summary']['completed_checkpoints']}",
         f"- total planner rows: {record['summary']['total_rows']}",
         "",

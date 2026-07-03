@@ -2053,3 +2053,39 @@ def test_weekend_oversight_wrapper_defaults_to_twelve_hour_cadence():
     script = (repo_root / "scripts/experiments/submit_grid_goal_weekend_oversight.sh").read_text()
 
     assert 'CADENCE_HOURS="${CADENCE_HOURS:-12}"' in script
+
+
+def test_weekend_oversight_repairs_use_replacement_run_suffix(tmp_path, monkeypatch):
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "grid_goal_weekend_oversight",
+        repo_root / "scripts/oversight/grid_goal_weekend.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    run_root = tmp_path / "runs" / "grid_goal_weekend"
+    variant = "S0_anchor_olddata"
+    variant_root = run_root / f"grid_goal_weekend_{variant}_mb4ga2"
+    variant_root.mkdir(parents=True)
+    (variant_root / "checkpoint.pt").write_text("checkpoint")
+
+    summary = module.summarize_variants(run_root, [variant], run_suffix="_mb4ga2")
+
+    calls = []
+
+    def fake_check_output(args, text):
+        calls.append(args)
+        return "12345\n"
+
+    monkeypatch.setattr(module.subprocess, "check_output", fake_check_output)
+
+    submissions = module.repair_incomplete_evals(summary, [variant], run_suffix="_mb4ga2")
+
+    assert submissions == [{"variant": variant, "eval_job": "12345", "reason": "checkpoint exists but no eval rows"}]
+    assert "RUN_SUFFIX=_mb4ga2" in calls[0][2]
+    assert "GRID_GOAL_WEEKEND_RUN_SUFFIX=_mb4ga2" in calls[0][2]
