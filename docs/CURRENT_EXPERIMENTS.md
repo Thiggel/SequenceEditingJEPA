@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 10:35 CEST
+Last updated: 2026-07-03 10:48 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -49,6 +49,13 @@ Eval is dependency-held per checkpoint and split by goal-distance mode:
 - each eval uses `mpc_beam`, latent rollout plus symbolic re-encode, beam width
   `16`, depths `{4,16}`, and 8 boards
 
+Current Slurm state at 10:48 CEST:
+
+- `SV_online_nogoal` train `3808236` completed; oracle eval `3808237` is
+  running.
+- The other seven train jobs are still running but have reached late training
+  steps; their evals remain dependency-held.
+
 Fidelity fixes:
 
 - `delta_action_weight > 0` now requires non-empty `delta_action_horizons`.
@@ -89,8 +96,14 @@ Grid:
 Eval is flat latent-rollout MPC beam only: beam width `16`, depths `{4,16}`,
 8 boards, oracle raw L2 and predicted raw L2.
 
-Initial Slurm state: all 12 train jobs started immediately on `rtxpro6k`
-nodes `a2143` and `a2041`; all 12 eval jobs are dependency-held.
+Current state at 10:48 CEST:
+
+- K1-K4 train/eval pairs completed successfully; eval rows are available.
+- K8/K16 training completed successfully, but eval jobs `3807884`, `3807886`,
+  `3807888`, and `3807890` failed at checkpoint load after the Delta-JEPA
+  decoder was added. The loader instantiated a Delta decoder for these older
+  horizon checkpoints and reported missing `delta_action_decoder.*` keys.
+- K8/K16 eval rows require a compatibility fix and resubmission.
 
 ## Previous Sweep Takeaway
 
