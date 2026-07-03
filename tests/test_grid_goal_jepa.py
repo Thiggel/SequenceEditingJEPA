@@ -130,6 +130,9 @@ def test_editable_counterfactual_sampling_overwrites_only_non_clue_cells_and_col
     assert trajectory.counterfactual_states is not None
     assert trajectory.counterfactual_actions is not None
     assert trajectory.counterfactual_next_boards is not None
+    assert trajectory.counterfactual_action_sequences is not None
+    assert trajectory.counterfactual_future_boards is not None
+    assert trajectory.counterfactual_step_mask is not None
     assert trajectory.counterfactual_states.shape[0] <= 24
     assert np.all(trajectory.boards[:, trajectory.clue_mask] == example.state[trajectory.clue_mask][None])
     assert any(
@@ -139,8 +142,8 @@ def test_editable_counterfactual_sampling_overwrites_only_non_clue_cells_and_col
     )
     for state, action_values, next_board in zip(
         trajectory.counterfactual_states[:5],
-        trajectory.counterfactual_actions[:5],
-        trajectory.counterfactual_next_boards[:5],
+        trajectory.counterfactual_action_sequences[:5, 0],
+        trajectory.counterfactual_future_boards[:5, 0],
         strict=True,
     ):
         expected = apply_sudoku_action(
@@ -156,13 +159,12 @@ def test_editable_counterfactual_sampling_overwrites_only_non_clue_cells_and_col
     assert batch.counterfactual_states is not None
     assert batch.counterfactual_actions is not None
     assert batch.counterfactual_next_boards is not None
+    assert batch.counterfactual_action_sequences is not None
+    assert batch.counterfactual_future_boards is not None
+    assert batch.counterfactual_step_mask is not None
     assert bool(batch.counterfactual_mask.any())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="counterfactual_depth currently records chained one-step pairs, not P-step futures from the branch root",
-)
 def test_counterfactual_depth_targets_include_multistep_future_boards():
     rng = np.random.default_rng(13)
     trajectory = sample_grid_goal_sudoku_trajectory(
@@ -232,10 +234,6 @@ def test_editable_planning_keeps_depth_on_full_wrong_board_and_masks_clues():
     assert bool(edit_mask[changed_cell_ids].any())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="hierarchical beam drops allow_overwrite when it calls the primitive tracker",
-)
 def test_hierarchical_beam_passes_allow_overwrite_to_primitive_tracker(monkeypatch):
     import puzzle_jepa.planning.grid_goal_planner as planner_module
 
@@ -395,10 +393,6 @@ def test_waypoint_loss_uses_only_successful_trajectory_rows():
     assert no_oracle.waypoint_final_loss.item() == pytest.approx(0.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="multi-horizon waypoint config supervises one shared output instead of separate waypoint heads",
-)
 def test_multi_horizon_waypoint_predictor_outputs_one_latent_per_horizon():
     batch = _small_batch(batch_size=1)
     model = _small_model(
@@ -459,12 +453,71 @@ def test_counterfactual_dynamics_loss_is_reported_and_backprops():
         counterfactual_actions=batch.counterfactual_actions,
         counterfactual_next_boards=batch.counterfactual_next_boards,
         counterfactual_mask=batch.counterfactual_mask,
+        counterfactual_action_sequences=batch.counterfactual_action_sequences,
+        counterfactual_future_boards=batch.counterfactual_future_boards,
+        counterfactual_step_mask=batch.counterfactual_step_mask,
     )
 
     assert torch.isfinite(output.loss)
     assert output.counterfactual_dynamics_loss.item() > 0.0
     output.loss.backward()
     assert any(param.grad is not None and torch.isfinite(param.grad).all() for param in model.parameters())
+
+
+def test_counterfactual_sequences_supervise_hierarchy_predictor_without_main_trajectory_chunks():
+    rng = np.random.default_rng(14)
+    example = _example()
+    trajectory = sample_grid_goal_sudoku_trajectory(
+        example,
+        rng,
+        oracle_probability=1.0,
+        allow_overwrite=False,
+        counterfactual_branches=2,
+        counterfactual_depth=3,
+        counterfactual_max_pairs=16,
+    )
+    batch = collate_grid_goal_sudoku_trajectories([trajectory])
+    model = _small_model(
+        hierarchy_levels=(2,),
+        hierarchy_loss_weight=1.0,
+        counterfactual_dynamics_weight=1.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    )
+    seen_levels = []
+    original = model.predict_high_level
+
+    def record_predict_high_level(state_latents, macro_actions, context_latents, *, level):
+        seen_levels.append(int(level))
+        return original(state_latents, macro_actions, context_latents, level=level)
+
+    model.predict_high_level = record_predict_high_level
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+        oracle_mask=batch.oracle_mask,
+        counterfactual_states=batch.counterfactual_states,
+        counterfactual_actions=batch.counterfactual_actions,
+        counterfactual_next_boards=batch.counterfactual_next_boards,
+        counterfactual_mask=batch.counterfactual_mask,
+        counterfactual_action_sequences=batch.counterfactual_action_sequences,
+        counterfactual_future_boards=batch.counterfactual_future_boards,
+        counterfactual_step_mask=batch.counterfactual_step_mask,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert 2 in seen_levels
+    assert output.counterfactual_dynamics_loss.item() > 0.0
 
 
 def test_affected_marker_adaln_action_conditioning_changes_prediction_for_same_state():

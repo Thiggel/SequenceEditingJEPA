@@ -24,6 +24,9 @@ class GridGoalSudokuTrajectory:
     counterfactual_states: np.ndarray | None = None
     counterfactual_actions: np.ndarray | None = None
     counterfactual_next_boards: np.ndarray | None = None
+    counterfactual_action_sequences: np.ndarray | None = None
+    counterfactual_future_boards: np.ndarray | None = None
+    counterfactual_step_mask: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +44,9 @@ class GridGoalSudokuBatch:
     counterfactual_actions: torch.Tensor | None = None
     counterfactual_next_boards: torch.Tensor | None = None
     counterfactual_mask: torch.Tensor | None = None
+    counterfactual_action_sequences: torch.Tensor | None = None
+    counterfactual_future_boards: torch.Tensor | None = None
+    counterfactual_step_mask: torch.Tensor | None = None
 
 
 def action_to_array(action: WorldAction) -> np.ndarray:
@@ -249,6 +255,9 @@ def _sample_grid_goal_sudoku_trajectory(
         counterfactual_states=counterfactual[0],
         counterfactual_actions=counterfactual[1],
         counterfactual_next_boards=counterfactual[2],
+        counterfactual_action_sequences=counterfactual[3],
+        counterfactual_future_boards=counterfactual[4],
+        counterfactual_step_mask=counterfactual[5],
     )
 
 
@@ -263,39 +272,77 @@ def _sample_counterfactual_pairs(
     branches: int,
     depth: int,
     max_pairs: int,
-) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+) -> tuple[
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+]:
     branches = int(branches)
     depth = max(1, int(depth))
     max_pairs = int(max_pairs)
     if branches <= 0 or max_pairs == 0 or boards.shape[0] <= 1:
-        return None, None, None
+        return None, None, None, None, None, None
     states: list[np.ndarray] = []
     sampled_actions: list[np.ndarray] = []
     next_boards: list[np.ndarray] = []
+    action_sequences: list[np.ndarray] = []
+    future_boards: list[np.ndarray] = []
+    step_masks: list[np.ndarray] = []
 
-    def add_pair(state: np.ndarray, action: WorldAction) -> np.ndarray | None:
+    def add_branch(state: np.ndarray, first_action: WorldAction, *, canonical_next: np.ndarray | None = None) -> None:
         if max_pairs > 0 and len(states) >= max_pairs:
-            return None
-        try:
-            nxt = apply_sudoku_action(
-                state,
-                action,
-                clue_mask=clue_mask,
-                allow_conflicts=allow_conflicts,
-                allow_overwrite=allow_overwrite,
-            )
-        except ValueError:
-            return None
+            return
+        current = np.asarray(state, dtype=np.int64).copy()
+        sequence = np.tile(PAD_ACTION, (depth, 1))
+        futures = np.zeros((depth, *state.shape), dtype=np.int64)
+        step_mask = np.zeros((depth,), dtype=bool)
+        actions_to_try = [first_action]
+        for step in range(depth):
+            if step > 0:
+                legal_next = legal_sudoku_actions(
+                    current,
+                    clue_mask=clue_mask,
+                    allow_conflicts=allow_conflicts,
+                    allow_overwrite=allow_overwrite,
+                )
+                if not legal_next:
+                    break
+                actions_to_try = [legal_next[int(rng.integers(0, len(legal_next)))]]
+            action = actions_to_try[0]
+            try:
+                current = (
+                    np.asarray(canonical_next, dtype=np.int64).copy()
+                    if step == 0 and canonical_next is not None
+                    else apply_sudoku_action(
+                        current,
+                        action,
+                        clue_mask=clue_mask,
+                        allow_conflicts=allow_conflicts,
+                        allow_overwrite=allow_overwrite,
+                    )
+                )
+            except ValueError:
+                break
+            sequence[step] = action_to_array(action)
+            futures[step] = current
+            step_mask[step] = True
+        if not bool(step_mask.any()):
+            return
         states.append(np.asarray(state, dtype=np.int64).copy())
-        sampled_actions.append(action_to_array(action))
-        next_boards.append(nxt.copy())
-        return nxt
+        sampled_actions.append(sequence[0].copy())
+        next_boards.append(futures[np.nonzero(step_mask)[0][-1]].copy())
+        action_sequences.append(sequence)
+        future_boards.append(futures)
+        step_masks.append(step_mask)
 
     for frame in range(boards.shape[0] - 1):
         if max_pairs > 0 and len(states) >= max_pairs:
             break
         true_action = array_to_action(actions[frame])
-        add_pair(boards[frame], true_action)
+        add_branch(boards[frame], true_action, canonical_next=boards[frame + 1])
         legal = legal_sudoku_actions(
             boards[frame],
             clue_mask=clue_mask,
@@ -306,27 +353,16 @@ def _sample_counterfactual_pairs(
             continue
         chosen = rng.choice(len(legal), size=min(branches, len(legal)), replace=False)
         for action_index in np.atleast_1d(chosen):
-            current = add_pair(boards[frame], legal[int(action_index)])
-            if current is None:
-                continue
-            for _ in range(1, depth):
-                legal_next = legal_sudoku_actions(
-                    current,
-                    clue_mask=clue_mask,
-                    allow_conflicts=allow_conflicts,
-                    allow_overwrite=allow_overwrite,
-                )
-                if not legal_next:
-                    break
-                current = add_pair(current, legal_next[int(rng.integers(0, len(legal_next)))])
-                if current is None:
-                    break
+            add_branch(boards[frame], legal[int(action_index)])
     if not states:
-        return None, None, None
+        return None, None, None, None, None, None
     return (
         np.asarray(states, dtype=np.int64),
         np.asarray(sampled_actions, dtype=np.int64),
         np.asarray(next_boards, dtype=np.int64),
+        np.asarray(action_sequences, dtype=np.int64),
+        np.asarray(future_boards, dtype=np.int64),
+        np.asarray(step_masks, dtype=bool),
     )
 
 
@@ -350,7 +386,17 @@ def collate_grid_goal_sudoku_trajectories(
     padded_cf_states = []
     padded_cf_actions = []
     padded_cf_next = []
+    padded_cf_action_sequences = []
+    padded_cf_future_boards = []
+    padded_cf_step_masks = []
     cf_masks = []
+    cf_depth = max(
+        (
+            0 if item.counterfactual_action_sequences is None else int(item.counterfactual_action_sequences.shape[1])
+            for item in trajectories
+        ),
+        default=0,
+    )
     for item, length in zip(trajectories, lengths, strict=True):
         boards = np.empty((num_frames, 9, 9), dtype=np.int64)
         actions = np.empty((num_frames, 3), dtype=np.int64)
@@ -368,6 +414,9 @@ def collate_grid_goal_sudoku_trajectories(
             cf_states = np.zeros((cf_frames, 9, 9), dtype=np.int64)
             cf_actions = np.zeros((cf_frames, 3), dtype=np.int64)
             cf_next = np.zeros((cf_frames, 9, 9), dtype=np.int64)
+            cf_action_seq = np.zeros((cf_frames, cf_depth, 3), dtype=np.int64)
+            cf_future = np.zeros((cf_frames, cf_depth, 9, 9), dtype=np.int64)
+            cf_step_mask = np.zeros((cf_frames, cf_depth), dtype=bool)
             cf_mask = np.zeros((cf_frames,), dtype=bool)
             cf_len = 0 if item.counterfactual_states is None else int(item.counterfactual_states.shape[0])
             if cf_len > 0:
@@ -375,19 +424,33 @@ def collate_grid_goal_sudoku_trajectories(
                 cf_actions[:cf_len] = item.counterfactual_actions
                 cf_next[:cf_len] = item.counterfactual_next_boards
                 cf_mask[:cf_len] = True
+                if item.counterfactual_action_sequences is not None:
+                    depth = int(item.counterfactual_action_sequences.shape[1])
+                    cf_action_seq[:cf_len, :depth] = item.counterfactual_action_sequences
+                    cf_future[:cf_len, :depth] = item.counterfactual_future_boards
+                    cf_step_mask[:cf_len, :depth] = item.counterfactual_step_mask
             padded_cf_states.append(cf_states)
             padded_cf_actions.append(cf_actions)
             padded_cf_next.append(cf_next)
+            padded_cf_action_sequences.append(cf_action_seq)
+            padded_cf_future_boards.append(cf_future)
+            padded_cf_step_masks.append(cf_step_mask)
             cf_masks.append(cf_mask)
     counterfactual_states = None
     counterfactual_actions = None
     counterfactual_next_boards = None
     counterfactual_mask = None
+    counterfactual_action_sequences = None
+    counterfactual_future_boards = None
+    counterfactual_step_mask = None
     if cf_frames > 0:
         counterfactual_states = torch.as_tensor(np.stack(padded_cf_states), dtype=torch.long, device=device)
         counterfactual_actions = torch.as_tensor(np.stack(padded_cf_actions), dtype=torch.long, device=device)
         counterfactual_next_boards = torch.as_tensor(np.stack(padded_cf_next), dtype=torch.long, device=device)
         counterfactual_mask = torch.as_tensor(np.stack(cf_masks), dtype=torch.bool, device=device)
+        counterfactual_action_sequences = torch.as_tensor(np.stack(padded_cf_action_sequences), dtype=torch.long, device=device)
+        counterfactual_future_boards = torch.as_tensor(np.stack(padded_cf_future_boards), dtype=torch.long, device=device)
+        counterfactual_step_mask = torch.as_tensor(np.stack(padded_cf_step_masks), dtype=torch.bool, device=device)
     return GridGoalSudokuBatch(
         boards=torch.as_tensor(np.stack(padded_boards), dtype=torch.long, device=device),
         actions=torch.as_tensor(np.stack(padded_actions), dtype=torch.long, device=device),
@@ -404,4 +467,7 @@ def collate_grid_goal_sudoku_trajectories(
         counterfactual_actions=counterfactual_actions,
         counterfactual_next_boards=counterfactual_next_boards,
         counterfactual_mask=counterfactual_mask,
+        counterfactual_action_sequences=counterfactual_action_sequences,
+        counterfactual_future_boards=counterfactual_future_boards,
+        counterfactual_step_mask=counterfactual_step_mask,
     )

@@ -658,6 +658,7 @@ class GridTokenGoalJEPA(nn.Module):
         self.waypoint_decoder = BidirectionalTransformer(
             num_layers=goal_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
         )
+        self.waypoint_horizon_embedding = nn.Embedding(256, d_model)
         self.waypoint_final_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.waypoint_horizons = tuple(sorted({int(horizon) for horizon in waypoint_horizons if int(horizon) > 0}))
         self.waypoint_loss_weight = float(waypoint_loss_weight)
@@ -1039,15 +1040,39 @@ class GridTokenGoalJEPA(nn.Module):
         context_latents: torch.Tensor,
         active_mask: torch.Tensor,
         current_latents: torch.Tensor,
+        *,
+        horizon: int | None = None,
     ) -> torch.Tensor:
+        configured = self.waypoint_horizons or (int(horizon) if horizon is not None else 1,)
+        horizons = (int(horizon),) if horizon is not None else configured
         if self.latent_representation == "single":
             if self.single_waypoint_query is None:
                 raise RuntimeError("single_waypoint_query was not initialized.")
-            queries = self.single_waypoint_query.view(1, 1, -1).expand(context_latents.shape[0], -1, -1)
+            base_queries = self.single_waypoint_query.view(1, 1, -1).expand(context_latents.shape[0], -1, -1)
         else:
-            queries = self.embedder.query_tokens(active_mask)
+            base_queries = self.embedder.query_tokens(active_mask)
+        horizon_ids = torch.as_tensor(
+            [min(max(int(item), 0), self.waypoint_horizon_embedding.num_embeddings - 1) for item in horizons],
+            dtype=torch.long,
+            device=context_latents.device,
+        )
+        horizon_embed = self.waypoint_horizon_embedding(horizon_ids).to(dtype=base_queries.dtype)
+        query_count = base_queries.shape[1]
+        queries = (base_queries[:, None] + horizon_embed[None, :, None]).reshape(
+            context_latents.shape[0],
+            len(horizons) * query_count,
+            self.d_model,
+        )
         memory = torch.cat([context_latents, current_latents], dim=-2)
-        return self.waypoint_decoder(queries, memory)
+        decoded = self.waypoint_decoder(queries, memory).reshape(
+            context_latents.shape[0],
+            len(horizons),
+            query_count,
+            self.d_model,
+        )
+        if horizon is not None:
+            return decoded[:, 0]
+        return decoded
 
     def distance(self, state_latents: torch.Tensor, goal_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
         mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
@@ -1234,6 +1259,9 @@ class GridTokenGoalJEPA(nn.Module):
         counterfactual_actions: torch.Tensor | None = None,
         counterfactual_next_boards: torch.Tensor | None = None,
         counterfactual_mask: torch.Tensor | None = None,
+        counterfactual_action_sequences: torch.Tensor | None = None,
+        counterfactual_future_boards: torch.Tensor | None = None,
+        counterfactual_step_mask: torch.Tensor | None = None,
     ) -> GridGoalJEPAOutput:
         batch, frames = boards.shape[:2]
         rows, cols = boards.shape[-2:]
@@ -1548,31 +1576,114 @@ class GridTokenGoalJEPA(nn.Module):
             if counterfactual_states.shape != counterfactual_next_boards.shape:
                 raise ValueError("counterfactual_states and counterfactual_next_boards must have matching shapes.")
             cf_pairs = counterfactual_states.shape[1]
-            cf_context = context_latents[:, None].expand(batch, cf_pairs, context_token_count, self.d_model).reshape(
+            if (
+                counterfactual_action_sequences is None
+                or counterfactual_future_boards is None
+                or counterfactual_step_mask is None
+            ):
+                counterfactual_action_sequences = counterfactual_actions[:, :, None]
+                counterfactual_future_boards = counterfactual_next_boards[:, :, None]
+                counterfactual_step_mask = counterfactual_mask[:, :, None]
+            if counterfactual_action_sequences.shape[:2] != counterfactual_states.shape[:2]:
+                raise ValueError("counterfactual_action_sequences must share [batch, pairs] with counterfactual_states.")
+            if counterfactual_future_boards.shape[:3] != counterfactual_action_sequences.shape[:3]:
+                raise ValueError("counterfactual_future_boards must share [batch, pairs, steps] with action sequences.")
+            cf_depth = int(counterfactual_action_sequences.shape[2])
+            cf_valid_steps = counterfactual_step_mask & counterfactual_mask[:, :, None]
+            cf_context_steps = context_latents[:, None, None].expand(
+                batch, cf_pairs, cf_depth, context_token_count, self.d_model
+            ).reshape(batch * cf_pairs * cf_depth, context_token_count, self.d_model)
+            cf_clue_steps = clue_mask[:, None, None].expand(batch, cf_pairs, cf_depth, rows, cols).reshape(
+                batch * cf_pairs * cf_depth,
+                rows,
+                cols,
+            )
+            cf_edit_steps = editable_mask[:, None, None].expand(batch, cf_pairs, cf_depth, rows, cols).reshape(
+                batch * cf_pairs * cf_depth,
+                rows,
+                cols,
+            )
+            cf_active_steps = active_mask[:, None, None].expand(batch, cf_pairs, cf_depth, rows, cols).reshape(
+                batch * cf_pairs * cf_depth,
+                rows,
+                cols,
+            )
+            cf_source_boards = torch.cat(
+                [counterfactual_states[:, :, None], counterfactual_future_boards[:, :, :-1]],
+                dim=2,
+            )
+            cf_source_flat = cf_source_boards.reshape(batch * cf_pairs * cf_depth, rows, cols)
+            cf_target_flat = counterfactual_future_boards.reshape(batch * cf_pairs * cf_depth, rows, cols)
+            cf_source_latents = self.encode_state(
+                cf_source_flat,
+                cf_context_steps,
+                cf_clue_steps,
+                cf_edit_steps,
+                cf_active_steps,
+            )
+            if self.dynamics_target_mode == "online_no_stopgrad":
+                cf_target_latents = self.encode_state(
+                    cf_target_flat,
+                    cf_context_steps,
+                    cf_clue_steps,
+                    cf_edit_steps,
+                    cf_active_steps,
+                )
+            else:
+                with torch.no_grad():
+                    cf_target_latents = self.encode_state_target(
+                        cf_target_flat,
+                        cf_context_steps,
+                        cf_clue_steps,
+                        cf_edit_steps,
+                        cf_active_steps,
+                    )
+            cf_actions_flat = counterfactual_action_sequences.reshape(batch * cf_pairs * cf_depth, 3)
+            cf_predicted = self.predict_next(cf_source_latents, cf_actions_flat, cf_context_steps)
+            cf_error = self._dynamics_error(
+                cf_predicted[:, None],
+                cf_target_latents[:, None],
+                cf_actions_flat,
+                rows=rows,
+                cols=cols,
+            ).reshape(batch, cf_pairs, cf_depth)
+            counterfactual_terms = [_masked_mean(cf_error, cf_valid_steps)]
+
+            cf_root_context = context_latents[:, None].expand(batch, cf_pairs, context_token_count, self.d_model).reshape(
                 batch * cf_pairs,
                 context_token_count,
                 self.d_model,
             )
-            cf_clue = clue_mask[:, None].expand(batch, cf_pairs, rows, cols).reshape(batch * cf_pairs, rows, cols)
-            cf_edit = editable_mask[:, None].expand(batch, cf_pairs, rows, cols).reshape(batch * cf_pairs, rows, cols)
-            cf_active = active_mask[:, None].expand(batch, cf_pairs, rows, cols).reshape(batch * cf_pairs, rows, cols)
-            cf_states_flat = counterfactual_states.reshape(batch * cf_pairs, rows, cols)
-            cf_next_flat = counterfactual_next_boards.reshape(batch * cf_pairs, rows, cols)
-            cf_latents = self.encode_state(cf_states_flat, cf_context, cf_clue, cf_edit, cf_active)
-            if self.dynamics_target_mode == "online_no_stopgrad":
-                cf_targets = self.encode_state(cf_next_flat, cf_context, cf_clue, cf_edit, cf_active)
-            else:
-                with torch.no_grad():
-                    cf_targets = self.encode_state_target(cf_next_flat, cf_context, cf_clue, cf_edit, cf_active)
-            cf_predicted = self.predict_next(cf_latents, counterfactual_actions.reshape(batch * cf_pairs, 3), cf_context)
-            cf_error = self._dynamics_error(
-                cf_predicted.reshape(batch, cf_pairs, token_count, self.d_model),
-                cf_targets.reshape(batch, cf_pairs, token_count, self.d_model),
-                counterfactual_actions,
-                rows=rows,
-                cols=cols,
-            )
-            counterfactual_dynamics_loss = _masked_mean(cf_error, counterfactual_mask)
+            cf_root_latents = cf_source_latents.reshape(batch, cf_pairs, cf_depth, token_count, self.d_model)[:, :, 0]
+            cf_targets_by_step = cf_target_latents.reshape(batch, cf_pairs, cf_depth, token_count, self.d_model)
+            for level in self.hierarchy_levels:
+                if level <= 0 or level > cf_depth:
+                    continue
+                valid = counterfactual_mask & counterfactual_step_mask[:, :, :level].all(dim=-1)
+                if not bool(valid.any()):
+                    continue
+                chunk_actions = counterfactual_action_sequences[:, :, :level].reshape(batch * cf_pairs, level, 3)
+                predicted_waypoint = self.predict_high_level(
+                    cf_root_latents.reshape(batch * cf_pairs, token_count, self.d_model),
+                    chunk_actions,
+                    cf_root_context,
+                    level=level,
+                )
+                target_waypoint = cf_targets_by_step[:, :, level - 1].reshape(
+                    batch * cf_pairs,
+                    token_count,
+                    self.d_model,
+                )
+                hierarchy_error = self._dynamics_error(
+                    predicted_waypoint[:, None],
+                    target_waypoint[:, None],
+                    chunk_actions,
+                    rows=rows,
+                    cols=cols,
+                    horizon=level,
+                ).reshape(batch, cf_pairs)
+                counterfactual_terms.append(_masked_mean(hierarchy_error, valid) / (float(level) ** 0.5))
+            counterfactual_dynamics_loss = torch.stack(counterfactual_terms).mean()
 
         hierarchy_terms = []
         hierarchy_dense_terms = []
@@ -1684,20 +1795,21 @@ class GridTokenGoalJEPA(nn.Module):
                 flat_context,
                 flat_active,
                 flat_current.detach() if self.goal_conditioning_detach_state else flat_current,
-            ).reshape(batch, frames, token_count, self.d_model)
-            for horizon in self.waypoint_horizons:
+            ).reshape(batch, frames, len(self.waypoint_horizons), token_count, self.d_model)
+            for horizon_index, horizon in enumerate(self.waypoint_horizons):
                 target_ids = torch.minimum(frame_ids + int(horizon), (lengths - 1)[:, None])
                 gather_ids = target_ids[:, :, None, None].expand(batch, frames, token_count, self.d_model)
                 waypoint_target = torch.gather(target_state_latents, dim=1, index=gather_ids)
                 valid = masks & oracle_rows[:, None]
-                token_error = (waypoint_pred_sequence - waypoint_target.detach()).square().mean(dim=-1)
+                waypoint_pred = waypoint_pred_sequence[:, :, horizon_index]
+                token_error = (waypoint_pred - waypoint_target.detach()).square().mean(dim=-1)
                 token_valid = latent_active_flat[:, None].expand(batch, frames, token_count) & valid[:, :, None]
                 waypoint_terms.append(_masked_mean(token_error, token_valid) / (float(horizon) ** 0.5))
                 if self.waypoint_final_weight > 0.0:
                     final_targets = (frame_ids + int(horizon) >= lengths[:, None]).to(dtype=state_latents.dtype)
                     final_logits = self.waypoint_final_head(
                         _masked_summary(
-                            waypoint_pred_sequence.reshape(batch * frames, token_count, self.d_model),
+                            waypoint_pred.reshape(batch * frames, token_count, self.d_model),
                             latent_active_flat[:, None].expand(batch, frames, token_count).reshape(batch * frames, token_count),
                         )
                     ).reshape(batch, frames)

@@ -10,12 +10,12 @@ from typing import Any
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Six-hour oversight for the counterfactual/editable Grid Goal weekend wave.")
+    parser = argparse.ArgumentParser(description="Twelve-hour oversight for the counterfactual/editable Grid Goal weekend wave.")
     parser.add_argument("--manifest", type=Path, default=Path("scripts/experiments/grid_goal_weekend_manifest.json"))
     parser.add_argument("--work-root", type=Path, default=Path(os.environ.get("PUZZLE_JEPA_WORK_ROOT", ".")))
     parser.add_argument("--report-root", type=Path, default=Path("../sequence-editing-report"))
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument("--repair-evals", action="store_true", default=os.environ.get("GRID_GOAL_WEEKEND_REPAIR_EVALS", "0") == "1")
+    parser.add_argument("--repair-evals", action="store_true", default=os.environ.get("GRID_GOAL_WEEKEND_REPAIR_EVALS", "1") == "1")
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest.read_text())

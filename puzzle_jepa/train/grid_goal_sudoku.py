@@ -130,6 +130,9 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                     counterfactual_actions=batch.counterfactual_actions,
                     counterfactual_next_boards=batch.counterfactual_next_boards,
                     counterfactual_mask=batch.counterfactual_mask,
+                    counterfactual_action_sequences=batch.counterfactual_action_sequences,
+                    counterfactual_future_boards=batch.counterfactual_future_boards,
+                    counterfactual_step_mask=batch.counterfactual_step_mask,
                 )
             if not torch.isfinite(output.loss.detach()):
                 raise FloatingPointError(f"Non-finite loss at step {step}: {float(output.loss.detach().cpu())}")
@@ -343,6 +346,9 @@ def _zero_context_masks(batch):
         counterfactual_actions=batch.counterfactual_actions,
         counterfactual_next_boards=batch.counterfactual_next_boards,
         counterfactual_mask=batch.counterfactual_mask,
+        counterfactual_action_sequences=batch.counterfactual_action_sequences,
+        counterfactual_future_boards=batch.counterfactual_future_boards,
+        counterfactual_step_mask=batch.counterfactual_step_mask,
     )
 
 

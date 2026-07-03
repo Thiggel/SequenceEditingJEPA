@@ -48,6 +48,7 @@ def load_checkpoint(path: Path, device: torch.device) -> tuple[GridTokenGoalJEPA
             "metric_value_head.",
             "target_metric_src_projector.",
             "target_metric_goal_projector.",
+            "waypoint_horizon_embedding.",
         )
         allowed_missing.update(
             key for key in missing if key.startswith(legacy_optional_prefixes)

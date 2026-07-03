@@ -513,6 +513,7 @@ def run_hierarchical_beam_mpc(
             beam_width=beam_width,
             beam_depth=min(depth, min(high_levels) if high_levels else depth),
             device=device,
+            allow_overwrite=allow_overwrite,
         )
         action_evals += evals
         if first is None:
@@ -599,6 +600,7 @@ def run_waypoint_beam_mpc(
                 clue_mask,
                 editable_mask,
                 active_mask,
+                horizon=waypoint_horizon,
                 device=device,
             )
         if hierarchical:
@@ -2039,6 +2041,7 @@ def _predict_waypoint_for_board(
     editable_mask: np.ndarray,
     active_mask: np.ndarray,
     *,
+    horizon: int | None = None,
     device: torch.device,
 ) -> torch.Tensor:
     board_t = torch.as_tensor(board[None], dtype=torch.long, device=device)
@@ -2046,7 +2049,7 @@ def _predict_waypoint_for_board(
     edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
     active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
     current_latents = model.encode_state(board_t, context_latents, clue_t, edit_t, active_t)
-    return model.predict_waypoint(context_latents, active_t, current_latents)
+    return model.predict_waypoint(context_latents, active_t, current_latents, horizon=horizon)
 
 
 @torch.no_grad()
