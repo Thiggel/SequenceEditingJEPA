@@ -1,6 +1,6 @@
 # Current Experiments
 
-Last updated: 2026-07-03 13:08 CEST
+Last updated: 2026-07-03 14:45 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
@@ -124,7 +124,7 @@ Eval is dependency-held per checkpoint and split by goal-distance mode:
 - each eval uses `mpc_beam`, latent rollout plus symbolic re-encode, beam width
   `16`, depths `{4,16}`, and 8 boards
 
-Current Slurm state at 13:08 CEST:
+Current Slurm state at 14:45 CEST:
 
 - replacement train jobs `3808387`, `3808389`, `3808392`, `3808394`,
   `3808397`, `3808399`, `3808402`, `3808404` completed successfully
@@ -133,8 +133,8 @@ Current Slurm state at 13:08 CEST:
   failed at checkpoint load because the evaluator was too strict about
   optional metric/bad-state heads added after the checkpoints
 - the loader was fixed and covered by a regression test
-- replacement evals are running: oracle `3808863`-`3808870`, predicted-goal
-  `3808871`-`3808874`
+- replacement evals completed successfully: oracle `3808863`-`3808870`,
+  predicted-goal `3808871`-`3808874`
 - superseded one-step Delta evals `3808222`, `3808224`, `3808225`, `3808227`,
   `3808229`, `3808230`, `3808232`, `3808234`, `3808235`, `3808237`,
   `3808239`, `3808240` were canceled
@@ -147,6 +147,25 @@ Fidelity fixes:
 - Single-state latent-rollout planning now passes growing state/action history
   to the causal predictor.
 - Full-board Delta goal variants use `goal_conditioning=context_current`.
+
+Results:
+
+| Variant | Oracle latent | Oracle symbolic | Predicted latent | Predicted symbolic |
+|---|---|---|---|---|
+| `FB_online_noema_nogoal` | `0/8`, h `50.625` | `8/8`, h `0.0` | n/a | n/a |
+| `FB_online_noema_goal` | `0/8`, h `49.375` | `8/8`, h `0.0` | `0/8`, h `49.875` | `0/8`, h `48.75` |
+| `FB_stopgrad_noema_nogoal` | `0/8`, h `29.25` | `8/8`, h `0.0` | n/a | n/a |
+| `FB_stopgrad_noema_goal` | `0/8`, h `49.5` | `8/8`, h `0.0` | `0/8`, h `49.375` | `0/8`, h `48.5` |
+| `FB_stopgrad_ema_nogoal` | `8/8`, h `0.0` | `8/8`, h `0.0` | n/a | n/a |
+| `FB_stopgrad_ema_goal` | `0/8`, h `50.25` | `8/8`, h `0.0` | `0/8`, h `49.375` | `0/8`, h `49.5` |
+| `SV_online_nogoal` | `0/8`, h `48.375` | `0/8`, h `45.375` | n/a | n/a |
+| `SV_online_goal` | `0/8`, h `48.75` | `0/8`, h `46.125` | `0/8`, h `48.375` | `0/8`, h `50.5` |
+
+Interpretation: only `FB_stopgrad_ema_nogoal` works under latent rollout.
+Full-board symbolic oracle planning works broadly, so the main Delta failure is
+latent transition/action geometry. The online/no-EMA branch has low drift but
+collapsed scale; goal-regularized variants can predict the oracle goal latent
+while damaging action ranking.
 
 ## Active: Horizon-Length Ablation
 
