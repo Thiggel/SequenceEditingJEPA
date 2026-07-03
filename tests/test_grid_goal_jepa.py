@@ -11,7 +11,12 @@ from puzzle_jepa.data.grid_goal_sudoku import (
     sample_grid_goal_sudoku_trajectory,
 )
 from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
-from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights, _temporal_straightening_loss
+from puzzle_jepa.models.grid_goal_jepa import (
+    GridTokenGoalJEPA,
+    _affected_token_weights,
+    _sudoku_bad_state_labels,
+    _temporal_straightening_loss,
+)
 from puzzle_jepa.planning.grid_goal_planner import (
     _predict_goal_for_board,
     _sample_macro_action_sequences,
@@ -20,6 +25,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     changed_cell_raw_euclidean_distances,
     delta_topk_raw_euclidean_distances,
     hierarchical_subgoal_cem,
+    latent_distance,
     projected_tokenwise_euclidean_distance,
     raw_full_board_mse_distance,
     raw_tokenwise_cosine_distance,
@@ -149,6 +155,99 @@ def test_goal_conditioning_defaults_to_initial_and_current_state():
     model = _small_model()
 
     assert model.goal_conditioning == "initial_current"
+
+
+def test_sudoku_bad_state_labels_detect_wrong_digit_and_duplicates():
+    batch = _small_batch(batch_size=1)
+    boards = batch.boards[:, :3].clone()
+
+    assert not bool(_sudoku_bad_state_labels(boards, batch.goals).any())
+
+    wrong = boards.clone()
+    row, col = torch.nonzero(wrong[0, 1] == 0, as_tuple=False)[0]
+    wrong[0, 1, row, col] = (batch.goals[0, row, col] % 9) + 1
+    assert bool(_sudoku_bad_state_labels(wrong, batch.goals)[0, 1])
+
+    duplicate = boards.clone()
+    duplicate[0, 2, 0, 2] = duplicate[0, 2, 0, 0]
+    assert bool(_sudoku_bad_state_labels(duplicate, batch.goals)[0, 2])
+
+
+@pytest.mark.parametrize("metric_geometry_mode", ["terminal_progress", "hindsight", "contrastive"])
+def test_metric_geometry_losses_are_reported_and_finite(metric_geometry_mode):
+    batch = _small_batch(batch_size=2)
+    model = _small_model(
+        metric_geometry_mode=metric_geometry_mode,
+        metric_geometry_weight=0.5,
+        metric_goal_mse_weight=0.25,
+        bad_state_weight=0.1,
+        metric_bad_margin_weight=0.1,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert torch.isfinite(output.metric_geometry_loss)
+    assert torch.isfinite(output.metric_goal_mse_loss)
+    assert torch.isfinite(output.bad_state_loss)
+    assert torch.isfinite(output.bad_margin_loss)
+    assert output.metric_geometry_loss.item() >= 0.0
+    output.loss.backward()
+    grads = [param.grad.detach() for param in model.parameters() if param.grad is not None]
+    assert grads
+    assert all(torch.isfinite(grad).all() for grad in grads)
+
+
+def test_metric_projected_planner_distance_uses_metric_heads_not_legacy_projector():
+    batch = _small_batch(batch_size=1)
+    model = _small_model()
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    state = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    goal = model.encode_state(batch.goals, context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    mask = batch.active_mask
+
+    with torch.no_grad():
+        model.distance_projector.weight.zero_()
+        model.distance_projector.bias.zero_()
+        model.metric_src_projector.weight.zero_()
+        for index in range(model.metric_src_projector.weight.shape[0]):
+            model.metric_src_projector.weight[index, index] = 1.0
+        model.metric_src_projector.bias.fill_(0.0)
+
+    legacy_zero = projected_tokenwise_euclidean_distance(state, goal, mask, model.distance_projector)
+    metric_score = latent_distance(
+        model,
+        state,
+        predicted_goal=goal,
+        oracle_goal=goal,
+        mask=mask,
+        score_mode="oracle_goal_projected_euclidean_distance",
+    )
+
+    assert legacy_zero.item() == pytest.approx(0.0)
+    assert metric_score.item() > 0.0
+
+
+def test_asymmetric_metric_projection_has_distinct_goal_head():
+    model = _small_model(metric_asymmetric_projection=True)
+
+    assert model.metric_goal_projector is not model.metric_src_projector
 
 
 def test_markov_predictor_accepts_current_board_latent_and_one_action_token():

@@ -26,6 +26,10 @@ class GridGoalJEPAOutput:
     action_rank_loss: torch.Tensor
     policy_prior_loss: torch.Tensor
     delta_action_loss: torch.Tensor
+    metric_geometry_loss: torch.Tensor
+    metric_goal_mse_loss: torch.Tensor
+    bad_state_loss: torch.Tensor
+    bad_margin_loss: torch.Tensor
     temporal_straightening_loss: torch.Tensor
     terminal_corrupt_loss: torch.Tensor
     state_latents: torch.Tensor
@@ -474,6 +478,16 @@ class GridTokenGoalJEPA(nn.Module):
         policy_prior_weight: float = 0.0,
         policy_prior_mode: str = "pairwise",
         policy_prior_planning_weight: float = 0.0,
+        metric_geometry_mode: str = "none",
+        metric_geometry_weight: float = 0.0,
+        metric_goal_mse_weight: float = 0.0,
+        metric_asymmetric_projection: bool = False,
+        metric_bad_margin_weight: float = 0.0,
+        metric_bad_margin: float = 1.0,
+        metric_hindsight_max_horizon: int = 8,
+        metric_contrastive_temperature: float = 0.1,
+        bad_state_weight: float = 0.0,
+        bad_state_planning_weight: float = 0.0,
         distance_mode: str = "tokenwise",
         latent_representation: str = "grid",
         max_history_steps: int = 128,
@@ -648,6 +662,29 @@ class GridTokenGoalJEPA(nn.Module):
         self.policy_query = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, d_model), nn.SiLU(), nn.Linear(d_model, d_model))
         self.policy_action = nn.Linear(d_model, d_model, bias=False)
         self.distance_projector = nn.Linear(d_model, distance_dim)
+        allowed_metric_modes = {"none", "terminal_progress", "hindsight", "contrastive"}
+        if metric_geometry_mode not in allowed_metric_modes:
+            raise ValueError(f"metric_geometry_mode must be one of {sorted(allowed_metric_modes)}.")
+        self.metric_geometry_mode = str(metric_geometry_mode)
+        self.metric_geometry_weight = float(metric_geometry_weight)
+        self.metric_goal_mse_weight = float(metric_goal_mse_weight)
+        self.metric_asymmetric_projection = bool(metric_asymmetric_projection)
+        self.metric_bad_margin_weight = float(metric_bad_margin_weight)
+        self.metric_bad_margin = float(metric_bad_margin)
+        self.metric_hindsight_max_horizon = int(metric_hindsight_max_horizon)
+        if self.metric_hindsight_max_horizon <= 0:
+            raise ValueError("metric_hindsight_max_horizon must be positive.")
+        self.metric_contrastive_temperature = float(metric_contrastive_temperature)
+        if self.metric_contrastive_temperature <= 0.0:
+            raise ValueError("metric_contrastive_temperature must be positive.")
+        self.bad_state_weight = float(bad_state_weight)
+        self.bad_state_planning_weight = float(bad_state_planning_weight)
+        self.metric_src_projector = nn.Linear(d_model, distance_dim)
+        if self.metric_asymmetric_projection:
+            self.metric_goal_projector = nn.Linear(d_model, distance_dim)
+        else:
+            self.metric_goal_projector = self.metric_src_projector
+        self.bad_state_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.sigreg_weight = float(sigreg_weight)
         self.goal_mse_weight = float(goal_mse_weight)
         self.goal_nce_weight = float(goal_nce_weight)
@@ -721,10 +758,18 @@ class GridTokenGoalJEPA(nn.Module):
             self.target_state_encoder = BidirectionalTransformer(
                 num_layers=state_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
             )
+            self.target_metric_src_projector = nn.Linear(d_model, distance_dim)
+            if self.metric_asymmetric_projection:
+                self.target_metric_goal_projector = nn.Linear(d_model, distance_dim)
+            else:
+                self.target_metric_goal_projector = self.target_metric_src_projector
             if self.latent_representation == "single":
                 self.target_single_state_cls = nn.Parameter(torch.empty(1, 1, d_model))
                 self.target_single_state_norm = nn.LayerNorm(d_model)
             self._reset_ema_target_encoder()
+        else:
+            self.target_metric_src_projector = None
+            self.target_metric_goal_projector = None
 
     def encode_context(
         self,
@@ -900,6 +945,9 @@ class GridTokenGoalJEPA(nn.Module):
         decay = self.ema_decay if decay is None else float(decay)
         _ema_update(self.target_embedder, self.embedder, decay)
         _ema_update(self.target_state_encoder, self.state_encoder, decay)
+        _ema_update(self.target_metric_src_projector, self.metric_src_projector, decay)
+        if self.metric_asymmetric_projection:
+            _ema_update(self.target_metric_goal_projector, self.metric_goal_projector, decay)
         if self.target_single_state_cls is not None and self.single_state_cls is not None:
             self.target_single_state_cls.data.mul_(decay).add_(self.single_state_cls.data, alpha=1.0 - decay)
         if self.target_single_state_norm is not None and self.single_state_norm is not None:
@@ -949,6 +997,62 @@ class GridTokenGoalJEPA(nn.Module):
             goal_latents = _masked_summary(goal_latents, mask).unsqueeze(1)
             mask = torch.ones((state_latents.shape[0], 1), dtype=torch.bool, device=state_latents.device)
         return tokenwise_distance(state_latents, goal_latents, mask, self.distance_projector)
+
+    def metric_distance(self, state_latents: torch.Tensor, goal_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
+        goal_latents = _expand_batch_tokens(goal_latents, state_latents)
+        return self._metric_distance_from_projected(
+            self._project_metric_source(state_latents),
+            self._project_metric_goal(goal_latents),
+            mask,
+        )
+
+    def bad_state_logits(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        mask = _latent_active_mask(active_mask, token_count=latents.shape[-2])
+        summary = _masked_summary(latents, mask)
+        return self.bad_state_head(summary.float()).squeeze(-1)
+
+    def _project_metric_source(self, latents: torch.Tensor) -> torch.Tensor:
+        return self.metric_src_projector(latents.float())
+
+    def _project_metric_goal(self, latents: torch.Tensor) -> torch.Tensor:
+        return self.metric_goal_projector(latents.float())
+
+    def _project_metric_goal_target(self, latents: torch.Tensor) -> torch.Tensor:
+        if self.target_metric_goal_projector is not None:
+            with torch.no_grad():
+                return self.target_metric_goal_projector(latents.float())
+        return self._project_metric_goal(latents).detach()
+
+    def _metric_distance_to_target(
+        self,
+        state_latents: torch.Tensor,
+        target_goal_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
+        target_goal_latents = _expand_batch_tokens(target_goal_latents, state_latents)
+        return self._metric_distance_from_projected(
+            self._project_metric_source(state_latents),
+            self._project_metric_goal_target(target_goal_latents),
+            mask,
+        )
+
+    def _metric_distance_from_projected(
+        self,
+        source_projected: torch.Tensor,
+        goal_projected: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> torch.Tensor:
+        if source_projected.shape != goal_projected.shape:
+            raise ValueError(
+                f"Metric distance inputs must have matching shapes, got "
+                f"{tuple(source_projected.shape)} and {tuple(goal_projected.shape)}."
+            )
+        mask = _latent_active_mask(mask, token_count=source_projected.shape[-2])
+        per_token = (source_projected - goal_projected).square().sum(dim=-1)
+        weights = mask.float()
+        return (per_token * weights).sum(dim=-1) / weights.sum(dim=-1).clamp_min(1.0)
 
     def score_action_prior(
         self,
@@ -1567,6 +1671,70 @@ class GridTokenGoalJEPA(nn.Module):
         else:
             sigreg_loss = zero_loss
 
+        metric_goal_mse_loss = zero_loss
+        if self.metric_goal_mse_weight > 0.0:
+            projected_pred_goal = self._project_metric_goal(
+                predicted_goal_sequence.reshape(batch * frames, token_count, self.d_model)
+            ).reshape(batch, frames, token_count, -1)
+            with torch.no_grad():
+                projected_target_goal = self._project_metric_goal_target(goal_target).detach()
+            projected_target_sequence = projected_target_goal[:, None].expand_as(projected_pred_goal)
+            metric_goal_token_error = (projected_pred_goal - projected_target_sequence).square().mean(dim=-1)
+            metric_goal_weights = latent_active_flat[:, None].expand(batch, frames, token_count) & masks[:, :, None]
+            metric_goal_mse_loss = _masked_mean(metric_goal_token_error, metric_goal_weights)
+
+        bad_labels = _sudoku_bad_state_labels(boards, goals)
+        bad_state_loss = zero_loss
+        if self.bad_state_weight > 0.0:
+            bad_logits = self.bad_state_logits(
+                state_latents.reshape(batch * frames, token_count, self.d_model),
+                active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols),
+            ).reshape(batch, frames)
+            bad_state_loss = _masked_mean(
+                F.binary_cross_entropy_with_logits(bad_logits, bad_labels.float(), reduction="none"),
+                masks,
+            )
+
+        bad_margin_loss = zero_loss
+        if self.metric_bad_margin_weight > 0.0:
+            metric_goal_sequence = goal_target[:, None].expand(batch, frames, token_count, self.d_model)
+            bad_metric_distances = self._metric_distance_to_target(
+                state_latents.reshape(batch * frames, token_count, self.d_model),
+                metric_goal_sequence.reshape(batch * frames, token_count, self.d_model),
+                active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols),
+            ).reshape(batch, frames)
+            bad_valid = masks & bad_labels
+            if bool(bad_valid.any()):
+                bad_margin_loss = _masked_mean(
+                    F.softplus(self.metric_bad_margin - _safe_sqrt(bad_metric_distances)),
+                    bad_valid,
+                )
+
+        metric_geometry_loss = zero_loss
+        metric_rows = oracle_rows
+        if self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "terminal_progress":
+            metric_geometry_loss = self._terminal_progress_metric_loss(
+                state_latents,
+                goal_target,
+                active_mask,
+                masks & metric_rows[:, None],
+            )
+        elif self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "hindsight":
+            metric_geometry_loss = self._hindsight_metric_loss(
+                state_latents,
+                target_state_latents,
+                active_mask,
+                masks & metric_rows[:, None],
+            )
+        elif self.metric_geometry_weight > 0.0 and self.metric_geometry_mode == "contrastive":
+            metric_geometry_loss = self._contrastive_metric_loss(
+                state_latents,
+                goal_target,
+                active_mask,
+                masks & metric_rows[:, None],
+                bad_labels & masks,
+            )
+
         loss = dynamics_loss
         if self.dense_future_weight > 0.0:
             loss = loss + self.dense_future_weight * dense_future_loss
@@ -1588,6 +1756,14 @@ class GridTokenGoalJEPA(nn.Module):
             loss = loss + self.policy_prior_weight * policy_prior_loss
         if self.delta_action_weight > 0.0:
             loss = loss + self.delta_action_weight * delta_action_loss
+        if self.metric_geometry_weight > 0.0:
+            loss = loss + self.metric_geometry_weight * metric_geometry_loss
+        if self.metric_goal_mse_weight > 0.0:
+            loss = loss + self.metric_goal_mse_weight * metric_goal_mse_loss
+        if self.bad_state_weight > 0.0:
+            loss = loss + self.bad_state_weight * bad_state_loss
+        if self.metric_bad_margin_weight > 0.0:
+            loss = loss + self.metric_bad_margin_weight * bad_margin_loss
         if self.temporal_straightening_weight > 0.0:
             loss = loss + self.temporal_straightening_weight * temporal_straightening_loss
         if self.terminal_corrupt_weight > 0.0:
@@ -1605,6 +1781,10 @@ class GridTokenGoalJEPA(nn.Module):
             action_rank_loss=action_rank_loss.detach(),
             policy_prior_loss=policy_prior_loss.detach(),
             delta_action_loss=delta_action_loss.detach(),
+            metric_geometry_loss=metric_geometry_loss.detach(),
+            metric_goal_mse_loss=metric_goal_mse_loss.detach(),
+            bad_state_loss=bad_state_loss.detach(),
+            bad_margin_loss=bad_margin_loss.detach(),
             temporal_straightening_loss=temporal_straightening_loss.detach(),
             terminal_corrupt_loss=terminal_corrupt_loss.detach(),
             state_latents=state_latents,
@@ -1678,6 +1858,85 @@ class GridTokenGoalJEPA(nn.Module):
         if self.action_rank_target in {"oracle", "both"}:
             terms.append(self.distance(latents, oracle_goal.detach(), active_mask))
         return torch.stack(terms).mean(dim=0)
+
+    def _terminal_progress_metric_loss(
+        self,
+        state_latents: torch.Tensor,
+        terminal_goal_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        if not bool(masks.any()):
+            return state_latents.sum() * 0.0
+        goal_sequence = terminal_goal_latents[:, None].expand(batch, frames, token_count, self.d_model)
+        distances = self._metric_distance_to_target(
+            state_latents.reshape(batch * frames, token_count, self.d_model),
+            goal_sequence.reshape(batch * frames, token_count, self.d_model),
+            active_mask[:, None].expand(batch, frames, *active_mask.shape[-2:]).reshape(batch * frames, *active_mask.shape[-2:]),
+        ).reshape(batch, frames)
+        targets = _remaining_fraction_targets(masks)
+        return _masked_mean(F.huber_loss(_safe_sqrt(distances), targets, reduction="none"), masks)
+
+    def _hindsight_metric_loss(
+        self,
+        state_latents: torch.Tensor,
+        target_state_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        terms = []
+        max_horizon = min(self.metric_hindsight_max_horizon, frames - 1)
+        for horizon in range(1, max_horizon + 1):
+            valid = masks[:, :-horizon] & masks[:, horizon:]
+            if not bool(valid.any()):
+                continue
+            distances = self._metric_distance_to_target(
+                state_latents[:, :-horizon].reshape(-1, token_count, self.d_model),
+                target_state_latents[:, horizon:].reshape(-1, token_count, self.d_model),
+                active_mask[:, None].expand(batch, frames - horizon, *active_mask.shape[-2:]).reshape(
+                    batch * (frames - horizon),
+                    *active_mask.shape[-2:],
+                ),
+            ).reshape(batch, frames - horizon)
+            target = torch.full_like(distances, float(horizon) / float(max_horizon))
+            terms.append(_masked_mean(F.huber_loss(_safe_sqrt(distances), target, reduction="none"), valid))
+        if not terms:
+            return state_latents.sum() * 0.0
+        return torch.stack(terms).mean()
+
+    def _contrastive_metric_loss(
+        self,
+        state_latents: torch.Tensor,
+        terminal_goal_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+        bad_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        latent_mask = _latent_active_mask(active_mask, token_count=token_count)
+        valid = masks.reshape(batch * frames)
+        if not bool(valid.any()):
+            return state_latents.sum() * 0.0
+        source_projected = self._project_metric_source(state_latents.reshape(batch * frames, token_count, self.d_model))
+        source_summary = _masked_summary(
+            source_projected,
+            latent_mask[:, None].expand(batch, frames, token_count).reshape(batch * frames, token_count),
+        )
+        goal_projected = self._project_metric_goal_target(terminal_goal_latents)
+        goal_summary = _masked_summary(goal_projected, latent_mask)
+        anchors = source_summary[valid]
+        positive_labels = torch.arange(batch, device=state_latents.device)[:, None].expand(batch, frames).reshape(batch * frames)[
+            valid
+        ]
+        negative_summaries = [goal_summary]
+        bad_valid = bad_masks.reshape(batch * frames)
+        if bool(bad_valid.any()):
+            negative_summaries.append(source_summary.detach()[bad_valid])
+        candidates = torch.cat(negative_summaries, dim=0)
+        logits = -torch.cdist(anchors.float(), candidates.float()).square() / self.metric_contrastive_temperature
+        return F.cross_entropy(logits, positive_labels)
 
     def _delta_action_objective(
         self,
@@ -1944,7 +2203,11 @@ class GridTokenGoalJEPA(nn.Module):
     def _reset_ema_target_encoder(self) -> None:
         self.target_embedder.load_state_dict(self.embedder.state_dict())
         self.target_state_encoder.load_state_dict(self.state_encoder.state_dict())
-        modules = [self.target_embedder, self.target_state_encoder]
+        self.target_metric_src_projector.load_state_dict(self.metric_src_projector.state_dict())
+        modules = [self.target_embedder, self.target_state_encoder, self.target_metric_src_projector]
+        if self.metric_asymmetric_projection:
+            self.target_metric_goal_projector.load_state_dict(self.metric_goal_projector.state_dict())
+            modules.append(self.target_metric_goal_projector)
         if self.target_single_state_cls is not None and self.single_state_cls is not None:
             self.target_single_state_cls.data.copy_(self.single_state_cls.data)
             self.target_single_state_cls.requires_grad_(False)
@@ -1989,6 +2252,41 @@ def _expand_batch_tokens(tokens: torch.Tensor, reference: torch.Tensor) -> torch
 def _masked_summary(tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     weights = mask.float().unsqueeze(-1)
     return (tokens * weights).sum(dim=-2) / weights.sum(dim=-2).clamp_min(1.0)
+
+
+def _remaining_fraction_targets(masks: torch.Tensor) -> torch.Tensor:
+    batch, frames = masks.shape
+    frame_ids = torch.arange(frames, device=masks.device).float().view(1, frames)
+    lengths = masks.long().sum(dim=1).clamp_min(1).float()
+    last = (lengths - 1.0).clamp_min(1.0)
+    return ((last[:, None] - frame_ids).clamp_min(0.0) / last[:, None]).to(dtype=torch.float32)
+
+
+def _safe_sqrt(values: torch.Tensor, eps: float = 1.0e-6) -> torch.Tensor:
+    return (values.clamp_min(0.0) + eps).sqrt()
+
+
+def _sudoku_bad_state_labels(boards: torch.Tensor, goals: torch.Tensor) -> torch.Tensor:
+    if boards.ndim != 4 or boards.shape[-2:] != (9, 9):
+        raise ValueError(f"Sudoku bad-state labels expect boards [batch, frames, 9, 9], got {tuple(boards.shape)}.")
+    if goals.ndim != 3 or goals.shape[-2:] != (9, 9):
+        raise ValueError(f"Sudoku bad-state labels expect goals [batch, 9, 9], got {tuple(goals.shape)}.")
+    wrong_digit = (boards != 0) & (boards != goals[:, None])
+    return wrong_digit.flatten(start_dim=2).any(dim=-1) | _sudoku_duplicate_labels(boards)
+
+
+def _sudoku_duplicate_labels(boards: torch.Tensor) -> torch.Tensor:
+    units = []
+    units.extend([boards[:, :, row, :] for row in range(9)])
+    units.extend([boards[:, :, :, col] for col in range(9)])
+    for block_row in range(0, 9, 3):
+        for block_col in range(0, 9, 3):
+            units.append(boards[:, :, block_row : block_row + 3, block_col : block_col + 3].reshape(*boards.shape[:2], 9))
+    duplicate = torch.zeros(boards.shape[:2], dtype=torch.bool, device=boards.device)
+    for unit in units:
+        for value in range(1, 10):
+            duplicate = duplicate | ((unit == value).sum(dim=-1) > 1)
+    return duplicate
 
 
 def _off_diagonal(matrix: torch.Tensor) -> torch.Tensor:

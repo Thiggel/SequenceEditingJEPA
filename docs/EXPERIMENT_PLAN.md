@@ -68,7 +68,12 @@ Replacement K8/smooth-count job map:
 | `SV_online_nogoal` | `3808402` | `3808403` | n/a |
 | `SV_online_goal` | `3808404` | `3808405` | `3808406` |
 
-## Proposed Non-Oracle Metric/Goal Geometry Ablations
+## Submitted Non-Oracle Metric/Goal Geometry Ablations
+
+Status: implemented and submitted on 2026-07-03. See
+`docs/CURRENT_EXPERIMENTS.md` and
+`../sequence-editing-report/CURRENT_EXPERIMENTS.md` for job IDs and Slurm
+state.
 
 Use `K8_smooth_count` as the fixed dynamics base unless explicitly ablated.
 Run every goal/metric option for both latent representations:

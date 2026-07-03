@@ -173,6 +173,21 @@ DELTA_JEPA_VARIANTS = (
     "SV_online_goal",
 )
 
+METRIC_GEOMETRY_VARIANTS = (
+    "FB_M0_goalpred_mse",
+    "FB_M1_terminal_progress_bad",
+    "FB_M2_hindsight_bad",
+    "FB_M3_contrastive_bad",
+    "FB_M4_terminal_progress_asym",
+    "FB_M5_hindsight_asym",
+    "SV_M0_goalpred_mse",
+    "SV_M1_terminal_progress_bad",
+    "SV_M2_hindsight_bad",
+    "SV_M3_contrastive_bad",
+    "SV_M4_terminal_progress_asym",
+    "SV_M5_hindsight_asym",
+)
+
 
 def test_grid_goal_sudoku_config_defaults_to_dropout_off():
     repo_root = Path(__file__).resolve().parents[1]
@@ -655,6 +670,59 @@ def _capture_delta_jepa_args(
             "CAPTURE_FILE": str(capture_file),
         }
     )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def _capture_metric_geometry_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    variant: str,
+    checkpoint: bool = False,
+    score_kind: str | None = None,
+) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{variant}_{score_kind or 'train'}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        run_root = work / "runs" / "grid_goal_metric_geometry" / f"grid_goal_metric_geometry_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("PLANNERS", None)
+    env.pop("SCORES", None)
+    env.pop("TRANSITIONS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "VARIANT": variant,
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    if score_kind is not None:
+        env["SCORE_KIND"] = score_kind
     subprocess.run(
         ["bash", script],
         cwd=repo_root,
@@ -1201,6 +1269,76 @@ def test_delta_jepa_eval_is_independent_fast_mpc_with_oracle_and_predicted_goals
     assert args[args.index("--scores") + 1] == (
         "oracle_goal_raw_euclidean_distance,predicted_goal_raw_euclidean_distance"
     )
+
+
+def test_metric_geometry_has_expected_full_board_and_single_vector_variants():
+    assert len(METRIC_GEOMETRY_VARIANTS) == 12
+    assert len(set(METRIC_GEOMETRY_VARIANTS)) == 12
+    assert {variant.split("_")[0] for variant in METRIC_GEOMETRY_VARIANTS} == {"FB", "SV"}
+
+
+def test_metric_geometry_terminal_progress_uses_k8_smooth_count_and_bad_head(tmp_path):
+    args = _capture_metric_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_metric_geometry_train.slurm",
+        variant="FB_M1_terminal_progress_bad",
+    )
+
+    assert "training.max_steps=5000" in args
+    assert "training.batch_size=8" in args
+    assert "training.learning_rate=1.0e-4" in args
+    assert "model.latent_representation=grid" in args
+    assert "model.goal_mse_weight=0.0" in args
+    assert "model.metric_goal_mse_weight=1.0" in args
+    assert "model.metric_geometry_mode=terminal_progress" in args
+    assert "model.metric_geometry_weight=1.0" in args
+    assert "model.bad_state_weight=0.1" in args
+    assert "model.metric_bad_margin_weight=0.1" in args
+    assert "model.bad_state_planning_weight=0.1" in args
+    assert "model.use_ema_target_encoder=true" in args
+    assert "model.multi_step_horizons=[8]" in args
+    assert "model.dense_rollout_all_steps=true" in args
+    assert "model.dense_rollout_weighting=smooth_count" in args
+
+
+def test_metric_geometry_asymmetric_and_single_vector_variants_set_expected_knobs(tmp_path):
+    asym_args = _capture_metric_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_metric_geometry_train.slurm",
+        variant="FB_M4_terminal_progress_asym",
+    )
+    single_args = _capture_metric_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_metric_geometry_train.slurm",
+        variant="SV_M2_hindsight_bad",
+    )
+
+    assert "model.metric_asymmetric_projection=true" in asym_args
+    assert "model.metric_geometry_mode=hindsight" in single_args
+    assert "model.latent_representation=single" in single_args
+    assert "model.max_history_steps=128" in single_args
+
+
+def test_metric_geometry_eval_uses_projected_oracle_or_predicted_scores(tmp_path):
+    oracle = _capture_metric_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_metric_geometry_eval.slurm",
+        variant="FB_M1_terminal_progress_bad",
+        checkpoint=True,
+        score_kind="oracle",
+    )
+    predicted = _capture_metric_geometry_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_metric_geometry_eval.slurm",
+        variant="FB_M1_terminal_progress_bad",
+        checkpoint=True,
+        score_kind="predicted",
+    )
+
+    assert oracle[oracle.index("--scores") + 1] == "oracle_goal_projected_euclidean_distance"
+    assert predicted[predicted.index("--scores") + 1] == "predicted_goal_projected_euclidean_distance"
+    assert oracle[oracle.index("--transitions") + 1] == "latent_rollout"
+    assert oracle[oracle.index("--planners") + 1] == "mpc_beam"
 
 
 def test_minaux_factor_has_expected_unique_variant_count():

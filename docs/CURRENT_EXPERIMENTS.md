@@ -1,8 +1,66 @@
 # Current Experiments
 
-Last updated: 2026-07-03 11:18 CEST
+Last updated: 2026-07-03 11:45 CEST
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+## Active: Metric/Value Geometry Ablation
+
+This sweep tests whether a separate value metric projection can turn JEPA
+latents into a planning distance that works without oracle terminal states.
+It uses the current best clean dynamics base, `K8_smooth_count`, and evaluates
+projected oracle-goal distance separately from projected predicted-goal
+distance.
+
+Implementation:
+
+- `P_src(E(s))` and `P_goal(E(g))` metric projection heads, with asymmetric
+  source/goal variants
+- projected metric goal MSE for the goal decoder
+- terminal-progress, hindsight future-state, and contrastive future-vs-bad
+  metric losses
+- Sudoku bad-state labels from wrong digits and duplicate row/col/box values
+- bad-state BCE and bad-margin losses
+- projected eval score modes route through the new metric heads
+
+Scripts:
+
+- `scripts/slurm/run_grid_goal_metric_geometry_train.slurm`
+- `scripts/slurm/run_grid_goal_metric_geometry_eval.slurm`
+
+Train/eval jobs:
+
+| Variant | Train | Oracle projected eval | Predicted projected eval |
+|---|---:|---:|---:|
+| `FB_M0_goalpred_mse` | `3808505` | `3808506` | `3808507` |
+| `FB_M1_terminal_progress_bad_fix1` | `3808548` | `3808549` | `3808550` |
+| `FB_M2_hindsight_bad_fix1` | `3808551` | `3808552` | `3808553` |
+| `FB_M3_contrastive_bad_fix1` | `3808554` | `3808555` | `3808556` |
+| `FB_M4_terminal_progress_asym_fix1` | `3808557` | `3808558` | `3808559` |
+| `FB_M5_hindsight_asym_fix1` | `3808560` | `3808561` | `3808562` |
+| `SV_M0_goalpred_mse` | `3808523` | `3808524` | `3808525` |
+| `SV_M1_terminal_progress_bad_fix1` | `3808563` | `3808564` | `3808565` |
+| `SV_M2_hindsight_bad_fix1` | `3808566` | `3808567` | `3808568` |
+| `SV_M3_contrastive_bad_fix1` | `3808569` | `3808570` | `3808571` |
+| `SV_M4_terminal_progress_asym_fix1` | `3808572` | `3808573` | `3808574` |
+| `SV_M5_hindsight_asym_fix1` | `3808575` | `3808576` | `3808577` |
+
+Current Slurm state at 11:45 CEST:
+
+- initial M1-M3 bad-state rows failed at step 1 with NaN gradient from
+  differentiating `sqrt(distance)` at zero; the loss now uses an epsilon-safe
+  square root and has a backward-gradient regression test
+- superseded M1-M5 train/eval jobs `3808508`-`3808522` and `3808526`-`3808540`
+  were canceled or superseded
+- M0 jobs `3808505` and `3808523` are still running
+- fixed M1-M5 train jobs `3808548`, `3808551`, `3808554`, `3808557`,
+  `3808560`, `3808563`, `3808566`, `3808569`, `3808572`, and `3808575` are
+  running and stable past the previous failure point
+- all fixed metric evals are dependency-held on their matching train job
+
+Eval settings: `mpc_beam`, latent rollout, beam width `16`, depths `{4,16}`,
+8 boards, one job for `oracle_goal_projected_euclidean_distance` and one job
+for `predicted_goal_projected_euclidean_distance`.
 
 ## Active: Delta-JEPA / Single-State Ablation
 

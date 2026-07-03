@@ -1272,7 +1272,11 @@ def latent_distance(
     if metric == "raw_hybrid_distance":
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask) + raw_tokenwise_cosine_distance(latent, target_goal, mask)
     if metric == "projected_euclidean_distance":
-        return projected_tokenwise_euclidean_distance(latent, target_goal, mask, model.distance_projector)
+        scores = model.metric_distance(latent, target_goal, mask)
+        bad_weight = float(getattr(model, "bad_state_planning_weight", 0.0) or 0.0)
+        if bad_weight > 0.0:
+            scores = scores + bad_weight * torch.sigmoid(model.bad_state_logits(latent, mask)).to(dtype=scores.dtype)
+        return scores
     if metric in {"changed_cell_raw_euclidean_distance", "affected_context_raw_euclidean_distance"}:
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
     if _is_delta_topk_score(score_mode):

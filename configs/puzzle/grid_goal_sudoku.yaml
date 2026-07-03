@@ -60,6 +60,16 @@ model:
   policy_prior_weight: 0.0
   policy_prior_mode: pairwise
   policy_prior_planning_weight: 0.0
+  metric_geometry_mode: none
+  metric_geometry_weight: 0.0
+  metric_goal_mse_weight: 0.0
+  metric_asymmetric_projection: false
+  metric_bad_margin_weight: 0.0
+  metric_bad_margin: 1.0
+  metric_hindsight_max_horizon: 8
+  metric_contrastive_temperature: 0.1
+  bad_state_weight: 0.0
+  bad_state_planning_weight: 0.0
   distance_mode: tokenwise
   latent_representation: grid
   max_history_steps: 128
