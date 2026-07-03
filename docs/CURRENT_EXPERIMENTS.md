@@ -198,19 +198,14 @@ Grid:
 Eval is flat latent-rollout MPC beam only: beam width `16`, depths `{4,16}`,
 8 boards, oracle raw L2 and predicted raw L2.
 
-Current state at 11:00 CEST:
+Current state at 14:50 CEST:
 
-- K1-K4 train/eval pairs completed successfully; eval rows are available.
-- K8/K16 training completed successfully, but eval jobs `3807884`, `3807886`,
-  `3807888`, and `3807890` failed at checkpoint load after the Delta-JEPA
-  decoder was added. The loader instantiated a Delta decoder for these older
-  horizon checkpoints and reported missing `delta_action_decoder.*` keys.
-- The loader compatibility fix is applied. Repair evals are running:
-  `K8_uniform` `3808345`, `K8_smooth_count` `3808346`, `K16_uniform`
-  `3808347`, `K16_smooth_count` `3808348`.
-- First repair rows: `K8_smooth_count` solves `8/8` with oracle raw L2 at
-  depth 4; `K8_uniform` reaches h `3.75`; `K16_smooth_count` reaches h
-  `4.375`; predicted-goal repair rows are still pending.
+- all 12 train jobs completed successfully
+- repair evals `3808345`-`3808348` completed successfully after the
+  checkpoint-loader compatibility fix
+- `K8_smooth_count` solves oracle latent-rollout planning: `8/8`, h `0.0`
+- predicted-goal planning remains unsolved; best K8 predicted row is
+  `0/8`, h `33.125`
 
 ## Previous Sweep Takeaway
 
