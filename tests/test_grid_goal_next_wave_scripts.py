@@ -2089,3 +2089,50 @@ def test_weekend_oversight_repairs_use_replacement_run_suffix(tmp_path, monkeypa
     assert submissions == [{"variant": variant, "eval_job": "12345", "reason": "checkpoint exists but no eval rows"}]
     assert "RUN_SUFFIX=_mb4ga2" in calls[0][2]
     assert "GRID_GOAL_WEEKEND_RUN_SUFFIX=_mb4ga2" in calls[0][2]
+
+
+def test_weekend_oversight_requires_predicted_waypoint_quality_probes():
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest = json.loads((repo_root / "scripts/experiments/grid_goal_weekend_manifest.json").read_text())
+    required = "\n".join(manifest["oversight"]["required_diagnostics"])
+
+    assert "latent alignment" in required
+    assert "oracle future waypoint" in required
+    assert "Hamming" in required
+    assert "trackability" in required
+    assert "multi-horizon" in required
+
+    spec = importlib.util.spec_from_file_location(
+        "grid_goal_weekend_oversight",
+        repo_root / "scripts/oversight/grid_goal_weekend.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    insights = module.derive_insights(
+        {
+            "variants": {
+                "E2_waypoint_h8": {
+                    "rows": 1,
+                    "best": {
+                        "planner": "waypoint_beam",
+                        "transition_mode": "latent_rollout",
+                        "score_mode": "predicted_waypoint_raw_euclidean_distance",
+                        "solved": 0,
+                        "examples": 8,
+                        "remaining_hamming_mean": 49.0,
+                    },
+                }
+            },
+            "best_overall": None,
+        }
+    )
+    joined = "\n".join(insights)
+
+    assert "latent alignment" in joined
+    assert "Hamming progress" in joined
+    assert "trackability" in joined

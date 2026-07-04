@@ -6,12 +6,20 @@
     "Does making non-given cells editable reduce the irreversibility/asymmetric-distance failure mode?",
     "Which action conditioning works best once counterfactual branches and editable repairs are present?",
     "Does receding-horizon waypoint prediction beat one-shot terminal predicted-goal planning?",
+    "When predicted-waypoint solve rate is zero, are intermediate waypoints nevertheless locally correct, progressive, or trackable?",
     "Do asymmetric source/goal projections or value-guided quasi-distance improve non-oracle planning?",
     "Can Delta-JEPA work once data coverage and action conditioning are fixed?",
     "Which isolated winners combine constructively in an integrated recipe?"
   ],
   "oversight": {
     "cadence_hours": 6,
+    "required_diagnostics": [
+      "predicted waypoint latent alignment: compare q_hat_H(s_t) with oracle future waypoint E(s_{min(t+H,T)}) by raw L2/cosine and report the oracle-vs-predicted gap",
+      "predicted waypoint progress: after tracking q_hat_H for one MPC chunk, report Hamming/edit-distance improvement toward the solved board even if no full solve occurs",
+      "predicted waypoint trackability: report D(E(s_after_mpc), q_hat_H) and compare it to D(E(s_t), q_hat_H)",
+      "multi-horizon consistency: for multi-waypoint heads, check whether predicted H4/H8/H16 waypoints are increasingly closer to their matching oracle future waypoints than to mismatched horizons",
+      "terminal-locality split: report waypoint quality separately for early, middle, and near-terminal states"
+    ],
     "allowed_autonomy": [
       "summarize results and update report docs",
       "resubmit mechanical failures with the same variant",

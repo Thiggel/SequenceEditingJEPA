@@ -13,6 +13,7 @@ Research questions:
 - Does making non-given cells editable reduce the irreversibility/asymmetric-distance failure mode?
 - Which action conditioning works best once counterfactual branches and editable repairs are present?
 - Does receding-horizon waypoint prediction beat one-shot terminal predicted-goal planning?
+- When predicted-waypoint solve rate is zero, are intermediate waypoints nevertheless locally correct, progressive, or trackable?
 - Do asymmetric source/goal projections or value-guided quasi-distance improve non-oracle planning?
 - Can Delta-JEPA work once data coverage and action conditioning are fixed?
 - Which isolated winners combine constructively in an integrated recipe?
@@ -28,6 +29,14 @@ Insights:
 - Best current row: mpc_beam latent_rollout oracle_goal_raw_euclidean_distance solve=8/8 h=0.0
 - Delta branch has eval rows; compare every grid variant against its single-CLS paired variant before promoting.
 - Waypoint rows are present; prioritize predicted-waypoint versus oracle-waypoint gap before terminal predicted-goal variants.
+- If predicted-waypoint solve rate is still zero, inspect waypoint quality directly: latent alignment to oracle future waypoints, Hamming progress after one tracked chunk, and trackability distance.
+
+Required oversight diagnostics:
+- Predicted waypoint latent alignment: compare `q_hat_H(s_t)` with oracle future waypoint `E(s_min(t+H,T))` by raw L2/cosine and report the oracle-vs-predicted gap.
+- Predicted waypoint progress: after tracking `q_hat_H` for one MPC chunk, report Hamming/edit-distance improvement toward the solved board even if no full solve occurs.
+- Predicted waypoint trackability: report `D(E(s_after_mpc), q_hat_H)` and compare it to `D(E(s_t), q_hat_H)`.
+- Multi-horizon consistency: for multi-waypoint heads, check whether predicted H4/H8/H16 waypoints are closest to their matching oracle future horizon rather than mismatched horizons.
+- Terminal-locality split: report waypoint quality separately for early, middle, and near-terminal states.
 
 Variant table:
 
