@@ -7,7 +7,7 @@ from typing import Literal
 import numpy as np
 import torch
 
-from puzzle_jepa.data.grid_goal_sudoku import apply_fill_action, apply_sudoku_action, legal_fill_actions, legal_sudoku_actions
+from puzzle_jepa.data.grid_goal_sudoku import apply_sudoku_action, legal_fill_actions, legal_sudoku_actions
 from puzzle_jepa.data.worlds import WorldAction
 from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _affected_token_weights
 
@@ -45,7 +45,15 @@ ScoreMode = Literal[
     "predicted_waypoint_raw_euclidean_distance",
 ]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
-PlannerMode = Literal["mpc_beam", "categorical_cem", "hierarchical_cem", "hierarchical_beam", "waypoint_beam", "waypoint_hierarchical_beam"]
+PlannerMode = Literal[
+    "mpc_beam",
+    "categorical_cem",
+    "hierarchical_cem",
+    "hierarchical_beam",
+    "waypoint_beam",
+    "waypoint_hierarchical_beam",
+    "waypoint_hierarchical_cem",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +365,7 @@ def run_hierarchical_cem_mpc(
                 context_latents,
                 active_mask,
                 board=current,
+                clue_mask=clue_mask,
                 score_mode=score_mode,
                 level=level,
                 macro_horizon=macro_horizon,
@@ -667,6 +676,137 @@ def run_waypoint_beam_mpc(
 
 
 @torch.no_grad()
+def run_waypoint_hierarchical_cem_mpc(
+    model: GridTokenGoalJEPA,
+    puzzle: np.ndarray,
+    goal: np.ndarray,
+    *,
+    score_mode: ScoreMode,
+    transition_mode: TransitionMode,
+    beam_width: int,
+    beam_depth: int,
+    max_steps: int = 81,
+    device: torch.device,
+    cem_samples: int = 128,
+    cem_iters: int = 4,
+    cem_elites: int = 16,
+    cem_momentum: float = 0.7,
+    high_cem_samples: int = 128,
+    high_cem_iters: int = 4,
+    high_cem_elites: int = 16,
+    high_cem_momentum: float = 0.7,
+    high_cem_std: float = 1.0,
+    high_cem_optimizer: str = "cem",
+    high_cem_temperature: float = 1.0,
+    high_cem_codebook: str = "none",
+    high_cem_codebook_size: int = 0,
+    seed: int = 0,
+    allow_overwrite: bool = False,
+    waypoint_horizon: int = 8,
+) -> BeamMPCResult:
+    del beam_width
+    if not model.hierarchy_levels:
+        raise ValueError("waypoint_hierarchical_cem requires a checkpoint trained with hierarchy_levels.")
+    start = time.time()
+    rng = np.random.default_rng(seed)
+    model.eval()
+    current = np.asarray(puzzle, dtype=np.int64).copy()
+    actions_taken: list[WorldAction] = []
+    clue_mask = np.asarray(puzzle, dtype=np.int64) != 0
+    editable_mask = ~clue_mask
+    active_mask = np.ones((9, 9), dtype=bool)
+    context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
+        model, current, goal, clue_mask, editable_mask, active_mask, device=device
+    )
+    del predicted_goal, oracle_goal, initial_latents
+    action_evals = 0
+    for _ in range(max_steps):
+        if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
+            break
+        depth = planning_horizon(beam_depth, current, allow_overwrite=allow_overwrite)
+        if depth <= 0:
+            break
+        if str(score_mode).startswith("oracle_waypoint_"):
+            waypoint = _oracle_future_waypoint_latents(
+                model,
+                current,
+                goal,
+                context_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                horizon=waypoint_horizon,
+                device=device,
+            )
+        else:
+            waypoint = _predict_waypoint_for_board(
+                model,
+                current,
+                context_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                horizon=waypoint_horizon,
+                device=device,
+            )
+        first, evals = _waypoint_hierarchical_cem_once(
+            model,
+            current,
+            goal,
+            context_latents,
+            waypoint,
+            clue_mask,
+            editable_mask,
+            active_mask,
+            transition_mode=transition_mode,
+            beam_depth=depth,
+            device=device,
+            cem_samples=cem_samples,
+            cem_iters=cem_iters,
+            cem_elites=cem_elites,
+            cem_momentum=cem_momentum,
+            high_cem_samples=high_cem_samples,
+            high_cem_iters=high_cem_iters,
+            high_cem_elites=high_cem_elites,
+            high_cem_momentum=high_cem_momentum,
+            high_cem_std=high_cem_std,
+            high_cem_optimizer=high_cem_optimizer,
+            high_cem_temperature=high_cem_temperature,
+            high_cem_codebook=high_cem_codebook,
+            high_cem_codebook_size=high_cem_codebook_size,
+            rng=rng,
+            allow_overwrite=allow_overwrite,
+        )
+        action_evals += evals
+        if first is None:
+            break
+        try:
+            current = apply_sudoku_action(
+                current,
+                first,
+                clue_mask=clue_mask,
+                allow_conflicts=True,
+                allow_overwrite=allow_overwrite,
+            )
+        except ValueError:
+            break
+        actions_taken.append(first)
+    return BeamMPCResult(
+        solved=bool(np.array_equal(current, goal)),
+        steps=len(actions_taken),
+        remaining_hamming=hamming_distance(current, goal),
+        actions=actions_taken,
+        final_board=current,
+        score_mode=score_mode,
+        transition_mode=transition_mode,
+        beam_width=cem_samples,
+        beam_depth=beam_depth,
+        action_evals=action_evals,
+        elapsed_seconds=time.time() - start,
+    )
+
+
+@torch.no_grad()
 def _waypoint_hierarchical_beam_once(
     model: GridTokenGoalJEPA,
     current: np.ndarray,
@@ -729,6 +869,102 @@ def _waypoint_hierarchical_beam_once(
         transition_mode=transition_mode,
         beam_width=beam_width,
         beam_depth=min(beam_depth, min(high_levels) if high_levels else beam_depth),
+        device=device,
+        allow_overwrite=allow_overwrite,
+    )
+    return first, action_evals + evals
+
+
+@torch.no_grad()
+def _waypoint_hierarchical_cem_once(
+    model: GridTokenGoalJEPA,
+    current: np.ndarray,
+    goal: np.ndarray,
+    context_latents: torch.Tensor,
+    waypoint: torch.Tensor,
+    clue_mask: np.ndarray,
+    editable_mask: np.ndarray,
+    active_mask: np.ndarray,
+    *,
+    transition_mode: TransitionMode,
+    beam_depth: int,
+    device: torch.device,
+    cem_samples: int,
+    cem_iters: int,
+    cem_elites: int,
+    cem_momentum: float,
+    high_cem_samples: int,
+    high_cem_iters: int,
+    high_cem_elites: int,
+    high_cem_momentum: float,
+    high_cem_std: float,
+    high_cem_optimizer: str,
+    high_cem_temperature: float,
+    high_cem_codebook: str,
+    high_cem_codebook_size: int,
+    rng: np.random.Generator,
+    allow_overwrite: bool,
+) -> tuple[WorldAction | None, int]:
+    _, current_latent = score_board(
+        model,
+        current,
+        context_latents,
+        waypoint,
+        waypoint,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        score_mode="oracle_goal_raw_euclidean_distance",
+        device=device,
+    )
+    subgoal = waypoint
+    action_evals = 0
+    high_levels = tuple(level for level in sorted(model.hierarchy_levels, reverse=True) if level <= beam_depth)
+    for level in high_levels:
+        macro_horizon = max(1, int(np.ceil(beam_depth / level)))
+        subgoal, evals = hierarchical_subgoal_cem(
+            model,
+            current_latent,
+            subgoal,
+            context_latents,
+                active_mask,
+                board=current,
+                clue_mask=clue_mask,
+                score_mode="oracle_goal_raw_euclidean_distance",
+            level=level,
+            macro_horizon=macro_horizon,
+            samples=high_cem_samples,
+            iterations=high_cem_iters,
+            elites=high_cem_elites,
+            momentum=high_cem_momentum,
+            init_std=high_cem_std,
+            optimizer=high_cem_optimizer,
+            temperature=high_cem_temperature,
+            codebook=high_cem_codebook,
+            codebook_size=high_cem_codebook_size,
+            rng=rng,
+            device=device,
+            allow_overwrite=allow_overwrite,
+        )
+        action_evals += evals
+    first, evals = categorical_cem_plan_once(
+        model,
+        current,
+        goal,
+        context_latents,
+        subgoal,
+        subgoal,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        score_mode="oracle_goal_raw_euclidean_distance",
+        transition_mode=transition_mode,
+        horizon=min(beam_depth, min(high_levels) if high_levels else beam_depth),
+        samples=cem_samples,
+        iterations=cem_iters,
+        elites=cem_elites,
+        momentum=cem_momentum,
+        rng=rng,
         device=device,
         allow_overwrite=allow_overwrite,
     )
@@ -928,6 +1164,7 @@ def hierarchical_subgoal_cem(
     active_mask: np.ndarray,
     *,
     board: np.ndarray | None = None,
+    clue_mask: np.ndarray | None = None,
     score_mode: ScoreMode,
     level: int,
     macro_horizon: int,
@@ -968,6 +1205,8 @@ def hierarchical_subgoal_cem(
             rng=rng,
             device=device,
             dtype=start_latent.dtype,
+            clue_mask=clue_mask,
+            allow_overwrite=allow_overwrite,
         )
         if prior is not None:
             mean = prior.mean(dim=0, keepdim=True).expand(macro_horizon, -1).clone()
@@ -1025,8 +1264,17 @@ def _sample_macro_action_codebook(
     rng: np.random.Generator,
     device: torch.device,
     dtype: torch.dtype,
+    clue_mask: np.ndarray | None = None,
+    allow_overwrite: bool = False,
 ) -> torch.Tensor | None:
-    sequences = _sample_macro_action_sequences(board, level=level, samples=samples, rng=rng)
+    sequences = _sample_macro_action_sequences(
+        board,
+        level=level,
+        samples=samples,
+        rng=rng,
+        clue_mask=clue_mask,
+        allow_overwrite=allow_overwrite,
+    )
     if len(sequences) == 0:
         return None
     action_t = torch.as_tensor(sequences, dtype=torch.long, device=device)
@@ -1042,6 +1290,8 @@ def _sample_macro_action_sequences(
     level: int,
     samples: int,
     rng: np.random.Generator,
+    clue_mask: np.ndarray | None = None,
+    allow_overwrite: bool = False,
 ) -> np.ndarray:
     level = max(1, int(level))
     samples = max(1, int(samples))
@@ -1051,15 +1301,22 @@ def _sample_macro_action_sequences(
     while len(sequences) < samples and attempts < max_attempts:
         attempts += 1
         current = np.asarray(board, dtype=np.int64).copy()
+        clue = None if clue_mask is None else np.asarray(clue_mask, dtype=bool)
         sequence: list[tuple[int, int, int]] = []
         for _ in range(level):
-            valid = np.flatnonzero(_valid_action_vocab_mask(current))
+            valid = np.flatnonzero(_valid_action_vocab_mask(current, clue_mask=clue, allow_overwrite=allow_overwrite))
             if len(valid) == 0:
                 break
             action = ACTION_VOCAB[int(rng.choice(valid))]
             sequence.append((action.row, action.col, action.value))
             try:
-                current = apply_fill_action(current, action, allow_conflicts=True)
+                current = apply_sudoku_action(
+                    current,
+                    action,
+                    clue_mask=clue,
+                    allow_conflicts=True,
+                    allow_overwrite=allow_overwrite,
+                )
             except ValueError:
                 break
         if len(sequence) == level:

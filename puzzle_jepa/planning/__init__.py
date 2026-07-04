@@ -7,6 +7,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     run_hierarchical_beam_mpc,
     run_hierarchical_cem_mpc,
     run_waypoint_beam_mpc,
+    run_waypoint_hierarchical_cem_mpc,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "run_hierarchical_beam_mpc",
     "run_hierarchical_cem_mpc",
     "run_waypoint_beam_mpc",
+    "run_waypoint_hierarchical_cem_mpc",
 ]

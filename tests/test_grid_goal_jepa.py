@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 
 import puzzle_jepa.models.grid_goal_jepa as grid_goal_jepa_module
+import puzzle_jepa.planning.grid_goal_planner as planner_module
 from puzzle_jepa.data.grid_goal_sudoku import (
     apply_sudoku_action,
     array_to_action,
@@ -41,6 +42,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     run_categorical_cem_mpc,
     run_hierarchical_beam_mpc,
     run_hierarchical_cem_mpc,
+    run_waypoint_hierarchical_cem_mpc,
 )
 
 
@@ -2018,6 +2020,66 @@ def test_hierarchical_cem_mpc_handles_subgoal_horizon_longer_than_remaining_blan
 
     assert result.steps <= 1
     assert result.action_evals > 0
+
+
+def test_waypoint_hierarchical_cem_tracks_waypoint_with_macro_optimizer(monkeypatch):
+    example = _example()
+    state = example.goal.copy()
+    state[0, 2] = 0
+    state[0, 3] = 0
+    tiny = PuzzleExample(state, example.goal)
+    model = _small_model(
+        hierarchy_levels=(2, 4),
+        hierarchy_loss_weight=1.0,
+        macro_action_dim=6,
+        waypoint_horizons=(2,),
+        waypoint_loss_weight=1.0,
+    )
+    calls = []
+
+    def record_macro_optimizer(*args, **kwargs):
+        calls.append(kwargs)
+        return args[2].detach(), 1
+
+    primitive_calls = []
+
+    def record_primitive_tracker(*args, **kwargs):
+        primitive_calls.append(kwargs)
+        return WorldAction(row=0, col=2, value=int(tiny.goal[0, 2])), 1
+
+    monkeypatch.setattr(planner_module, "hierarchical_subgoal_cem", record_macro_optimizer)
+    monkeypatch.setattr(planner_module, "categorical_cem_plan_once", record_primitive_tracker)
+
+    result = run_waypoint_hierarchical_cem_mpc(
+        model,
+        tiny.state,
+        tiny.goal,
+        score_mode="oracle_waypoint_raw_euclidean_distance",
+        transition_mode="latent_rollout",
+        beam_width=2,
+        beam_depth=4,
+        max_steps=1,
+        cem_samples=4,
+        cem_iters=1,
+        cem_elites=2,
+        high_cem_samples=4,
+        high_cem_iters=1,
+        high_cem_elites=2,
+        high_cem_optimizer="cem",
+        device=torch.device("cpu"),
+        allow_overwrite=True,
+        waypoint_horizon=2,
+    )
+
+    assert result.steps <= 1
+    assert result.action_evals > 0
+    assert calls
+    assert {call["optimizer"] for call in calls} == {"cem"}
+    assert {call["score_mode"] for call in calls} == {"oracle_goal_raw_euclidean_distance"}
+    assert all(call["allow_overwrite"] is True for call in calls)
+    assert primitive_calls
+    assert primitive_calls[0]["score_mode"] == "oracle_goal_raw_euclidean_distance"
+    assert primitive_calls[0]["allow_overwrite"] is True
 
 
 def test_hierarchical_beam_mpc_runs_high_level_subgoal_then_low_level_beam():

@@ -51,7 +51,10 @@ VARIANT="${VARIANT:-${VARIANTS[$TASK_ID]}}"
 RUN_NAME="grid_goal_weekend_${VARIANT}${RUN_SUFFIX:-}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/grid_goal_weekend/${RUN_NAME}"
 CHECKPOINT="${RUN_ROOT}/checkpoint.pt"
-OUTPUT_DIR="${RUN_ROOT}/planner_eval_weekend${EVAL_OUTPUT_SUFFIX:-}"
+EVAL_MODE="${EVAL_MODE:-default}"
+OUTPUT_SUFFIX="${EVAL_OUTPUT_SUFFIX:-}"
+HIGH_CEM_OPTIMIZER="${HIGH_CEM_OPTIMIZER:-cem}"
+HIGH_CEM_CODEBOOK="${HIGH_CEM_CODEBOOK:-none}"
 BASE_VARIANT="${VARIANT}"
 if [[ "${VARIANT}" == *_single ]]; then
   BASE_VARIANT="${VARIANT%_single}"
@@ -82,16 +85,55 @@ case "${BASE_VARIANT}" in
   E4_waypoint_h4_h8_h16)
     PLANNERS="waypoint_beam"; SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"; WAYPOINT_HORIZON="4" ;;
   E5_waypoint_h16_hierarchy|V3_waypoint_asym_hindsight|I0_integrated_waypoint_asym|I1_integrated_waypoint_iql|I2_integrated_best_delta_if_gate_passes)
-    PLANNERS="waypoint_beam,waypoint_hierarchical_beam"; SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"; WAYPOINT_HORIZON="16" ;;
+    PLANNERS="waypoint_beam,waypoint_hierarchical_cem"; SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"; WAYPOINT_HORIZON="16" ;;
   V1_asym_hindsight|V2_iql_quasi)
     SCORES="oracle_goal_projected_euclidean_distance,predicted_goal_projected_euclidean_distance" ;;
   D*)
     SCORES="oracle_goal_raw_euclidean_distance"; PLANNERS="mpc_beam" ;;
 esac
 
+case "${EVAL_MODE}" in
+  default)
+    ;;
+  waypoint_cem)
+    PLANNERS="waypoint_hierarchical_cem"
+    OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_waypoint_cem}"
+    HIGH_CEM_OPTIMIZER="cem"
+    HIGH_CEM_CODEBOOK="${HIGH_CEM_CODEBOOK:-none}"
+    ;;
+  waypoint_mppi)
+    PLANNERS="waypoint_hierarchical_cem"
+    OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_waypoint_mppi}"
+    HIGH_CEM_OPTIMIZER="mppi"
+    HIGH_CEM_CODEBOOK="${HIGH_CEM_CODEBOOK:-none}"
+    ;;
+  waypoint_cem_codebook)
+    PLANNERS="waypoint_hierarchical_cem"
+    OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_waypoint_cem_codebook}"
+    HIGH_CEM_OPTIMIZER="cem"
+    HIGH_CEM_CODEBOOK="init"
+    ;;
+  waypoint_mppi_codebook)
+    PLANNERS="waypoint_hierarchical_cem"
+    OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-_waypoint_mppi_codebook}"
+    HIGH_CEM_OPTIMIZER="mppi"
+    HIGH_CEM_CODEBOOK="init"
+    ;;
+  *)
+    echo "Unknown EVAL_MODE=${EVAL_MODE}" >&2
+    exit 2
+    ;;
+esac
+
+OUTPUT_DIR="${RUN_ROOT}/planner_eval_weekend${OUTPUT_SUFFIX}"
+
 ALLOW_ARGS=()
 if [[ "${ALLOW_OVERWRITE}" == "true" ]]; then
   ALLOW_ARGS+=(--allow-overwrite)
+fi
+DIAGNOSTIC_ARGS=()
+if [[ "${SKIP_DIAGNOSTICS:-0}" == "1" ]]; then
+  DIAGNOSTIC_ARGS+=(--skip-diagnostics)
 fi
 
 python -m puzzle_jepa.eval.grid_goal_planner_matrix \
@@ -105,4 +147,18 @@ python -m puzzle_jepa.eval.grid_goal_planner_matrix \
   --transitions "${TRANSITIONS}" \
   --planners "${PLANNERS}" \
   --waypoint-horizon "${WAYPOINT_HORIZON}" \
+  --cem-samples "${CEM_SAMPLES:-32}" \
+  --cem-iters "${CEM_ITERS:-2}" \
+  --cem-elites "${CEM_ELITES:-8}" \
+  --cem-momentum "${CEM_MOMENTUM:-0.7}" \
+  --high-cem-samples "${HIGH_CEM_SAMPLES:-32}" \
+  --high-cem-iters "${HIGH_CEM_ITERS:-2}" \
+  --high-cem-elites "${HIGH_CEM_ELITES:-8}" \
+  --high-cem-momentum "${HIGH_CEM_MOMENTUM:-0.7}" \
+  --high-cem-std "${HIGH_CEM_STD:-1.0}" \
+  --high-cem-optimizer "${HIGH_CEM_OPTIMIZER}" \
+  --high-cem-temperature "${HIGH_CEM_TEMPERATURE:-1.0}" \
+  --high-cem-codebook "${HIGH_CEM_CODEBOOK}" \
+  --high-cem-codebook-size "${HIGH_CEM_CODEBOOK_SIZE:-64}" \
+  "${DIAGNOSTIC_ARGS[@]}" \
   "${ALLOW_ARGS[@]}"

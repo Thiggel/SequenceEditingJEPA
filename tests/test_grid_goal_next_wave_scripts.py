@@ -692,6 +692,8 @@ def _capture_delta_jepa_args(
     env.pop("PLANNERS", None)
     env.pop("SCORES", None)
     env.pop("TRANSITIONS", None)
+    env.pop("EVAL_MODE", None)
+    env.pop("EVAL_OUTPUT_SUFFIX", None)
     env.update(
         {
             "WORK": str(work),
@@ -1987,7 +1989,7 @@ def test_weekend_integrated_delta_variant_is_also_paired_and_eval_suffix_strips_
 
     assert "model.latent_representation=single" in train_args
     assert "model.delta_action_weight=10.0" in train_args
-    assert eval_args[eval_args.index("--planners") + 1] == "waypoint_beam,waypoint_hierarchical_beam"
+    assert eval_args[eval_args.index("--planners") + 1] == "waypoint_beam,waypoint_hierarchical_cem"
     assert eval_args[eval_args.index("--scores") + 1] == (
         "oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance"
     )
@@ -2003,6 +2005,57 @@ def test_weekend_multi_horizon_waypoint_eval_tracks_first_waypoint_by_default(tm
 
     assert args[args.index("--planners") + 1] == "waypoint_beam"
     assert args[args.index("--waypoint-horizon") + 1] == "4"
+
+
+def test_weekend_waypoint_macro_eval_modes_use_cem_or_mppi(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+    run_root = work / "runs" / "grid_goal_weekend" / "grid_goal_weekend_E5_waypoint_h16_hierarchy"
+    run_root.mkdir(parents=True, exist_ok=True)
+    (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    def capture(mode: str) -> list[str]:
+        capture_file = tmp_path / f"{mode}.txt"
+        env = os.environ.copy()
+        env.update(
+            {
+                "WORK": str(work),
+                "SCRATCH": str(work / "scratch"),
+                "VIRTUAL_ENV": str(work / ".venv"),
+                "PUZZLE_JEPA_WORK_ROOT": str(work),
+                "VARIANT": "E5_waypoint_h16_hierarchy",
+                "EVAL_MODE": mode,
+                "CAPTURE_FILE": str(capture_file),
+            }
+        )
+        subprocess.run(
+            ["bash", "scripts/slurm/run_grid_goal_weekend_eval.slurm"],
+            cwd=repo_root,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        return capture_file.read_text().splitlines()
+
+    cem_args = capture("waypoint_cem")
+    mppi_args = capture("waypoint_mppi")
+
+    assert cem_args[cem_args.index("--planners") + 1] == "waypoint_hierarchical_cem"
+    assert cem_args[cem_args.index("--high-cem-optimizer") + 1] == "cem"
+    assert "planner_eval_weekend_waypoint_cem" in cem_args[cem_args.index("--output-dir") + 1]
+    assert mppi_args[mppi_args.index("--planners") + 1] == "waypoint_hierarchical_cem"
+    assert mppi_args[mppi_args.index("--high-cem-optimizer") + 1] == "mppi"
+    assert "planner_eval_weekend_waypoint_mppi" in mppi_args[mppi_args.index("--output-dir") + 1]
 
 
 def test_weekend_submit_wrapper_uses_individual_dependency_held_eval_jobs(tmp_path):

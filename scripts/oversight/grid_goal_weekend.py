@@ -145,6 +145,15 @@ def derive_insights(summary: dict[str, Any]) -> list[str]:
     waypoint_rows = [item for name, item in variants.items() if "waypoint" in str(name)]
     if waypoint_rows and any(item.get("rows", 0) for item in waypoint_rows):
         insights.append("Waypoint rows are present; prioritize predicted-waypoint versus oracle-waypoint gap before terminal predicted-goal variants.")
+        macro_waypoint = [
+            item
+            for item in variants.values()
+            if (best := item.get("best")) and best.get("planner") == "waypoint_hierarchical_cem"
+        ]
+        if macro_waypoint:
+            insights.append("Waypoint hierarchy has macro CEM/MPPI rows; use those, not flat waypoint_beam rows, to judge hierarchical planning.")
+        else:
+            insights.append("Current waypoint rows may be flat-only; do not treat waypoint_beam solves as evidence that hierarchical MPC works.")
         insights.append(
             "If predicted-waypoint solve rate is still zero, inspect waypoint quality directly: latent alignment to oracle future waypoints, Hamming progress after one tracked chunk, and trackability distance."
         )

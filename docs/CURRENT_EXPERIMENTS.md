@@ -4,7 +4,7 @@ Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 # Current Experiments
 
-Last updated: 2026-07-04T09:43:37
+Last updated: 2026-07-04 10:21 CEST
 
 ## Active: Counterfactual Editable Weekend Wave
 
@@ -24,11 +24,13 @@ Current summary:
 - repair evals enabled: `True`
 - completed checkpoints: 30
 - total planner rows: 168
+- additional macro waypoint hierarchy evals submitted: jobs `3810538`-`3810549`
 
 Insights:
 - Best current row: mpc_beam latent_rollout oracle_goal_raw_euclidean_distance solve=8/8 h=0.0
 - Delta branch has eval rows; compare every grid variant against its single-CLS paired variant before promoting.
 - Waypoint rows are present; prioritize predicted-waypoint versus oracle-waypoint gap before terminal predicted-goal variants.
+- Existing `waypoint_beam` solves only show primitive tracking toward a waypoint. Use the new `waypoint_hierarchical_cem` CEM/MPPI rows to judge multi-level hierarchical planning.
 - If predicted-waypoint solve rate is still zero, inspect waypoint quality directly: latent alignment to oracle future waypoints, Hamming progress after one tracked chunk, and trackability distance.
 
 Required oversight diagnostics:
@@ -37,6 +39,18 @@ Required oversight diagnostics:
 - Predicted waypoint trackability: report `D(E(s_after_mpc), q_hat_H)` and compare it to `D(E(s_t), q_hat_H)`.
 - Multi-horizon consistency: for multi-waypoint heads, check whether predicted H4/H8/H16 waypoints are closest to their matching oracle future horizon rather than mismatched horizons.
 - Terminal-locality split: report waypoint quality separately for early, middle, and near-terminal states.
+- Hierarchical waypoint rows must include macro-action CEM or MPPI tracking; flat `waypoint_beam` rows are only primitive-tracker baselines.
+
+New macro waypoint eval jobs:
+
+| Variant | CEM job | MPPI job |
+|---|---:|---:|
+| `E5_waypoint_h16_hierarchy` | `3810538` | `3810539` |
+| `V3_waypoint_asym_hindsight` | `3810540` | `3810541` |
+| `I0_integrated_waypoint_asym` | `3810542` | `3810543` |
+| `I1_integrated_waypoint_iql` | `3810544` | `3810545` |
+| `I2_integrated_best_delta_if_gate_passes_grid` | `3810546` | `3810547` |
+| `I2_integrated_best_delta_if_gate_passes_single` | `3810548` | `3810549` |
 
 Variant table:
 

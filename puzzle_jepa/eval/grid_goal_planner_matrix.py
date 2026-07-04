@@ -18,6 +18,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     run_hierarchical_beam_mpc,
     run_hierarchical_cem_mpc,
     run_waypoint_beam_mpc,
+    run_waypoint_hierarchical_cem_mpc,
 )
 
 
@@ -237,6 +238,34 @@ def run_planner_matrix(
                                         waypoint_horizon=waypoint_horizon,
                                         hierarchical=True,
                                     )
+                                elif planner == "waypoint_hierarchical_cem":
+                                    result = run_waypoint_hierarchical_cem_mpc(
+                                        model,
+                                        example.state,
+                                        example.goal,
+                                        score_mode=score,  # type: ignore[arg-type]
+                                        transition_mode=transition,  # type: ignore[arg-type]
+                                        beam_width=beam_width,
+                                        beam_depth=beam_depth,
+                                        max_steps=max_steps,
+                                        device=device,
+                                        cem_samples=cem_samples,
+                                        cem_iters=cem_iters,
+                                        cem_elites=cem_elites,
+                                        cem_momentum=cem_momentum,
+                                        high_cem_samples=high_cem_samples,
+                                        high_cem_iters=high_cem_iters,
+                                        high_cem_elites=high_cem_elites,
+                                        high_cem_momentum=high_cem_momentum,
+                                        high_cem_std=high_cem_std,
+                                        high_cem_optimizer=high_cem_optimizer,
+                                        high_cem_temperature=high_cem_temperature,
+                                        high_cem_codebook=high_cem_codebook,
+                                        high_cem_codebook_size=high_cem_codebook_size,
+                                        seed=example_index,
+                                        allow_overwrite=allow_overwrite,
+                                        waypoint_horizon=waypoint_horizon,
+                                    )
                                 else:
                                     raise ValueError(f"Unknown planner {planner!r}.")
                                 solved += int(result.solved)
@@ -257,9 +286,15 @@ def run_planner_matrix(
                                 "steps_mean": float(np.mean(steps)) if steps else 0.0,
                                 "action_evals_mean": float(np.mean(action_evals)) if action_evals else 0.0,
                                 "elapsed_seconds_mean": float(np.mean(elapsed)) if elapsed else 0.0,
-                                "high_cem_optimizer": high_cem_optimizer if planner == "hierarchical_cem" else "",
-                                "high_cem_codebook": high_cem_codebook if planner == "hierarchical_cem" else "",
-                                "high_cem_codebook_size": int(high_cem_codebook_size) if planner == "hierarchical_cem" else 0,
+                                "high_cem_optimizer": high_cem_optimizer
+                                if planner in {"hierarchical_cem", "waypoint_hierarchical_cem"}
+                                else "",
+                                "high_cem_codebook": high_cem_codebook
+                                if planner in {"hierarchical_cem", "waypoint_hierarchical_cem"}
+                                else "",
+                                "high_cem_codebook_size": int(high_cem_codebook_size)
+                                if planner in {"hierarchical_cem", "waypoint_hierarchical_cem"}
+                                else 0,
                                 "allow_overwrite": bool(allow_overwrite),
                                 "waypoint_horizon": int(waypoint_horizon) if str(planner).startswith("waypoint_") else 0,
                             }

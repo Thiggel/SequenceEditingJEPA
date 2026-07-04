@@ -18,7 +18,8 @@
       "predicted waypoint progress: after tracking q_hat_H for one MPC chunk, report Hamming/edit-distance improvement toward the solved board even if no full solve occurs",
       "predicted waypoint trackability: report D(E(s_after_mpc), q_hat_H) and compare it to D(E(s_t), q_hat_H)",
       "multi-horizon consistency: for multi-waypoint heads, check whether predicted H4/H8/H16 waypoints are increasingly closer to their matching oracle future waypoints than to mismatched horizons",
-      "terminal-locality split: report waypoint quality separately for early, middle, and near-terminal states"
+      "terminal-locality split: report waypoint quality separately for early, middle, and near-terminal states",
+      "hierarchical waypoint rows must include macro-action CEM or MPPI tracking; flat waypoint_beam rows are only primitive-tracker baselines"
     ],
     "allowed_autonomy": [
       "summarize results and update report docs",
