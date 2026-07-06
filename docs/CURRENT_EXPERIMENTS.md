@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-06 15:55 CEST
+Last updated: 2026-07-06 17:30 CEST
 
 ## Active: Verifier-Free Energy Sweep
 
@@ -89,7 +89,7 @@ Runs:
 | `W2_ldad_vicreg_set_d1024` | `3817227` running | `3817228` dependency-held | LDAD + VICReg, no EMA |
 | `W3_ldad_only_set_d1024` | `3817229` running | `3817230` dependency-held | LDAD only, no EMA/VICReg |
 
-Latest state at 2026-07-06 15:55 CEST:
+Latest state at 2026-07-06 17:30 CEST:
 - All four wide single-CLS train jobs reached the end of 5k training but failed
   while opening `checkpoint-5000.pt` under `/home/atuin/...`: `3815481`,
   `3815483`, `3815485`, and `3815487`.
@@ -107,6 +107,11 @@ Latest state at 2026-07-06 15:55 CEST:
   Train jobs `3817223`, `3817225`, `3817227`, and `3817229` started immediately
   on `rtxpro6k` node `a2141`; eval jobs `3817224`, `3817226`, `3817228`, and
   `3817230` are normal `afterok` dependencies.
+- Current live state: all four replacement train jobs are still running on
+  `a2141`; all four eval jobs are still dependency-held. Each run has written
+  config/metrics at the repaired output root. Latest logged training progress
+  is step `1000/5000` for all four variants, with finite losses and no current
+  quota/OOM symptom.
 - Expected timing from the previous failed runtimes: W0/W1 training around
   `2026-07-06 21:10-21:25 CEST`, W2/W3 training around
   `2026-07-06 22:40-22:45 CEST`; evals then run individually with an 8h cap, so
