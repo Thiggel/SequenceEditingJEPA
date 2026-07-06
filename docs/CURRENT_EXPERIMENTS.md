@@ -4,7 +4,7 @@ Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 # Current Experiments
 
-Last updated: 2026-07-06 08:24 CEST
+Last updated: 2026-07-06 08:28 CEST
 
 ## Active: Wide Single-CLS Oracle Probe
 
@@ -32,6 +32,12 @@ Common setup:
 - counterfactual editable data, K8 smooth/count dense rollout, affected-context dynamics weighting
 - eval: oracle raw L2 only, `mpc_beam`, latent rollout and symbolic re-encode, depths `{4,16}`, 8 boards
 - output root: `$WORK/sequence-editing` to avoid the current `$HPCVAULT` quota limit
+
+Storage housekeeping:
+- `$HPCVAULT/sequence-editing` was reduced from about `759G` to `5.9G`
+- removed redundant `checkpoint-*.pt`, final old `checkpoint.pt`, HF-style model/optimizer artifacts, vault cache, and failed zero-byte single-wide files
+- preserved lightweight configs, metrics, diagnostics, and planner/result records
+- cancelled stale sequence-editing dependency-never-satisfied evals and old weekend oversight jobs; current wide-single train/eval jobs were not touched
 
 Gate:
 - If `W0` solves but LDAD-only variants fail, width helps single-CLS only with EMA/VICReg.
