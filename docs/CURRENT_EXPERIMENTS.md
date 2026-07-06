@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-06 17:30 CEST
+Last updated: 2026-07-06 17:35 CEST
 
 ## Active: Verifier-Free Energy Sweep
 
@@ -39,14 +39,35 @@ Prepared scripts:
 State:
 - Submitted on 2026-07-06 at about 09:24 CEST.
 - All 12 train jobs completed successfully on `rtxpro6k`.
-- Eval `3815608` completed successfully; the other verifier evals are still
-  running and have clean stderr so far.
-- Early verifier diagnostics are already emitted before planner rows finish:
-  remaining-edit `R` learns a strong distance signal in most variants
-  (`remaining_spearman` about `0.93`-`0.97`, except the oracle-only sanity
-  row), while compatibility `W` is still near-chance on the current tiny probe
-  (`compatibility_auc` about `0.48`-`0.53`). Successor top-1 is `0.875`-`1.0`
-  for all W/R variants except the oracle-only sanity row.
+- Evals `3815608`, `3815610`, and `3815612` completed successfully. Eval
+  `3815624` timed out after writing partial planner rows. The remaining W/R
+  evals are still running near the 6h walltime with partial rows on disk.
+- Diagnostics show remaining-edit `R` learns a strong scalar signal in most
+  variants (`remaining_spearman` about `0.93`-`0.97`, except the oracle-only
+  sanity row), while compatibility `W` is still near-chance on the current tiny
+  probe (`compatibility_auc` about `0.48`-`0.53`).
+- Current planner readout is negative for learned verifier-free scoring:
+  oracle raw-L2 sanity is `8/8`, h `0.0`, but every learned energy/progress row
+  seen so far is `0/8`. Best non-oracle row so far is
+  `E4_wr_predicted` with `remaining_edit_count`, latent rollout, depth `8`,
+  h `48.0`. Most full-score/policy rows are around h `55`.
+
+Current best rows:
+
+| Variant | Best current row |
+|---|---|
+| `E0_base_oracle_sanity` | oracle raw L2, latent rollout, depth 1: `8/8`, h `0.0` |
+| `E1_compat_state` | compatibility energy, symbolic re-encode, depth 8: `0/8`, h `54.5` |
+| `E2_remaining_state` | remaining-edit count, symbolic re-encode, depth 8: `0/8`, h `49.0` |
+| `E3_wr_state` | remaining-edit count, latent rollout, depth 16: `0/8`, h `48.75` |
+| `E4_wr_predicted` | remaining-edit count, latent rollout, depth 8: `0/8`, h `48.0` |
+| `E5_wr_pairwise_rank` | remaining-edit count, latent rollout, depth 8: `0/8`, h `48.375` |
+| `E6_wr_listwise_rank` | compatibility energy, latent rollout, depth 8/16: `0/8`, h `55.375` |
+| `E7_wr_listwise_policy` | verifier energy or remaining-edit, latent rollout, depth 1: `0/8`, h `55.25` |
+| `E8_wr_no_counterfactual` | verifier energy, symbolic re-encode, depth 1: `0/8`, h `51.25` |
+| `E9_wr_no_corruption` | verifier energy, latent rollout, depth 4: `0/8`, h `55.25` |
+| `F0_full_score` | compatibility energy, latent rollout, depth 8/16: `0/8`, h `55.375` |
+| `F1_full_policy` | verifier energy or remaining-edit, latent rollout, depth 1: `0/8`, h `55.25` |
 
 Jobs:
 
