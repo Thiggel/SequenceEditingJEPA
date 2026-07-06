@@ -722,6 +722,42 @@ def test_verifier_planner_score_modes_do_not_depend_on_goal_latent():
     assert torch.allclose(score_a, model.verifier_score(latents, batch.active_mask))
 
 
+def test_verifier_mpc_score_does_not_encode_oracle_goal_latent():
+    example = _example()
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    ).eval()
+    original_encode_state = model.encode_state
+    encoded_goal = []
+
+    def record_goal_encoding(state, context_latents, clue_mask, editable_mask, active_mask):
+        if torch.equal(state.detach().cpu(), torch.as_tensor(example.goal[None], dtype=torch.long)):
+            encoded_goal.append(True)
+        return original_encode_state(state, context_latents, clue_mask, editable_mask, active_mask)
+
+    model.encode_state = record_goal_encoding
+
+    run_beam_mpc(
+        model,
+        example.state,
+        example.goal,
+        score_mode="verifier_energy",
+        transition_mode="latent_rollout",
+        beam_width=1,
+        beam_depth=1,
+        max_steps=0,
+        device=torch.device("cpu"),
+        allow_overwrite=True,
+    )
+
+    assert not encoded_goal
+
+
 def test_rank_sampler_with_overwrite_repairs_wrong_filled_cells():
     from puzzle_jepa.train.grid_goal_sudoku import _sample_rank_actions
 
@@ -741,6 +777,91 @@ def test_rank_sampler_with_overwrite_repairs_wrong_filled_cells():
     assert negatives[0, 0].item() == 0
     assert negatives[0, 1].item() == 2
     assert negatives[0, 2].item() != positives[0, 2].item()
+
+
+def test_rank_sampler_with_overwrite_selects_filled_wrong_sequence_states():
+    from puzzle_jepa.train.grid_goal_sudoku import _sample_rank_actions
+
+    example = _example()
+    solved = example.goal.copy()
+    wrong = solved.copy()
+    wrong[0, 2] = (int(wrong[0, 2]) % 9) + 1
+    boards = torch.as_tensor(np.stack([[solved, wrong]]), dtype=torch.long)
+    goals = torch.as_tensor(example.goal[None], dtype=torch.long)
+
+    rank_states, positives, negatives = _sample_rank_actions(
+        boards,
+        goals,
+        np.random.default_rng(0),
+        masks=torch.ones((1, 2), dtype=torch.bool),
+        device=torch.device("cpu"),
+        allow_overwrite=True,
+    )
+
+    assert torch.equal(rank_states, torch.as_tensor(wrong[None], dtype=torch.long))
+    assert positives.tolist() == [[0, 2, int(example.goal[0, 2])]]
+    assert negatives[0, 0].item() == 0
+    assert negatives[0, 1].item() == 2
+    assert negatives[0, 2].item() != positives[0, 2].item()
+
+
+def test_policy_prior_listwise_trains_overwrite_recovery_actions():
+    batch = _small_batch(batch_size=1)
+    wrong = batch.goals.clone()
+    wrong[:, 0, 2] = (wrong[:, 0, 2] % 9) + 1
+    positive = torch.as_tensor([[0, 2, int(batch.goals[0, 0, 2].item())]], dtype=torch.long)
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+        policy_prior_weight=1.0,
+        policy_prior_mode="listwise",
+        policy_prior_target="verifier",
+        listwise_action_rank_max_actions=32,
+    )
+
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+        oracle_mask=batch.oracle_mask,
+        action_rank_states=wrong,
+        positive_actions=positive,
+    )
+
+    assert output.policy_prior_loss.item() > 0.0
+
+
+def test_single_latent_compatibility_loss_does_not_use_count_targets_as_bce_labels():
+    model = _small_model(
+        latent_representation="single",
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+    )
+    latents = torch.zeros((1, 1, model.d_model))
+    active_mask = torch.ones((1, 9, 9), dtype=torch.bool)
+    wrong_targets = torch.zeros((1, 81))
+    wrong_targets[0, :5] = 1.0
+    valid = torch.ones((1,), dtype=torch.bool)
+    with torch.no_grad():
+        model.compatibility_head[-1].weight.zero_()
+        model.compatibility_head[-1].bias.fill_(8.0)
+
+    loss = model._compatibility_supervision_loss(latents, active_mask, wrong_targets, valid)
+
+    assert loss.item() >= 0.0
 
 
 def test_verifier_diagnostics_report_calibration_and_successor_metrics():

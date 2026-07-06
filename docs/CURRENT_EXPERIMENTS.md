@@ -4,9 +4,9 @@ Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 # Current Experiments
 
-Last updated: 2026-07-06 09:20 CEST
+Last updated: 2026-07-06 09:35 CEST
 
-## Prepared, Not Submitted: Verifier-Free Energy Sweep
+## Ready, Not Submitted: Verifier-Free Energy Sweep
 
 Purpose:
 - Replace oracle/predicted goal latent scoring with learned verifier-like
@@ -39,7 +39,17 @@ Prepared scripts:
 - `scripts/experiments/submit_grid_goal_verifier_energy.sh`
 
 Submission state:
-- Not submitted. Waiting for explicit user go-ahead.
+- Not submitted. The verifier-free audit blockers below are fixed; wait for
+  explicit user go-ahead before launching.
+
+Audit blockers fixed on 2026-07-06:
+- `verifier_energy` MPC no longer encodes the oracle goal latent during setup.
+- Sequence rank-state sampling with `allow_overwrite=True` selects filled-wrong
+  recovery states instead of blank-only frames.
+- Listwise verifier-targeted policy prior trains overwrite recovery actions on
+  filled-wrong boards with no blanks.
+- Single-CLS compatibility supervision uses binary BCE labels while retaining
+  count regression for the wrong-count target.
 
 ## Active: Wide Single-CLS Oracle Probe
 

@@ -2553,8 +2553,9 @@ class GridTokenGoalJEPA(nn.Module):
         target_counts = _masked_token_sum(token_targets, latent_mask)
         count_loss = F.huber_loss(counts, target_counts, reduction="none")
         if token_targets.shape == logits.shape:
+            binary_targets = token_targets.clamp(0.0, 1.0).to(dtype=logits.dtype)
             token_loss = _masked_mean(
-                F.binary_cross_entropy_with_logits(logits, token_targets.to(dtype=logits.dtype), reduction="none"),
+                F.binary_cross_entropy_with_logits(logits, binary_targets, reduction="none"),
                 latent_mask & valid[:, None],
             )
         else:
@@ -2786,20 +2787,33 @@ class GridTokenGoalJEPA(nn.Module):
         losses = []
         batch = rank_states.shape[0]
         for index in range(batch):
-            empties = torch.nonzero(rank_states[index] == 0, as_tuple=False)
-            if empties.numel() == 0:
-                continue
+            pos = positive_actions[index]
+            pos_row = int(pos[0].item())
+            pos_col = int(pos[1].item())
+            pos_value = int(pos[2].item())
+            rows, cols = rank_states[index].shape
+            positive_is_valid = 0 <= pos_row < rows and 0 <= pos_col < cols and 1 <= pos_value <= 9
+            positions: list[tuple[int, int]] = []
+            seen: set[tuple[int, int]] = set()
+            for row_col in torch.nonzero(rank_states[index] == 0, as_tuple=False):
+                position = (int(row_col[0].item()), int(row_col[1].item()))
+                positions.append(position)
+                seen.add(position)
+            if positive_is_valid and (pos_row, pos_col) not in seen:
+                positions.append((pos_row, pos_col))
             candidates = []
             labels = []
-            pos = positive_actions[index]
-            for row_col in empties:
-                row = int(row_col[0].item())
-                col = int(row_col[1].item())
+            for row, col in positions:
+                current = int(rank_states[index, row, col].item())
                 for value in range(1, 10):
+                    if current == value:
+                        continue
                     candidates.append([row, col, value])
-                    labels.append(row == int(pos[0].item()) and col == int(pos[1].item()) and value == int(pos[2].item()))
+                    labels.append(positive_is_valid and row == pos_row and col == pos_col and value == pos_value)
             if not any(labels):
-                candidates.append([int(pos[0].item()), int(pos[1].item()), int(pos[2].item())])
+                if not positive_is_valid:
+                    continue
+                candidates.append([pos_row, pos_col, pos_value])
                 labels.append(True)
             if len(candidates) > self.listwise_action_rank_max_actions:
                 positive = [candidate for candidate, label in zip(candidates, labels, strict=True) if label][0]

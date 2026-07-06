@@ -5,7 +5,7 @@ Source of truth: `../sequence-editing-report/BACKLOG.md` and
 
 ## Verifier-Free Compatibility / Progress Energy Plan
 
-Implemented, not submitted.
+Implemented, audit-fixed, not submitted.
 
 Research questions:
 
@@ -49,6 +49,20 @@ Prepared scripts:
 - `scripts/slurm/run_grid_goal_verifier_energy_train.slurm`
 - `scripts/slurm/run_grid_goal_verifier_energy_eval.slurm`
 - `scripts/experiments/submit_grid_goal_verifier_energy.sh`
+
+Audit blockers fixed on 2026-07-06:
+
+- `verifier_energy` MPC no longer encodes the oracle goal latent during setup.
+- `_sample_rank_actions(..., allow_overwrite=True)` skips full filled-wrong
+  sequence states no longer; overwrite mode samples states mismatched from the
+  solved board.
+- The listwise verifier-targeted policy prior ignores no-blank wrong boards, so
+  it now adds the positive repair cell even when the board has no blanks.
+- Single-latent compatibility loss can use count targets as BCE labels and go
+  negative no longer; BCE labels are clamped to binary and count supervision
+  remains separate.
+
+Regression tests were added in `tests/test_grid_goal_jepa.py` and now pass.
 
 Prepared variants:
 

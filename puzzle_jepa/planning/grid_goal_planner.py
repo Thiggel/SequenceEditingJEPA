@@ -120,7 +120,14 @@ def run_beam_mpc(
     editable_mask = ~clue_mask
     active_mask = np.ones((9, 9), dtype=bool)
     context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
-        model, current, goal, clue_mask, editable_mask, active_mask, device=device
+        model,
+        current,
+        goal,
+        clue_mask,
+        editable_mask,
+        active_mask,
+        device=device,
+        score_mode=score_mode,
     )
     action_evals = 0
     for _ in range(max_steps):
@@ -2255,14 +2262,20 @@ def _prepare_goal_latents(
     active_mask: np.ndarray,
     *,
     device: torch.device,
+    score_mode: str | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     context_t = torch.as_tensor(puzzle[None], dtype=torch.long, device=device)
     clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device)
     edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
     active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
-    goal_t = torch.as_tensor(goal[None], dtype=torch.long, device=device)
     context_latents = model.encode_context(context_t, clue_t, edit_t, active_t)
     initial_latents = model.encode_state(context_t, context_latents, clue_t, edit_t, active_t)
+    if score_mode is not None and _is_verifier_score(str(score_mode)):
+        # Verifier scores are intentionally goal-free at inference. Return a
+        # same-shape placeholder for legacy planner APIs without encoding the
+        # solved board into an oracle latent.
+        return context_latents, initial_latents, initial_latents, initial_latents
+    goal_t = torch.as_tensor(goal[None], dtype=torch.long, device=device)
     predicted_goal = model.predict_goal(
         context_latents,
         active_t,

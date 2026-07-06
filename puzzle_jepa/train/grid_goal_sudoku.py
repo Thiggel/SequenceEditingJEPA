@@ -310,11 +310,19 @@ def _sample_rank_actions(
     elif boards.ndim == 4:
         selected = []
         masks_cpu = None if masks is None else masks.cpu().numpy()
+        goals_cpu = goals.cpu().numpy()
         for batch_index, sequence in enumerate(boards.cpu().numpy()):
             valid_steps = np.arange(sequence.shape[0])
             if masks_cpu is not None:
                 valid_steps = valid_steps[masks_cpu[batch_index]]
-            candidates = [int(step) for step in valid_steps if np.any(sequence[int(step)] == 0)]
+            if allow_overwrite:
+                candidates = [
+                    int(step)
+                    for step in valid_steps
+                    if np.any(sequence[int(step)] != goals_cpu[batch_index])
+                ]
+            else:
+                candidates = [int(step) for step in valid_steps if np.any(sequence[int(step)] == 0)]
             if not candidates:
                 candidates = [int(valid_steps[0])] if len(valid_steps) else [0]
             selected.append(sequence[candidates[int(rng.integers(0, len(candidates)))]])
