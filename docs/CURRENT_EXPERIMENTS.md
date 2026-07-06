@@ -4,9 +4,41 @@ Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 # Current Experiments
 
-Last updated: 2026-07-06 10:35 CEST
+Last updated: 2026-07-06 08:24 CEST
 
-## Active: Counterfactual Editable Weekend Wave
+## Active: Wide Single-CLS Oracle Probe
+
+Purpose:
+- Test whether the one-vector board latent failed because `d_model=256` was too narrow, or because the one-vector geometry/predictor is structurally wrong for Sudoku.
+- Keep the readout oracle-only for now: no predicted goal, no waypoint, no value head.
+
+Runs:
+
+| Variant | Train | Eval | Stabilization |
+|---|---:|---:|---|
+| `W0_ema_vicreg_d1024` | `3815481` | `3815482` | EMA + VICReg, no LDAD |
+| `W1_ema_ldad_set_d1024` | `3815483` | `3815484` | EMA + LDAD, no VICReg |
+| `W2_ldad_vicreg_set_d1024` | `3815485` | `3815486` | LDAD + VICReg, no EMA |
+| `W3_ldad_only_set_d1024` | `3815487` | `3815488` | LDAD only, no EMA/VICReg |
+
+State at submission check:
+- train jobs `3815481`, `3815483`, `3815485`, and `3815487` are running on `rtxpro6k` node `a2841`
+- eval jobs `3815482`, `3815484`, `3815486`, and `3815488` are dependency-held
+
+Common setup:
+- `latent_representation=single`
+- `d_model=1024`, `num_heads=16`, `distance_dim=256`
+- 5k steps, effective batch 8 via micro-batch 2 and grad accumulation 4
+- counterfactual editable data, K8 smooth/count dense rollout, affected-context dynamics weighting
+- eval: oracle raw L2 only, `mpc_beam`, latent rollout and symbolic re-encode, depths `{4,16}`, 8 boards
+- output root: `$WORK/sequence-editing` to avoid the current `$HPCVAULT` quota limit
+
+Gate:
+- If `W0` solves but LDAD-only variants fail, width helps single-CLS only with EMA/VICReg.
+- If `W3` solves under latent rollout, prior Delta/single failure was probably capacity-limited.
+- If all four fail, the single-vector board latent is likely structurally poor for this planner.
+
+## Completed Context: Counterfactual Editable Weekend Wave
 
 Research questions:
 - Does counterfactual branching improve action dependence and latent-rollout top-action accuracy?

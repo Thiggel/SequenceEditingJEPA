@@ -2189,3 +2189,116 @@ def test_weekend_oversight_requires_predicted_waypoint_quality_probes():
     assert "latent alignment" in joined
     assert "Hamming progress" in joined
     assert "trackability" in joined
+
+
+def _capture_single_wide_args(
+    tmp_path: Path,
+    *,
+    script: str,
+    variant: str,
+    checkpoint: bool = False,
+) -> list[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{variant}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf '%s\\n' \"$@\" > \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        run_root = work / "runs" / "grid_goal_single_wide" / f"grid_goal_single_wide_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "VARIANT": variant,
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return capture_file.read_text().splitlines()
+
+
+def test_single_wide_train_variants_use_wide_cls_oracle_recipe(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    train_text = (repo_root / "scripts/slurm/run_grid_goal_single_wide_train.slurm").read_text()
+    eval_text = (repo_root / "scripts/slurm/run_grid_goal_single_wide_eval.slurm").read_text()
+    expected = [
+        "W0_ema_vicreg_d1024",
+        "W1_ema_ldad_set_d1024",
+        "W2_ldad_vicreg_set_d1024",
+        "W3_ldad_only_set_d1024",
+    ]
+
+    assert _shell_array_entries(train_text, "VARIANTS") == expected
+    assert _shell_array_entries(eval_text, "VARIANTS") == expected
+
+    ema_vicreg = _capture_single_wide_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_single_wide_train.slurm",
+        variant="W0_ema_vicreg_d1024",
+    )
+    ldad_only = _capture_single_wide_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_single_wide_train.slurm",
+        variant="W3_ldad_only_set_d1024",
+    )
+
+    for args in (ema_vicreg, ldad_only):
+        assert "model.latent_representation=single" in args
+        assert "model.d_model=1024" in args
+        assert "model.distance_dim=256" in args
+        assert "model.num_heads=16" in args
+        assert "model.goal_mse_weight=0.0" in args
+        assert "model.dense_rollout_all_steps=true" in args
+
+    assert "model.use_ema_target_encoder=true" in ema_vicreg
+    assert "model.regularizer=vicreg" in ema_vicreg
+    assert "model.delta_action_weight=0.0" in ema_vicreg
+    assert "model.use_ema_target_encoder=false" in ldad_only
+    assert "model.dynamics_target_mode=online_no_stopgrad" in ldad_only
+    assert "model.regularizer=none" in ldad_only
+    assert "model.delta_action_weight=10.0" in ldad_only
+    assert "model.delta_action_mode=set" in ldad_only
+
+
+def test_single_wide_eval_is_oracle_only(tmp_path):
+    args = _capture_single_wide_args(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_single_wide_eval.slurm",
+        variant="W1_ema_ldad_set_d1024",
+        checkpoint=True,
+    )
+
+    assert args[args.index("--scores") + 1] == "oracle_goal_raw_euclidean_distance"
+    assert args[args.index("--planners") + 1] == "mpc_beam"
+    assert args[args.index("--transitions") + 1] == "latent_rollout,symbolic_reencode"
+    assert args[args.index("--beam-depths") + 1] == "4,16"
+    assert "--allow-overwrite" in args
+
+
+def test_single_wide_submit_uses_work_output_root():
+    repo_root = Path(__file__).resolve().parents[1]
+    submit_text = (repo_root / "scripts/experiments/submit_grid_goal_single_wide.sh").read_text()
+
+    assert 'OUTPUT_ROOT="${SINGLE_WIDE_OUTPUT_ROOT:-${WORK:?WORK must be set}/sequence-editing}"' in submit_text
+    assert 'PUZZLE_JEPA_WORK_ROOT="${OUTPUT_ROOT}"' in submit_text
