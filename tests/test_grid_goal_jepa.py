@@ -673,6 +673,70 @@ def test_verifier_losses_are_finite_and_reported_on_encoded_and_predicted_latent
     assert output.verifier_rank_loss.item() > 0.0
 
 
+def test_verifier_predicted_horizons_supervise_multi_step_rollouts():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        compatibility_weight=1.0,
+        remaining_weight=1.0,
+        verifier_predicted_weight=1.0,
+        verifier_predicted_horizons=(1, 2, 3),
+    )
+
+    output = model(
+        batch.boards[:, :5],
+        batch.actions[:, :5],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :5],
+        oracle_mask=batch.oracle_mask,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.verifier_predicted_loss.item() > 0.0
+
+
+def test_verifier_energy_projection_changes_head_features_and_gets_gradients():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        compatibility_weight=1.0,
+        remaining_weight=1.0,
+        verifier_energy_projection="mlp",
+    )
+
+    output = model(
+        batch.boards[:, :2],
+        batch.actions[:, :2],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :2],
+        oracle_mask=batch.oracle_mask,
+    )
+    output.loss.backward()
+
+    grad_norm = sum(
+        float(param.grad.detach().abs().sum())
+        for param in model.verifier_energy_projection.parameters()
+        if param.grad is not None
+    )
+    assert grad_norm > 0.0
+
+
 def test_verifier_listwise_rank_loss_runs_over_editable_actions():
     batch = _small_batch(batch_size=1)
     model = _small_model(

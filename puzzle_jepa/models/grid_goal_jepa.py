@@ -507,9 +507,11 @@ class GridTokenGoalJEPA(nn.Module):
         compatibility_weight: float = 0.0,
         remaining_weight: float = 0.0,
         verifier_predicted_weight: float = 0.0,
+        verifier_predicted_horizons: tuple[int, ...] = (1,),
         verifier_corruption_weight: float = 0.0,
         verifier_rank_weight: float = 0.0,
         verifier_rank_mode: str = "pairwise",
+        verifier_energy_projection: str = "none",
         verifier_score_alpha: float = 1.0,
         verifier_score_beta: float = 1.0,
         policy_prior_target: str = "goal",
@@ -729,11 +731,15 @@ class GridTokenGoalJEPA(nn.Module):
         self.compatibility_weight = float(compatibility_weight)
         self.remaining_weight = float(remaining_weight)
         self.verifier_predicted_weight = float(verifier_predicted_weight)
+        self.verifier_predicted_horizons = tuple(sorted({int(h) for h in verifier_predicted_horizons if int(h) > 0}))
         self.verifier_corruption_weight = float(verifier_corruption_weight)
         self.verifier_rank_weight = float(verifier_rank_weight)
         if verifier_rank_mode not in {"pairwise", "listwise", "none"}:
             raise ValueError("verifier_rank_mode must be one of ['listwise', 'none', 'pairwise'].")
         self.verifier_rank_mode = str(verifier_rank_mode)
+        if verifier_energy_projection not in {"none", "mlp"}:
+            raise ValueError("verifier_energy_projection must be one of ['mlp', 'none'].")
+        self.verifier_energy_projection_mode = str(verifier_energy_projection)
         self.verifier_score_alpha = float(verifier_score_alpha)
         self.verifier_score_beta = float(verifier_score_beta)
         if policy_prior_target not in {"goal", "verifier"}:
@@ -750,6 +756,15 @@ class GridTokenGoalJEPA(nn.Module):
         nn.init.normal_(self.metric_success_policy_tokens, std=0.02)
         self.metric_value_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.bad_state_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
+        if self.verifier_energy_projection_mode == "mlp":
+            self.verifier_energy_projection = nn.Sequential(
+                nn.LayerNorm(d_model),
+                nn.Linear(d_model, d_model),
+                nn.SiLU(),
+                nn.Linear(d_model, d_model),
+            )
+        else:
+            self.verifier_energy_projection = nn.Identity()
         self.compatibility_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.remaining_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.sigreg_weight = float(sigreg_weight)
@@ -1146,10 +1161,12 @@ class GridTokenGoalJEPA(nn.Module):
         return self.bad_state_head(summary.float()).squeeze(-1)
 
     def compatibility_token_logits(self, latents: torch.Tensor) -> torch.Tensor:
-        return self.compatibility_head(latents.float()).squeeze(-1)
+        features = self.verifier_energy_projection(latents.float())
+        return self.compatibility_head(features).squeeze(-1)
 
     def remaining_token_logits(self, latents: torch.Tensor) -> torch.Tensor:
-        return self.remaining_head(latents.float()).squeeze(-1)
+        features = self.verifier_energy_projection(latents.float())
+        return self.remaining_head(features).squeeze(-1)
 
     def compatibility_energy(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
         mask = _latent_active_mask(active_mask, token_count=latents.shape[-2]).to(dtype=latents.dtype)
@@ -1856,24 +1873,68 @@ class GridTokenGoalJEPA(nn.Module):
                         corrupt_remaining_targets,
                         flat_valid,
                     )
-            if self.verifier_predicted_weight > 0.0 and predicted_next.numel() > 0:
-                pred_frames = predicted_next.shape[1]
-                pred_active = active_mask[:, None].expand(batch, pred_frames, rows, cols).reshape(batch * pred_frames, rows, cols)
-                pred_valid = transition_mask[:, :pred_frames].reshape(batch * pred_frames)
-                pred_boards = boards[:, 1 : 1 + pred_frames]
-                pred_wrong_targets = _sudoku_wrong_commitment_targets(pred_boards, goals, editable_mask).reshape(
-                    batch * pred_frames,
-                    -1,
-                )
-                pred_remaining_targets = _sudoku_remaining_edit_targets(pred_boards, goals, editable_mask).reshape(
-                    batch * pred_frames,
-                    -1,
-                )
-                pred_latents = predicted_next.reshape(batch * pred_frames, token_count, self.d_model)
-                verifier_predicted_loss = 0.5 * (
-                    self._compatibility_supervision_loss(pred_latents, pred_active, pred_wrong_targets, pred_valid)
-                    + self._remaining_supervision_loss(pred_latents, pred_active, pred_remaining_targets, pred_valid)
-                )
+            if self.verifier_predicted_weight > 0.0:
+                predicted_terms = []
+                horizons = self.verifier_predicted_horizons or (1,)
+                max_pred_horizon = min(max(horizons), frames - 1)
+                if max_pred_horizon > 0:
+                    for horizon in horizons:
+                        horizon = int(horizon)
+                        if horizon <= 0 or horizon >= frames:
+                            continue
+                        start_count = frames - horizon
+                        rollout = state_latents[:, :start_count]
+                        for offset in range(horizon):
+                            ctx = context_latents[:, None].expand(
+                                batch,
+                                start_count,
+                                context_token_count,
+                                self.d_model,
+                            ).reshape(batch * start_count, context_token_count, self.d_model)
+                            act = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
+                            rollout = self.predict_next(
+                                rollout.reshape(batch * start_count, token_count, self.d_model),
+                                act,
+                                ctx,
+                            ).reshape(batch, start_count, token_count, self.d_model)
+                        pred_active = active_mask[:, None].expand(batch, start_count, rows, cols).reshape(
+                            batch * start_count,
+                            rows,
+                            cols,
+                        )
+                        pred_valid = (masks[:, :start_count] & masks[:, horizon : horizon + start_count]).reshape(
+                            batch * start_count
+                        )
+                        pred_boards = boards[:, horizon : horizon + start_count]
+                        pred_wrong_targets = _sudoku_wrong_commitment_targets(pred_boards, goals, editable_mask).reshape(
+                            batch * start_count,
+                            -1,
+                        )
+                        pred_remaining_targets = _sudoku_remaining_edit_targets(pred_boards, goals, editable_mask).reshape(
+                            batch * start_count,
+                            -1,
+                        )
+                        pred_latents = rollout.reshape(batch * start_count, token_count, self.d_model)
+                        predicted_terms.append(
+                            0.5
+                            * (
+                                self._compatibility_supervision_loss(
+                                    pred_latents,
+                                    pred_active,
+                                    pred_wrong_targets,
+                                    pred_valid,
+                                )
+                                + self._remaining_supervision_loss(
+                                    pred_latents,
+                                    pred_active,
+                                    pred_remaining_targets,
+                                    pred_valid,
+                                )
+                            )
+                            / (float(horizon) ** 0.5)
+                        )
+                if predicted_terms:
+                    verifier_predicted_loss = torch.stack(predicted_terms).mean()
 
         goal_target_for_loss = goal_target if self.goal_target_mode == "online_no_stopgrad" else goal_target.detach()
         if self.goal_mse_weight > 0.0 or self.goal_nce_weight > 0.0:

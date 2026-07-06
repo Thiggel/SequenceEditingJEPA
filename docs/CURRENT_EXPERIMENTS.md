@@ -2,7 +2,54 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-06 17:35 CEST
+Last updated: 2026-07-06 17:50 CEST
+
+## Active: Verifier-Free Energy Repair Wave
+
+Purpose:
+- Fix the first verifier-free energy result, where oracle raw-L2 still solved
+  but learned W/R scoring gave `0/8`.
+- Test isolated fixes for sampling hardness, W/R/rank loss scale, separate
+  energy projection, predicted-rollout calibration horizons, and local
+  same-parent action discrimination.
+- Then test combined recipes that stack the most plausible fixes.
+
+Implementation additions:
+- `model.verifier_predicted_horizons` lets W/R supervise explicit rollout
+  horizons such as `[1,2,3,4,5,6,7,8]`, not just one-step predicted latents.
+- `model.verifier_energy_projection=mlp` adds a separate learned token
+  projection before W/R heads, so energy geometry can be shaped without making
+  the raw dynamics token space carry the scalar directly.
+- New scripts:
+  - `scripts/slurm/run_grid_goal_verifier_repair_train.slurm`
+  - `scripts/slurm/run_grid_goal_verifier_repair_eval.slurm`
+  - `scripts/experiments/submit_grid_goal_verifier_repair.sh`
+
+Variants:
+
+| Group | Variants |
+|---|---|
+| Baselines | `B0_current_E4`, `B1_current_F0` |
+| Sampling/hardness | `S1_balanced_partials`, `S2_near_solution`, `S3_recovery_states`, `S4_hard_action_sets` |
+| Loss weights | `W1_energy_x3`, `W2_energy_x10`, `W3_energy_x30`, `W4_rank_x3`, `W5_rank_x10` |
+| Geometry pressure | `G1_energy_projection`, `G2_energy_finetune`, `G3_dyn_half` |
+| Predicted-latent calibration | `P1_pred_h1`, `P2_pred_h4`, `P3_pred_h8`, `P4_score_consistency` |
+| Local action discrimination | `L1_pair_same_cell`, `L2_pair_overwrite`, `L3_listwise_32`, `L4_listwise_128`, `L5_exhaustive_small` |
+| Combined | `C1_sampling_weight`, `C2_sampling_rank`, `C3_pred_rank`, `C4_energy_proj_rank`, `C5_best_no_policy`, `C6_best_policy`, `C7_finetune_best`, `C8_full` |
+
+Eval:
+- 8 boards, beam width `16`, depths `{1,4,8}`.
+- Transitions: latent rollout and symbolic re-encode.
+- Scores: `verifier_energy`, `remaining_edit_count`, `compatibility_energy`.
+- Diagnostics include compatibility AUC, remaining-edit Spearman/MAE, and
+  same-parent successor top-k.
+
+Gate:
+- W AUC should move clearly above chance.
+- Same-parent corrective action top-1/top-5 should improve.
+- Symbolic-reencode W/R planning should improve before latent rollout.
+- If symbolic W/R works but latent rollout fails, the next blocker is
+  predicted-latent calibration.
 
 ## Active: Verifier-Free Energy Sweep
 

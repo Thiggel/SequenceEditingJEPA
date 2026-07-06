@@ -81,9 +81,11 @@ model:
   compatibility_weight: 0.0
   remaining_weight: 0.0
   verifier_predicted_weight: 0.0
+  verifier_predicted_horizons: [1]
   verifier_corruption_weight: 0.0
   verifier_rank_weight: 0.0
   verifier_rank_mode: pairwise
+  verifier_energy_projection: none
   verifier_score_alpha: 1.0
   verifier_score_beta: 1.0
   policy_prior_target: goal
