@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-06 15:05 CEST
+Last updated: 2026-07-06 15:30 CEST
 
 ## Active: Verifier-Free Energy Sweep
 
@@ -95,15 +95,13 @@ Latest state at 2026-07-06 15:05 CEST:
   `3815483`, `3815485`, and `3815487`.
 - Eval jobs `3815482`, `3815484`, `3815486`, and `3815488` are
   dependency-never-satisfied.
-- Direct write probes show `/home/atuin/c107fa/c107fa12` currently fails new
-  file/directory creation with `EDQUOT`. The exact cause is the atuin group
-  file quota. Before deleting FOMO2, group `c107fa` was at `543,961` files over
-  the `500,000` soft file quota, with grace shown as `none` (`600,000` hard
-  limit). After deleting `/home/atuin/c107fa/c107fa12/FOMO2`, the group is still
-  at `535,254` files, about `35,254` over soft quota. The sequence-editing repo
-  itself is only about `1,084` files on atuin, so this is group-wide.
-  `/home/vault` and `/home/hpc` can create files; resubmission should use a
-  verified shared non-atuin output root.
+- Direct write probes originally showed `/home/atuin/c107fa/c107fa12` failing
+  new file/directory creation with `EDQUOT` due to the atuin group file quota.
+  After deleting `/home/atuin/c107fa/c107fa12/FOMO2` and then
+  `/home/atuin/c107fa/c107fa12/python-user-base` on user request, group
+  `c107fa` is now at `414,230` files, safely below the `500,000` soft file
+  quota, and new file creation under `/home/atuin/.../sequence-editing` works
+  again.
 
 Common setup:
 - `latent_representation=single`
@@ -125,6 +123,9 @@ Storage housekeeping:
 - deleted `/home/atuin/c107fa/c107fa12/FOMO2` on user request, freeing about
   `17G` and `8.7k` files; this reduced but did not clear the group file-quota
   overage
+- deleted `/home/atuin/c107fa/c107fa12/python-user-base` on user request,
+  freeing about `9.8G` and `83k` files; this cleared the atuin group file-quota
+  overage and restored new-file creation on `/home/atuin`
 - preserved lightweight configs, metrics, diagnostics, and planner/result
   records; backed up the failed W0/W1 metrics/config directories to
   `/scratch/c107fa12_grid_goal_single_wide_failed_w0_w1_20260706_144001`
