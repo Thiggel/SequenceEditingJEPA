@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-06 15:30 CEST
+Last updated: 2026-07-06 15:55 CEST
 
 ## Active: Verifier-Free Energy Sweep
 
@@ -84,17 +84,17 @@ Runs:
 
 | Variant | Train | Eval | Stabilization |
 |---|---:|---:|---|
-| `W0_ema_vicreg_d1024` | `3815481` | `3815482` | EMA + VICReg, no LDAD |
-| `W1_ema_ldad_set_d1024` | `3815483` | `3815484` | EMA + LDAD, no VICReg |
-| `W2_ldad_vicreg_set_d1024` | `3815485` | `3815486` | LDAD + VICReg, no EMA |
-| `W3_ldad_only_set_d1024` | `3815487` | `3815488` | LDAD only, no EMA/VICReg |
+| `W0_ema_vicreg_d1024` | `3817223` running | `3817224` dependency-held | EMA + VICReg, no LDAD |
+| `W1_ema_ldad_set_d1024` | `3817225` running | `3817226` dependency-held | EMA + LDAD, no VICReg |
+| `W2_ldad_vicreg_set_d1024` | `3817227` running | `3817228` dependency-held | LDAD + VICReg, no EMA |
+| `W3_ldad_only_set_d1024` | `3817229` running | `3817230` dependency-held | LDAD only, no EMA/VICReg |
 
-Latest state at 2026-07-06 15:05 CEST:
+Latest state at 2026-07-06 15:55 CEST:
 - All four wide single-CLS train jobs reached the end of 5k training but failed
   while opening `checkpoint-5000.pt` under `/home/atuin/...`: `3815481`,
   `3815483`, `3815485`, and `3815487`.
-- Eval jobs `3815482`, `3815484`, `3815486`, and `3815488` are
-  dependency-never-satisfied.
+- Stale dependency-never-satisfied eval jobs `3815482`, `3815484`, `3815486`,
+  and `3815488` were canceled.
 - Direct write probes originally showed `/home/atuin/c107fa/c107fa12` failing
   new file/directory creation with `EDQUOT` due to the atuin group file quota.
   After deleting `/home/atuin/c107fa/c107fa12/FOMO2` and then
@@ -102,6 +102,15 @@ Latest state at 2026-07-06 15:05 CEST:
   `c107fa` is now at `414,230` files, safely below the `500,000` soft file
   quota, and new file creation under `/home/atuin/.../sequence-editing` works
   again.
+- Replacement train/eval pairs were submitted to fresh output root
+  `/home/atuin/c107fa/c107fa12/sequence-editing-repair-20260706`.
+  Train jobs `3817223`, `3817225`, `3817227`, and `3817229` started immediately
+  on `rtxpro6k` node `a2141`; eval jobs `3817224`, `3817226`, `3817228`, and
+  `3817230` are normal `afterok` dependencies.
+- Expected timing from the previous failed runtimes: W0/W1 training around
+  `2026-07-06 21:10-21:25 CEST`, W2/W3 training around
+  `2026-07-06 22:40-22:45 CEST`; evals then run individually with an 8h cap, so
+  full worst-case results are expected by early `2026-07-07`.
 
 Common setup:
 - `latent_representation=single`
@@ -109,7 +118,8 @@ Common setup:
 - 5k steps, effective batch 8 via micro-batch 2 and grad accumulation 4
 - counterfactual editable data, K8 smooth/count dense rollout, affected-context dynamics weighting
 - eval: oracle raw L2 only, `mpc_beam`, latent rollout and symbolic re-encode, depths `{4,16}`, 8 boards
-- output root: `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_single_wide`
+- repaired output root:
+  `/home/atuin/c107fa/c107fa12/sequence-editing-repair-20260706/runs/grid_goal_single_wide`
 
 Storage housekeeping:
 - `$HPCVAULT/sequence-editing` was reduced from about `759G` to `5.9G`
@@ -129,8 +139,8 @@ Storage housekeeping:
 - preserved lightweight configs, metrics, diagnostics, and planner/result
   records; backed up the failed W0/W1 metrics/config directories to
   `/scratch/c107fa12_grid_goal_single_wide_failed_w0_w1_20260706_144001`
-- cancelled stale sequence-editing dependency-never-satisfied evals and old
-  weekend oversight jobs; current W2/W3 jobs were not touched
+- canceled stale dependency-never-satisfied evals from the failed wide
+  single-CLS submission; replacement train/eval pairs are now running/held
 
 Gate:
 - If `W0` solves but LDAD-only variants fail, width helps single-CLS only with EMA/VICReg.
