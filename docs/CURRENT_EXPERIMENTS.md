@@ -99,10 +99,12 @@ Latest state at 2026-07-06 14:41 CEST:
   with sane losses/grad norms, but they use the same `/home/atuin/...` output
   root and are at risk of the same final checkpoint-write failure.
 - Direct write probes show `/home/atuin/c107fa/c107fa12` currently fails new
-  file/directory creation with `EDQUOT` even after deleting local vLLM cache,
-  Hugging Face hub cache, and old inactive `optimizer.pt` files. `/home/vault`
-  and `/home/hpc` can create files; resubmission should use a verified shared
-  non-atuin output root.
+  file/directory creation with `EDQUOT`. The exact cause is the atuin group
+  file quota: group `c107fa` is at `543,961` files over the `500,000` soft file
+  quota, with grace shown as `none` (`600,000` hard limit). The sequence-editing
+  repo itself is only about `1,084` files on atuin, so this is group-wide.
+  `/home/vault` and `/home/hpc` can create files; resubmission should use a
+  verified shared non-atuin output root.
 
 Common setup:
 - `latent_representation=single`
@@ -119,7 +121,8 @@ Storage housekeeping:
 - after the `/home/atuin` checkpoint failure, additionally removed disposable
   `/home/atuin` vLLM cache, Hugging Face hub cache, and inactive legacy
   `optimizer.pt` files from old sequence-editing runs; this still did not make
-  `/home/atuin` writable for new files
+  `/home/atuin` writable for new files because the blocking limit is the atuin
+  group file quota
 - preserved lightweight configs, metrics, diagnostics, and planner/result
   records; backed up the failed W0/W1 metrics/config directories to
   `/scratch/c107fa12_grid_goal_single_wide_failed_w0_w1_20260706_144001`
