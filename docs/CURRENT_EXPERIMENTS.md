@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-06 17:50 CEST
+Last updated: 2026-07-06 17:58 CEST
 
 ## Active: Verifier-Free Energy Repair Wave
 
@@ -50,6 +50,18 @@ Gate:
 - Symbolic-reencode W/R planning should improve before latent rollout.
 - If symbolic W/R works but latent rollout fails, the next blocker is
   predicted-latent calibration.
+
+Submission:
+- Submitted 31 train/eval pairs on 2026-07-06 at about 17:58 CEST.
+- Output root:
+  `/home/atuin/c107fa/c107fa12/sequence-editing-repair-20260706/runs/grid_goal_verifier_repair`.
+- Train jobs are `3817524`, `3817526`, ..., `3817584`; eval jobs are the
+  interleaved odd IDs `3817525`, `3817527`, ..., `3817585`, each dependency-held
+  on its corresponding train.
+- Current state after submission: the first train jobs have started on
+  `rtxpro6k` nodes, including `B0`, `B1`, `S1`-`S4`, `W1`-`W5`, and `G1`;
+  remaining train jobs are pending on priority, and all evals are pending on
+  dependency.
 
 ## Active: Verifier-Free Energy Sweep
 
