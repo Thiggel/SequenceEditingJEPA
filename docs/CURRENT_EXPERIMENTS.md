@@ -4,9 +4,9 @@ Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 # Current Experiments
 
-Last updated: 2026-07-06 09:35 CEST
+Last updated: 2026-07-06 09:25 CEST
 
-## Ready, Not Submitted: Verifier-Free Energy Sweep
+## Active: Verifier-Free Energy Sweep
 
 Purpose:
 - Replace oracle/predicted goal latent scoring with learned verifier-like
@@ -38,9 +38,28 @@ Prepared scripts:
 - `scripts/slurm/run_grid_goal_verifier_energy_eval.slurm`
 - `scripts/experiments/submit_grid_goal_verifier_energy.sh`
 
-Submission state:
-- Not submitted. The verifier-free audit blockers below are fixed; wait for
-  explicit user go-ahead before launching.
+State:
+- Submitted on 2026-07-06 at about 09:24 CEST.
+- All 12 train jobs started immediately on `rtxpro6k`.
+- All 12 eval jobs are dependency-held individually behind their matching train
+  job.
+
+Jobs:
+
+| Variant | Train | Eval | Purpose |
+|---|---:|---:|---|
+| `E0_base_oracle_sanity` | `3815607` | `3815608` | Oracle raw-L2 sanity baseline with no verifier heads. |
+| `E1_compat_state` | `3815609` | `3815610` | W only on encoded states plus corruptions. |
+| `E2_remaining_state` | `3815611` | `3815612` | R only on encoded states plus corruptions. |
+| `E3_wr_state` | `3815613` | `3815614` | W+R on encoded states. |
+| `E4_wr_predicted` | `3815615` | `3815616` | Add W/R supervision on predicted successor latents. |
+| `E5_wr_pairwise_rank` | `3815617` | `3815618` | Add pairwise latent-successor ranking. |
+| `E6_wr_listwise_rank` | `3815619` | `3815620` | Add listwise latent-successor ranking. |
+| `E7_wr_listwise_policy` | `3815621` | `3815622` | Add verifier-targeted policy prior. |
+| `E8_wr_no_counterfactual` | `3815623` | `3815624` | Remove counterfactual dynamics branches from the full scorer. |
+| `E9_wr_no_corruption` | `3815625` | `3815626` | Remove synthetic corruption negatives from the full scorer. |
+| `F0_full_score` | `3815627` | `3815628` | Full W+R score without policy prior. |
+| `F1_full_policy` | `3815629` | `3815630` | Full W+R score with verifier-targeted policy prior. |
 
 Audit blockers fixed on 2026-07-06:
 - `verifier_energy` MPC no longer encodes the oracle goal latent during setup.
@@ -66,9 +85,13 @@ Runs:
 | `W2_ldad_vicreg_set_d1024` | `3815485` | `3815486` | LDAD + VICReg, no EMA |
 | `W3_ldad_only_set_d1024` | `3815487` | `3815488` | LDAD only, no EMA/VICReg |
 
-State at submission check:
-- train jobs `3815481`, `3815483`, `3815485`, and `3815487` are running on `rtxpro6k` node `a2841`
-- eval jobs `3815482`, `3815484`, `3815486`, and `3815488` are dependency-held
+Latest state at 2026-07-06 09:25 CEST:
+- train jobs `3815481`, `3815483`, `3815485`, and `3815487` are running on
+  `rtxpro6k` node `a2841`
+- eval jobs `3815482`, `3815484`, `3815486`, and `3815488` are
+  dependency-held
+- latest logged progress: `W0` step `1000`, `W1` step `1000`, `W2` step
+  `500`, `W3` step `500` out of `5000`
 
 Common setup:
 - `latent_representation=single`
@@ -76,7 +99,7 @@ Common setup:
 - 5k steps, effective batch 8 via micro-batch 2 and grad accumulation 4
 - counterfactual editable data, K8 smooth/count dense rollout, affected-context dynamics weighting
 - eval: oracle raw L2 only, `mpc_beam`, latent rollout and symbolic re-encode, depths `{4,16}`, 8 boards
-- output root: `$WORK/sequence-editing` to avoid the current `$HPCVAULT` quota limit
+- output root: `$PUZZLE_JEPA_WORK_ROOT/runs/grid_goal_single_wide`
 
 Storage housekeeping:
 - `$HPCVAULT/sequence-editing` was reduced from about `759G` to `5.9G`

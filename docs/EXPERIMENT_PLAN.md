@@ -5,7 +5,7 @@ Source of truth: `../sequence-editing-report/BACKLOG.md` and
 
 ## Verifier-Free Compatibility / Progress Energy Plan
 
-Implemented, audit-fixed, not submitted.
+Implemented, audit-fixed, submitted.
 
 Research questions:
 
