@@ -2,9 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-# Current Experiments
-
-Last updated: 2026-07-06 09:25 CEST
+Last updated: 2026-07-06 14:41 CEST
 
 ## Active: Verifier-Free Energy Sweep
 
@@ -40,9 +38,15 @@ Prepared scripts:
 
 State:
 - Submitted on 2026-07-06 at about 09:24 CEST.
-- All 12 train jobs started immediately on `rtxpro6k`.
-- All 12 eval jobs are dependency-held individually behind their matching train
-  job.
+- All 12 train jobs completed successfully on `rtxpro6k`.
+- Eval `3815608` completed successfully; the other verifier evals are still
+  running and have clean stderr so far.
+- Early verifier diagnostics are already emitted before planner rows finish:
+  remaining-edit `R` learns a strong distance signal in most variants
+  (`remaining_spearman` about `0.93`-`0.97`, except the oracle-only sanity
+  row), while compatibility `W` is still near-chance on the current tiny probe
+  (`compatibility_auc` about `0.48`-`0.53`). Successor top-1 is `0.875`-`1.0`
+  for all W/R variants except the oracle-only sanity row.
 
 Jobs:
 
@@ -65,10 +69,10 @@ Audit blockers fixed on 2026-07-06:
 - `verifier_energy` MPC no longer encodes the oracle goal latent during setup.
 - Sequence rank-state sampling with `allow_overwrite=True` selects filled-wrong
   recovery states instead of blank-only frames.
-- Listwise verifier-targeted policy prior trains overwrite recovery actions on
-  filled-wrong boards with no blanks.
+- Listwise verifier-targeted policy prior training covers filled-wrong boards
+  with no blanks by adding the positive repair cell to the candidate set.
 - Single-CLS compatibility supervision uses binary BCE labels while retaining
-  count regression for the wrong-count target.
+  count regression for wrong-count supervision.
 
 ## Active: Wide Single-CLS Oracle Probe
 
@@ -85,13 +89,20 @@ Runs:
 | `W2_ldad_vicreg_set_d1024` | `3815485` | `3815486` | LDAD + VICReg, no EMA |
 | `W3_ldad_only_set_d1024` | `3815487` | `3815488` | LDAD only, no EMA/VICReg |
 
-Latest state at 2026-07-06 09:25 CEST:
-- train jobs `3815481`, `3815483`, `3815485`, and `3815487` are running on
-  `rtxpro6k` node `a2841`
-- eval jobs `3815482`, `3815484`, `3815486`, and `3815488` are
-  dependency-held
-- latest logged progress: `W0` step `1000`, `W1` step `1000`, `W2` step
-  `500`, `W3` step `500` out of `5000`
+Latest state at 2026-07-06 14:41 CEST:
+- `W0_ema_vicreg_d1024` train `3815481` and
+  `W1_ema_ldad_set_d1024` train `3815483` reached the end of 5k training but
+  failed while opening `checkpoint-5000.pt`; their eval jobs `3815482` and
+  `3815484` are therefore dependency-never-satisfied.
+- `W2_ldad_vicreg_set_d1024` train `3815485` and
+  `W3_ldad_only_set_d1024` train `3815487` are still running at step `4500/5000`
+  with sane losses/grad norms, but they use the same `/home/atuin/...` output
+  root and are at risk of the same final checkpoint-write failure.
+- Direct write probes show `/home/atuin/c107fa/c107fa12` currently fails new
+  file/directory creation with `EDQUOT` even after deleting local vLLM cache,
+  Hugging Face hub cache, and old inactive `optimizer.pt` files. `/home/vault`
+  and `/home/hpc` can create files; resubmission should use a verified shared
+  non-atuin output root.
 
 Common setup:
 - `latent_representation=single`
@@ -103,9 +114,17 @@ Common setup:
 
 Storage housekeeping:
 - `$HPCVAULT/sequence-editing` was reduced from about `759G` to `5.9G`
-- removed redundant `checkpoint-*.pt`, final old `checkpoint.pt`, HF-style model/optimizer artifacts, vault cache, and failed zero-byte single-wide files
-- preserved lightweight configs, metrics, diagnostics, and planner/result records
-- cancelled stale sequence-editing dependency-never-satisfied evals and old weekend oversight jobs; current wide-single train/eval jobs were not touched
+- removed redundant `checkpoint-*.pt`, final old `checkpoint.pt`, HF-style
+  model/optimizer artifacts, vault cache, and failed zero-byte single-wide files
+- after the `/home/atuin` checkpoint failure, additionally removed disposable
+  `/home/atuin` vLLM cache, Hugging Face hub cache, and inactive legacy
+  `optimizer.pt` files from old sequence-editing runs; this still did not make
+  `/home/atuin` writable for new files
+- preserved lightweight configs, metrics, diagnostics, and planner/result
+  records; backed up the failed W0/W1 metrics/config directories to
+  `/scratch/c107fa12_grid_goal_single_wide_failed_w0_w1_20260706_144001`
+- cancelled stale sequence-editing dependency-never-satisfied evals and old
+  weekend oversight jobs; current W2/W3 jobs were not touched
 
 Gate:
 - If `W0` solves but LDAD-only variants fail, width helps single-CLS only with EMA/VICReg.
