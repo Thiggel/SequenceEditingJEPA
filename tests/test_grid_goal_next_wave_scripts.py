@@ -2302,3 +2302,146 @@ def test_single_wide_submit_uses_work_output_root():
 
     assert 'OUTPUT_ROOT="${SINGLE_WIDE_OUTPUT_ROOT:-${WORK:?WORK must be set}/sequence-editing}"' in submit_text
     assert 'PUZZLE_JEPA_WORK_ROOT="${OUTPUT_ROOT}"' in submit_text
+
+
+def _capture_verifier_energy_calls(
+    tmp_path: Path,
+    *,
+    script: str,
+    variant: str,
+    checkpoint: bool = False,
+) -> list[list[str]]:
+    repo_root = Path(__file__).resolve().parents[1]
+    work = tmp_path / "work"
+    venv_bin = work / ".venv" / "bin"
+    venv_bin.mkdir(parents=True, exist_ok=True)
+    capture_file = tmp_path / f"{Path(script).stem}_{variant}_args.txt"
+    fake_python = venv_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "printf 'CALL\\n' >> \"${CAPTURE_FILE:?}\"\n"
+        "printf '%s\\n' \"$@\" >> \"${CAPTURE_FILE:?}\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    if checkpoint:
+        run_root = work / "runs" / "grid_goal_verifier_energy" / f"grid_goal_verifier_energy_{variant}"
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "checkpoint.pt").write_bytes(b"placeholder")
+
+    env = os.environ.copy()
+    env.pop("SCORES", None)
+    env.pop("TRANSITIONS", None)
+    env.pop("PLANNERS", None)
+    env.update(
+        {
+            "WORK": str(work),
+            "SCRATCH": str(work / "scratch"),
+            "VIRTUAL_ENV": str(work / ".venv"),
+            "PUZZLE_JEPA_WORK_ROOT": str(work),
+            "VARIANT": variant,
+            "CAPTURE_FILE": str(capture_file),
+        }
+    )
+    subprocess.run(
+        ["bash", script],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    calls: list[list[str]] = []
+    current: list[str] = []
+    for line in capture_file.read_text().splitlines():
+        if line == "CALL":
+            if current:
+                calls.append(current)
+            current = []
+        else:
+            current.append(line)
+    if current:
+        calls.append(current)
+    return calls
+
+
+def test_verifier_energy_train_scripts_use_clean_full_grid_base(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    train_text = (repo_root / "scripts/slurm/run_grid_goal_verifier_energy_train.slurm").read_text()
+    eval_text = (repo_root / "scripts/slurm/run_grid_goal_verifier_energy_eval.slurm").read_text()
+    expected = [
+        "E0_base_oracle_sanity",
+        "E1_compat_state",
+        "E2_remaining_state",
+        "E3_wr_state",
+        "E4_wr_predicted",
+        "E5_wr_pairwise_rank",
+        "E6_wr_listwise_rank",
+        "E7_wr_listwise_policy",
+        "E8_wr_no_counterfactual",
+        "E9_wr_no_corruption",
+        "F0_full_score",
+        "F1_full_policy",
+    ]
+
+    assert _shell_array_entries(train_text, "VARIANTS") == expected
+    assert _shell_array_entries(eval_text, "VARIANTS") == expected
+
+    calls = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_verifier_energy_train.slurm",
+        variant="F0_full_score",
+    )
+    args = calls[0]
+
+    assert "model.latent_representation=grid" in args
+    assert "model.regularizer=vicreg" in args
+    assert "model.use_ema_target_encoder=true" in args
+    assert "training.allow_overwrite=true" in args
+    assert "training.counterfactual_branches=16" in args
+    assert "model.dense_rollout_weighting=smooth_count" in args
+    assert "model.multi_step_horizons=[8]" in args
+    assert "model.goal_mse_weight=0.0" in args
+    assert "model.waypoint_loss_weight=0.0" in args
+    assert "model.compatibility_weight=1.0" in args
+    assert "model.remaining_weight=1.0" in args
+    assert "model.verifier_predicted_weight=0.5" in args
+    assert "model.verifier_rank_mode=listwise" in args
+
+
+def test_verifier_energy_policy_variant_uses_verifier_policy_target(tmp_path):
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_verifier_energy_train.slurm",
+        variant="F1_full_policy",
+    )[0]
+
+    assert "model.policy_prior_weight=0.2" in args
+    assert "model.policy_prior_planning_weight=0.2" in args
+    assert "model.policy_prior_mode=listwise" in args
+    assert "model.policy_prior_target=verifier" in args
+
+
+def test_verifier_energy_eval_runs_diagnostics_and_no_goal_scores(tmp_path):
+    calls = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_verifier_energy_eval.slurm",
+        variant="F0_full_score",
+        checkpoint=True,
+    )
+
+    assert calls[0][0:2] == ["-m", "puzzle_jepa.eval.grid_goal_verifier_diagnostics"]
+    assert calls[1][0:2] == ["-m", "puzzle_jepa.eval.grid_goal_planner_matrix"]
+    assert calls[1][calls[1].index("--scores") + 1] == "verifier_energy,compatibility_energy,remaining_edit_count"
+    assert calls[1][calls[1].index("--transitions") + 1] == "latent_rollout,symbolic_reencode"
+    assert calls[1][calls[1].index("--beam-depths") + 1] == "1,4,8,16"
+    assert "--allow-overwrite" in calls[1]
+
+
+def test_verifier_energy_submit_prepares_dependency_held_individual_evals():
+    repo_root = Path(__file__).resolve().parents[1]
+    submit_text = (repo_root / "scripts/experiments/submit_grid_goal_verifier_energy.sh").read_text()
+
+    assert 'sbatch --parsable scripts/slurm/run_grid_goal_verifier_energy_train.slurm' in submit_text
+    assert 'sbatch --parsable --dependency="afterok:${train_id}" scripts/slurm/run_grid_goal_verifier_energy_eval.slurm' in submit_text

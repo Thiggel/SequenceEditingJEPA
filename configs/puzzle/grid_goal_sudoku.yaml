@@ -78,6 +78,15 @@ model:
   metric_iql_expectile: 0.8
   bad_state_weight: 0.0
   bad_state_planning_weight: 0.0
+  compatibility_weight: 0.0
+  remaining_weight: 0.0
+  verifier_predicted_weight: 0.0
+  verifier_corruption_weight: 0.0
+  verifier_rank_weight: 0.0
+  verifier_rank_mode: pairwise
+  verifier_score_alpha: 1.0
+  verifier_score_beta: 1.0
+  policy_prior_target: goal
   distance_mode: tokenwise
   latent_representation: grid
   max_history_steps: 128

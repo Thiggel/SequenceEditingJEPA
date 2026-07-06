@@ -41,6 +41,9 @@ ScoreMode = Literal[
     "predicted_goal_projected_euclidean_distance",
     "success_metric_distance",
     "terminal_value",
+    "compatibility_energy",
+    "remaining_edit_count",
+    "verifier_energy",
     "oracle_waypoint_raw_euclidean_distance",
     "predicted_waypoint_raw_euclidean_distance",
 ]
@@ -1839,6 +1842,12 @@ def latent_distance(
         if bad_weight > 0.0:
             scores = scores + bad_weight * torch.sigmoid(model.bad_state_logits(latent, mask)).to(dtype=scores.dtype)
         return scores
+    if metric == "compatibility_energy":
+        return model.compatibility_energy(latent, mask)
+    if metric == "remaining_edit_count":
+        return model.remaining_edit_count(latent, mask)
+    if metric == "verifier_energy":
+        return model.verifier_score(latent, mask)
     if metric in {"changed_cell_raw_euclidean_distance", "affected_context_raw_euclidean_distance"}:
         return raw_tokenwise_euclidean_distance(latent, target_goal, mask)
     if _is_delta_topk_score(score_mode):
@@ -2011,6 +2020,10 @@ def _is_delta_topk_score(score_mode: str) -> bool:
     return metric.startswith("delta_top") and metric.endswith("_raw_euclidean_distance")
 
 
+def _is_verifier_score(score_mode: str) -> bool:
+    return _score_metric_name(score_mode) in {"compatibility_energy", "remaining_edit_count", "verifier_energy"}
+
+
 def _delta_topk_value(score_mode: str) -> int:
     metric = _score_metric_name(score_mode)
     prefix = "delta_top"
@@ -2036,7 +2049,7 @@ def _progress_base_score_mode(score_mode: str) -> str | None:
 
 
 def _can_early_stop(score_mode: str) -> bool:
-    return not _is_progress_score(score_mode)
+    return (not _is_progress_score(score_mode)) and (not _is_verifier_score(score_mode))
 
 
 def _policy_prior_planning_weight(model: GridTokenGoalJEPA) -> float:
@@ -2057,7 +2070,7 @@ def _apply_policy_prior_bias(
     weight = _policy_prior_planning_weight(model)
     if weight <= 0.0:
         return scores
-    if _score_metric_name(score_mode) in {"success_metric_distance", "terminal_value"}:
+    if _score_metric_name(score_mode) in {"success_metric_distance", "terminal_value"} or _is_verifier_score(score_mode):
         target_goal = model.success_policy_goal_like(parent_latents)
     priors = model.score_action_prior(parent_latents, target_goal, context_latents, active_mask, actions)
     return scores - weight * priors.to(dtype=scores.dtype)

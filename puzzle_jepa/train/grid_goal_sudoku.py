@@ -94,7 +94,14 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 device=device,
             )
             try:
-                rank_sample = _sample_rank_actions(batch.boards, batch.goals, rng, masks=batch.masks, device=device)
+                rank_sample = _sample_rank_actions(
+                    batch.boards,
+                    batch.goals,
+                    rng,
+                    masks=batch.masks,
+                    device=device,
+                    allow_overwrite=bool(config["training"].get("allow_overwrite", False)),
+                )
             except TypeError as exc:
                 if "unexpected keyword argument 'masks'" not in str(exc):
                     raise
@@ -177,6 +184,10 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 "train_metric_goal_mse_loss": _output_scalar(output, "metric_goal_mse_loss"),
                 "train_bad_state_loss": _output_scalar(output, "bad_state_loss"),
                 "train_bad_margin_loss": _output_scalar(output, "bad_margin_loss"),
+                "train_compatibility_loss": _output_scalar(output, "compatibility_loss"),
+                "train_remaining_loss": _output_scalar(output, "remaining_loss"),
+                "train_verifier_predicted_loss": _output_scalar(output, "verifier_predicted_loss"),
+                "train_verifier_rank_loss": _output_scalar(output, "verifier_rank_loss"),
                 "train_temporal_straightening_loss": _output_scalar(output, "temporal_straightening_loss"),
                 "train_terminal_corrupt_loss": _output_scalar(output, "terminal_corrupt_loss"),
                 "learning_rate": lr,
@@ -292,6 +303,7 @@ def _sample_rank_actions(
     *,
     masks: torch.Tensor | None = None,
     device: torch.device,
+    allow_overwrite: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if boards.ndim == 3:
         rank_boards = boards
@@ -312,12 +324,12 @@ def _sample_rank_actions(
     positives = []
     negatives = []
     for board, goal in zip(rank_boards.cpu().numpy(), goals.cpu().numpy(), strict=True):
-        empty = np.argwhere(board == 0)
-        if len(empty) == 0:
+        candidates = np.argwhere(board != goal) if allow_overwrite else np.argwhere(board == 0)
+        if len(candidates) == 0:
             positives.append([0, 0, 0])
             negatives.append([0, 0, 0])
             continue
-        row, col = (int(x) for x in empty[int(rng.integers(0, len(empty)))])
+        row, col = (int(x) for x in candidates[int(rng.integers(0, len(candidates)))])
         correct = int(goal[row, col])
         wrong = int(rng.integers(1, 10))
         if wrong == correct:

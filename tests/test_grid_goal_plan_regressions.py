@@ -555,8 +555,10 @@ def test_planner_checkpoint_loader_accepts_legacy_checkpoints_without_metric_hea
         if not key.startswith(
             (
                 "bad_state_head.",
+                "compatibility_head.",
                 "metric_src_projector.",
                 "metric_goal_projector.",
+                "remaining_head.",
                 "target_metric_src_projector.",
                 "target_metric_goal_projector.",
             )

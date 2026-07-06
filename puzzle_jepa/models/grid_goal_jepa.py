@@ -34,6 +34,10 @@ class GridGoalJEPAOutput:
     metric_goal_mse_loss: torch.Tensor
     bad_state_loss: torch.Tensor
     bad_margin_loss: torch.Tensor
+    compatibility_loss: torch.Tensor
+    remaining_loss: torch.Tensor
+    verifier_predicted_loss: torch.Tensor
+    verifier_rank_loss: torch.Tensor
     temporal_straightening_loss: torch.Tensor
     terminal_corrupt_loss: torch.Tensor
     state_latents: torch.Tensor
@@ -500,6 +504,15 @@ class GridTokenGoalJEPA(nn.Module):
         metric_iql_expectile: float = 0.8,
         bad_state_weight: float = 0.0,
         bad_state_planning_weight: float = 0.0,
+        compatibility_weight: float = 0.0,
+        remaining_weight: float = 0.0,
+        verifier_predicted_weight: float = 0.0,
+        verifier_corruption_weight: float = 0.0,
+        verifier_rank_weight: float = 0.0,
+        verifier_rank_mode: str = "pairwise",
+        verifier_score_alpha: float = 1.0,
+        verifier_score_beta: float = 1.0,
+        policy_prior_target: str = "goal",
         distance_mode: str = "tokenwise",
         latent_representation: str = "grid",
         max_history_steps: int = 128,
@@ -713,6 +726,19 @@ class GridTokenGoalJEPA(nn.Module):
             raise ValueError("metric_iql_expectile must be in (0, 1).")
         self.bad_state_weight = float(bad_state_weight)
         self.bad_state_planning_weight = float(bad_state_planning_weight)
+        self.compatibility_weight = float(compatibility_weight)
+        self.remaining_weight = float(remaining_weight)
+        self.verifier_predicted_weight = float(verifier_predicted_weight)
+        self.verifier_corruption_weight = float(verifier_corruption_weight)
+        self.verifier_rank_weight = float(verifier_rank_weight)
+        if verifier_rank_mode not in {"pairwise", "listwise", "none"}:
+            raise ValueError("verifier_rank_mode must be one of ['listwise', 'none', 'pairwise'].")
+        self.verifier_rank_mode = str(verifier_rank_mode)
+        self.verifier_score_alpha = float(verifier_score_alpha)
+        self.verifier_score_beta = float(verifier_score_beta)
+        if policy_prior_target not in {"goal", "verifier"}:
+            raise ValueError("policy_prior_target must be 'goal' or 'verifier'.")
+        self.policy_prior_target = str(policy_prior_target)
         self.metric_src_projector = nn.Linear(d_model, distance_dim)
         if self.metric_asymmetric_projection:
             self.metric_goal_projector = nn.Linear(d_model, distance_dim)
@@ -724,6 +750,8 @@ class GridTokenGoalJEPA(nn.Module):
         nn.init.normal_(self.metric_success_policy_tokens, std=0.02)
         self.metric_value_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.bad_state_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
+        self.compatibility_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
+        self.remaining_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.sigreg_weight = float(sigreg_weight)
         self.goal_mse_weight = float(goal_mse_weight)
         self.goal_nce_weight = float(goal_nce_weight)
@@ -1116,6 +1144,28 @@ class GridTokenGoalJEPA(nn.Module):
         mask = _latent_active_mask(active_mask, token_count=latents.shape[-2])
         summary = _masked_summary(latents, mask)
         return self.bad_state_head(summary.float()).squeeze(-1)
+
+    def compatibility_token_logits(self, latents: torch.Tensor) -> torch.Tensor:
+        return self.compatibility_head(latents.float()).squeeze(-1)
+
+    def remaining_token_logits(self, latents: torch.Tensor) -> torch.Tensor:
+        return self.remaining_head(latents.float()).squeeze(-1)
+
+    def compatibility_energy(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        mask = _latent_active_mask(active_mask, token_count=latents.shape[-2]).to(dtype=latents.dtype)
+        per_token = F.softplus(self.compatibility_token_logits(latents))
+        return (per_token * mask).sum(dim=-1)
+
+    def remaining_edit_count(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        mask = _latent_active_mask(active_mask, token_count=latents.shape[-2]).to(dtype=latents.dtype)
+        per_token = F.softplus(self.remaining_token_logits(latents))
+        return (per_token * mask).sum(dim=-1)
+
+    def verifier_score(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        return (
+            self.verifier_score_alpha * self.compatibility_energy(latents, active_mask)
+            + self.verifier_score_beta * self.remaining_edit_count(latents, active_mask)
+        )
 
     def _project_metric_source(self, latents: torch.Tensor) -> torch.Tensor:
         return self.metric_src_projector(latents.float())
@@ -1752,6 +1802,79 @@ class GridTokenGoalJEPA(nn.Module):
             hierarchy_loss = hierarchy_loss + self.hierarchy_dense_future_weight * torch.stack(hierarchy_dense_terms).mean()
 
         zero_loss = state_latents.sum() * 0.0
+        compatibility_loss = zero_loss
+        remaining_loss = zero_loss
+        verifier_predicted_loss = zero_loss
+        needs_verifier_targets = (
+            self.compatibility_weight > 0.0
+            or self.remaining_weight > 0.0
+            or self.verifier_predicted_weight > 0.0
+        )
+        if needs_verifier_targets:
+            flat_active_for_verifier = active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols)
+            flat_valid = masks.reshape(batch * frames)
+            flat_state_for_verifier = state_latents.reshape(batch * frames, token_count, self.d_model)
+            if self.compatibility_weight > 0.0:
+                flat_wrong_targets = _sudoku_wrong_commitment_targets(boards, goals, editable_mask).reshape(batch * frames, -1)
+                compatibility_loss = self._compatibility_supervision_loss(
+                    flat_state_for_verifier,
+                    flat_active_for_verifier,
+                    flat_wrong_targets,
+                    flat_valid,
+                )
+            if self.remaining_weight > 0.0:
+                flat_remaining_targets = _sudoku_remaining_edit_targets(boards, goals, editable_mask).reshape(batch * frames, -1)
+                remaining_loss = self._remaining_supervision_loss(
+                    flat_state_for_verifier,
+                    flat_active_for_verifier,
+                    flat_remaining_targets,
+                    flat_valid,
+                )
+            if self.verifier_corruption_weight > 0.0 and (self.compatibility_weight > 0.0 or self.remaining_weight > 0.0):
+                corrupt_boards = _sudoku_one_wrong_corruptions(boards, goals, editable_mask)
+                corrupt_flat = corrupt_boards.reshape(batch * frames, rows, cols)
+                corrupt_latents = self.encode_state(corrupt_flat, flat_context, flat_clue, flat_edit, flat_active)
+                if self.compatibility_weight > 0.0:
+                    corrupt_wrong_targets = _sudoku_wrong_commitment_targets(corrupt_boards, goals, editable_mask).reshape(
+                        batch * frames,
+                        -1,
+                    )
+                    compatibility_loss = compatibility_loss + self.verifier_corruption_weight * self._compatibility_supervision_loss(
+                        corrupt_latents,
+                        flat_active_for_verifier,
+                        corrupt_wrong_targets,
+                        flat_valid,
+                    )
+                if self.remaining_weight > 0.0:
+                    corrupt_remaining_targets = _sudoku_remaining_edit_targets(corrupt_boards, goals, editable_mask).reshape(
+                        batch * frames,
+                        -1,
+                    )
+                    remaining_loss = remaining_loss + self.verifier_corruption_weight * self._remaining_supervision_loss(
+                        corrupt_latents,
+                        flat_active_for_verifier,
+                        corrupt_remaining_targets,
+                        flat_valid,
+                    )
+            if self.verifier_predicted_weight > 0.0 and predicted_next.numel() > 0:
+                pred_frames = predicted_next.shape[1]
+                pred_active = active_mask[:, None].expand(batch, pred_frames, rows, cols).reshape(batch * pred_frames, rows, cols)
+                pred_valid = transition_mask[:, :pred_frames].reshape(batch * pred_frames)
+                pred_boards = boards[:, 1 : 1 + pred_frames]
+                pred_wrong_targets = _sudoku_wrong_commitment_targets(pred_boards, goals, editable_mask).reshape(
+                    batch * pred_frames,
+                    -1,
+                )
+                pred_remaining_targets = _sudoku_remaining_edit_targets(pred_boards, goals, editable_mask).reshape(
+                    batch * pred_frames,
+                    -1,
+                )
+                pred_latents = predicted_next.reshape(batch * pred_frames, token_count, self.d_model)
+                verifier_predicted_loss = 0.5 * (
+                    self._compatibility_supervision_loss(pred_latents, pred_active, pred_wrong_targets, pred_valid)
+                    + self._remaining_supervision_loss(pred_latents, pred_active, pred_remaining_targets, pred_valid)
+                )
+
         goal_target_for_loss = goal_target if self.goal_target_mode == "online_no_stopgrad" else goal_target.detach()
         if self.goal_mse_weight > 0.0 or self.goal_nce_weight > 0.0:
             goal_target_sequence = goal_target_for_loss[:, None].expand(batch, frames, token_count, self.d_model)
@@ -1860,18 +1983,50 @@ class GridTokenGoalJEPA(nn.Module):
             temporal_straightening_loss = zero_loss
 
         action_rank_loss = zero_loss
+        verifier_rank_loss = zero_loss
         policy_prior_loss = zero_loss
         policy_prior_terms = []
         needs_rank_state = (
             (self.action_rank_weight > 0.0 and self.action_rank_mode != "none" and negative_actions is not None)
             or (self.policy_prior_weight > 0.0 and self.policy_prior_mode != "none")
+            or (
+                self.verifier_rank_weight > 0.0
+                and self.verifier_rank_mode != "none"
+                and positive_actions is not None
+                and negative_actions is not None
+            )
         )
         if needs_rank_state:
             rank_states = boards[:, 0] if action_rank_states is None else action_rank_states
             rank_state_latents = self.encode_state(rank_states, context_latents, clue_mask, editable_mask, active_mask)
             rank_goal = self._goal_for_current_state(context_latents, active_mask, state_latents[:, 0], rank_state_latents)
+            prior_goal = self.success_policy_goal_like(rank_state_latents) if self.policy_prior_target == "verifier" else rank_goal
             if positive_actions is None:
                 positive_actions = actions[:, 0]
+            if (
+                self.verifier_rank_weight > 0.0
+                and self.verifier_rank_mode != "none"
+                and positive_actions is not None
+                and negative_actions is not None
+            ):
+                if self.verifier_rank_mode == "listwise":
+                    verifier_rank_loss = self._listwise_verifier_successor_rank_loss(
+                        rank_states,
+                        goals,
+                        rank_state_latents,
+                        context_latents,
+                        clue_mask,
+                        editable_mask,
+                        active_mask,
+                    )
+                else:
+                    verifier_rank_loss = self._verifier_pairwise_rank_loss(
+                        rank_state_latents,
+                        positive_actions,
+                        negative_actions,
+                        context_latents,
+                        active_mask,
+                    )
             if self.action_rank_mode != "none" and negative_actions is not None:
                 if self.action_rank_mode == "listwise":
                     action_rank_loss = self._listwise_action_rank_loss(
@@ -1899,7 +2054,7 @@ class GridTokenGoalJEPA(nn.Module):
                             rank_states,
                             positive_actions,
                             rank_state_latents,
-                            rank_goal,
+                            prior_goal,
                             context_latents,
                             active_mask,
                         )
@@ -1908,7 +2063,7 @@ class GridTokenGoalJEPA(nn.Module):
                     pair_actions = torch.stack([positive_actions, negative_actions], dim=1)
                     logits = self.score_action_prior(
                         rank_state_latents,
-                        rank_goal,
+                        prior_goal,
                         context_latents,
                         active_mask,
                         pair_actions,
@@ -2094,6 +2249,14 @@ class GridTokenGoalJEPA(nn.Module):
             loss = loss + self.bad_state_weight * bad_state_loss
         if self.metric_bad_margin_weight > 0.0:
             loss = loss + self.metric_bad_margin_weight * bad_margin_loss
+        if self.compatibility_weight > 0.0:
+            loss = loss + self.compatibility_weight * compatibility_loss
+        if self.remaining_weight > 0.0:
+            loss = loss + self.remaining_weight * remaining_loss
+        if self.verifier_predicted_weight > 0.0:
+            loss = loss + self.verifier_predicted_weight * verifier_predicted_loss
+        if self.verifier_rank_weight > 0.0:
+            loss = loss + self.verifier_rank_weight * verifier_rank_loss
         if self.temporal_straightening_weight > 0.0:
             loss = loss + self.temporal_straightening_weight * temporal_straightening_loss
         if self.terminal_corrupt_weight > 0.0:
@@ -2118,6 +2281,10 @@ class GridTokenGoalJEPA(nn.Module):
             metric_goal_mse_loss=metric_goal_mse_loss.detach(),
             bad_state_loss=bad_state_loss.detach(),
             bad_margin_loss=bad_margin_loss.detach(),
+            compatibility_loss=compatibility_loss.detach(),
+            remaining_loss=remaining_loss.detach(),
+            verifier_predicted_loss=verifier_predicted_loss.detach(),
+            verifier_rank_loss=verifier_rank_loss.detach(),
             temporal_straightening_loss=temporal_straightening_loss.detach(),
             terminal_corrupt_loss=terminal_corrupt_loss.detach(),
             state_latents=state_latents,
@@ -2370,6 +2537,131 @@ class GridTokenGoalJEPA(nn.Module):
         ).reshape(batch, frames)
         targets = _remaining_fraction_targets(masks)
         return _masked_mean(F.huber_loss(values, targets, reduction="none"), masks)
+
+    def _compatibility_supervision_loss(
+        self,
+        latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        wrong_targets: torch.Tensor,
+        valid: torch.Tensor,
+    ) -> torch.Tensor:
+        token_count = latents.shape[-2]
+        token_targets = _align_token_targets(wrong_targets, token_count)
+        latent_mask = _latent_active_mask(active_mask, token_count=token_count)
+        logits = self.compatibility_token_logits(latents)
+        counts = self.compatibility_energy(latents, active_mask)
+        target_counts = _masked_token_sum(token_targets, latent_mask)
+        count_loss = F.huber_loss(counts, target_counts, reduction="none")
+        if token_targets.shape == logits.shape:
+            token_loss = _masked_mean(
+                F.binary_cross_entropy_with_logits(logits, token_targets.to(dtype=logits.dtype), reduction="none"),
+                latent_mask & valid[:, None],
+            )
+        else:
+            token_loss = latents.sum() * 0.0
+        return token_loss + _masked_mean(count_loss, valid)
+
+    def _remaining_supervision_loss(
+        self,
+        latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        remaining_targets: torch.Tensor,
+        valid: torch.Tensor,
+    ) -> torch.Tensor:
+        token_count = latents.shape[-2]
+        token_targets = _align_token_targets(remaining_targets, token_count)
+        latent_mask = _latent_active_mask(active_mask, token_count=token_count)
+        logits = self.remaining_token_logits(latents)
+        per_token = F.softplus(logits)
+        counts = self.remaining_edit_count(latents, active_mask)
+        target_counts = _masked_token_sum(token_targets, latent_mask)
+        count_loss = F.huber_loss(counts, target_counts, reduction="none")
+        if token_targets.shape == per_token.shape:
+            token_loss = _masked_mean(
+                F.huber_loss(per_token, token_targets.to(dtype=per_token.dtype), reduction="none"),
+                latent_mask & valid[:, None],
+            )
+        else:
+            token_loss = latents.sum() * 0.0
+        return token_loss + _masked_mean(count_loss, valid)
+
+    def _verifier_pairwise_rank_loss(
+        self,
+        state_latents: torch.Tensor,
+        positive_actions: torch.Tensor,
+        negative_actions: torch.Tensor,
+        context_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        pos_latents = self.predict_next(state_latents, positive_actions, context_latents)
+        neg_latents = self.predict_next(state_latents, negative_actions, context_latents)
+        pos_score = self.verifier_score(pos_latents, active_mask)
+        neg_score = self.verifier_score(neg_latents, active_mask)
+        return F.softplus((pos_score - neg_score + self.rank_margin) / self.rank_temperature).mean()
+
+    def _listwise_verifier_successor_rank_loss(
+        self,
+        rank_states: torch.Tensor,
+        goals: torch.Tensor,
+        state_latents: torch.Tensor,
+        context_latents: torch.Tensor,
+        clue_mask: torch.Tensor,
+        editable_mask: torch.Tensor,
+        active_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        losses = []
+        batch, rows, cols = rank_states.shape
+        for index in range(batch):
+            candidates = []
+            labels = []
+            editable_positions = torch.nonzero(editable_mask[index], as_tuple=False)
+            mismatched = (rank_states[index] != goals[index]) & editable_mask[index]
+            corrective_positions = torch.nonzero(mismatched, as_tuple=False)
+            for row_col in corrective_positions:
+                row = int(row_col[0].item())
+                col = int(row_col[1].item())
+                candidates.append([row, col, int(goals[index, row, col].item())])
+                labels.append(True)
+            for row_col in editable_positions:
+                row = int(row_col[0].item())
+                col = int(row_col[1].item())
+                correct = int(goals[index, row, col].item())
+                for value in range(1, 10):
+                    if value == correct:
+                        continue
+                    candidates.append([row, col, value])
+                    labels.append(False)
+                    if len(candidates) >= self.listwise_action_rank_max_actions:
+                        break
+                if len(candidates) >= self.listwise_action_rank_max_actions:
+                    break
+            if not candidates or not any(labels):
+                continue
+            keep = min(len(candidates), self.listwise_action_rank_max_actions)
+            candidates = candidates[:keep]
+            labels = labels[:keep]
+            action_t = torch.as_tensor(candidates, dtype=torch.long, device=rank_states.device)
+            board_t = rank_states[index : index + 1].expand(action_t.shape[0], rows, cols)
+            succ = _apply_set_cell_actions(board_t, action_t)
+            goal_t = goals[index : index + 1].expand(action_t.shape[0], rows, cols)
+            edit_t = editable_mask[index : index + 1].expand(action_t.shape[0], rows, cols)
+            active_t = active_mask[index : index + 1].expand(action_t.shape[0], rows, cols)
+            true_wrong = _sudoku_wrong_commitment_targets(succ, goal_t, edit_t)
+            true_remaining = _sudoku_remaining_edit_targets(succ, goal_t, edit_t)
+            true_score = (
+                self.verifier_score_alpha * true_wrong.sum(dim=-1)
+                + self.verifier_score_beta * true_remaining.sum(dim=-1)
+            )
+            parent = state_latents[index : index + 1].expand(action_t.shape[0], -1, -1)
+            context = context_latents[index : index + 1].expand(action_t.shape[0], -1, -1)
+            pred = self.predict_next(parent, action_t, context)
+            model_score = self.verifier_score(pred, active_t)
+            target_probs = F.softmax(-true_score / self.rank_temperature, dim=0).detach()
+            log_probs = F.log_softmax(-model_score / self.rank_temperature, dim=0)
+            losses.append(-(target_probs * log_probs).sum())
+        if not losses:
+            return rank_states.sum() * 0.0
+        return torch.stack(losses).mean()
 
     def _delta_action_objective(
         self,
@@ -2712,6 +3004,84 @@ def _remaining_fraction_targets(masks: torch.Tensor) -> torch.Tensor:
     lengths = masks.long().sum(dim=1).clamp_min(1).float()
     last = (lengths - 1.0).clamp_min(1.0)
     return ((last[:, None] - frame_ids).clamp_min(0.0) / last[:, None]).to(dtype=torch.float32)
+
+
+def _sudoku_wrong_commitment_targets(
+    boards: torch.Tensor,
+    goals: torch.Tensor,
+    editable_mask: torch.Tensor,
+) -> torch.Tensor:
+    if boards.shape[-2:] != (9, 9):
+        raise ValueError(f"Sudoku wrong-commitment targets expect board suffix [9, 9], got {tuple(boards.shape)}.")
+    goal = _broadcast_sudoku_grid(goals, boards)
+    editable = _broadcast_sudoku_grid(editable_mask, boards).bool()
+    wrong = (boards != 0) & (boards != goal) & editable
+    return wrong.flatten(start_dim=boards.ndim - 2).to(dtype=torch.float32)
+
+
+def _sudoku_remaining_edit_targets(
+    boards: torch.Tensor,
+    goals: torch.Tensor,
+    editable_mask: torch.Tensor,
+) -> torch.Tensor:
+    if boards.shape[-2:] != (9, 9):
+        raise ValueError(f"Sudoku remaining-edit targets expect board suffix [9, 9], got {tuple(boards.shape)}.")
+    goal = _broadcast_sudoku_grid(goals, boards)
+    editable = _broadcast_sudoku_grid(editable_mask, boards).bool()
+    remaining = (boards != goal) & editable
+    return remaining.flatten(start_dim=boards.ndim - 2).to(dtype=torch.float32)
+
+
+def _sudoku_one_wrong_corruptions(
+    boards: torch.Tensor,
+    goals: torch.Tensor,
+    editable_mask: torch.Tensor,
+) -> torch.Tensor:
+    if boards.shape[-2:] != (9, 9):
+        raise ValueError(f"Sudoku corruptions expect board suffix [9, 9], got {tuple(boards.shape)}.")
+    out = boards.clone()
+    flat_out = out.reshape(-1, 81)
+    flat_boards = boards.reshape(-1, 81)
+    flat_goals = _broadcast_sudoku_grid(goals, boards).reshape(-1, 81)
+    flat_editable = _broadcast_sudoku_grid(editable_mask, boards).reshape(-1, 81).bool()
+    filled_editable = (flat_boards != 0) & flat_editable
+    fallback = flat_editable
+    choose_from = torch.where(filled_editable.any(dim=1, keepdim=True), filled_editable, fallback)
+    has_choice = choose_from.any(dim=1)
+    if bool(has_choice.any()):
+        indices = choose_from.float().argmax(dim=1)
+        rows = torch.arange(flat_out.shape[0], device=flat_out.device)
+        wrong_values = (flat_goals[rows, indices] % 9) + 1
+        flat_out[rows[has_choice], indices[has_choice]] = wrong_values[has_choice]
+    return out
+
+
+def _broadcast_sudoku_grid(values: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    if values.shape == reference.shape:
+        return values
+    if values.shape[-2:] != reference.shape[-2:]:
+        raise ValueError(f"Cannot broadcast Sudoku grid {tuple(values.shape)} to {tuple(reference.shape)}.")
+    if values.ndim == reference.ndim - 1 and values.shape[0] == reference.shape[0]:
+        return values[:, None].expand(reference.shape)
+    if values.ndim == 3 and reference.ndim == 3 and values.shape[0] == reference.shape[0]:
+        return values
+    if values.ndim == 2:
+        return values.reshape((1,) * (reference.ndim - 2) + values.shape).expand(reference.shape)
+    raise ValueError(f"Cannot broadcast Sudoku grid {tuple(values.shape)} to {tuple(reference.shape)}.")
+
+
+def _align_token_targets(targets: torch.Tensor, token_count: int) -> torch.Tensor:
+    if targets.shape[-1] == token_count:
+        return targets
+    if token_count == 1:
+        return targets.sum(dim=-1, keepdim=True)
+    raise ValueError(f"Cannot align {targets.shape[-1]} Sudoku targets to {token_count} latent tokens.")
+
+
+def _masked_token_sum(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    if values.shape != mask.shape:
+        raise ValueError(f"Token values and mask must match, got {tuple(values.shape)} and {tuple(mask.shape)}.")
+    return (values.to(dtype=torch.float32) * mask.to(dtype=torch.float32)).sum(dim=-1)
 
 
 def _safe_sqrt(values: torch.Tensor, eps: float = 1.0e-6) -> torch.Tensor:

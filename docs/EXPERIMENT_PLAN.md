@@ -5,7 +5,7 @@ Source of truth: `../sequence-editing-report/BACKLOG.md` and
 
 ## Verifier-Free Compatibility / Progress Energy Plan
 
-Proposed, not implemented or submitted.
+Implemented, not submitted.
 
 Research questions:
 
@@ -43,6 +43,29 @@ Planned diagnostics:
 - predicted-latent W/R calibration versus encoded symbolic successors
 - no-verifier MPC solve rate, remaining Hamming, first wrong commitment, and
   action-evaluation count
+
+Prepared scripts:
+
+- `scripts/slurm/run_grid_goal_verifier_energy_train.slurm`
+- `scripts/slurm/run_grid_goal_verifier_energy_eval.slurm`
+- `scripts/experiments/submit_grid_goal_verifier_energy.sh`
+
+Prepared variants:
+
+| Variant | Purpose |
+|---|---|
+| `E0_base_oracle_sanity` | Preserve oracle raw-L2 baseline with no verifier heads. |
+| `E1_compat_state` | Train only W on encoded states plus corruption negatives. |
+| `E2_remaining_state` | Train only R on encoded states plus corruption states. |
+| `E3_wr_state` | Train W+R on encoded states. |
+| `E4_wr_predicted` | Add W/R supervision on one-step predicted successor latents. |
+| `E5_wr_pairwise_rank` | Add pairwise successor ranking on predicted latents. |
+| `E6_wr_listwise_rank` | Replace pairwise with listwise successor ranking. |
+| `E7_wr_listwise_policy` | Add verifier-targeted policy prior and planning bias. |
+| `E8_wr_no_counterfactual` | Remove counterfactual dynamics branches from the full scorer. |
+| `E9_wr_no_corruption` | Remove synthetic corruption negatives from the full scorer. |
+| `F0_full_score` | W+R, predicted-latent calibration, corruptions, listwise ranking. |
+| `F1_full_policy` | F0 plus verifier-targeted policy prior. |
 
 ## Counterfactual Editable Weekend Wave
 

@@ -19,6 +19,9 @@ from puzzle_jepa.models.grid_goal_jepa import (
     GridTokenGoalJEPA,
     _affected_token_weights,
     _sudoku_bad_state_labels,
+    _sudoku_one_wrong_corruptions,
+    _sudoku_remaining_edit_targets,
+    _sudoku_wrong_commitment_targets,
     _temporal_straightening_loss,
 )
 from puzzle_jepa.planning.grid_goal_planner import (
@@ -595,6 +598,181 @@ def test_sudoku_bad_state_labels_detect_wrong_digit_and_duplicates():
     duplicate = boards.clone()
     duplicate[0, 2, 0, 2] = duplicate[0, 2, 0, 0]
     assert bool(_sudoku_bad_state_labels(duplicate, batch.goals)[0, 2])
+
+
+def test_verifier_targets_separate_compatibility_from_remaining_work():
+    batch = _small_batch(batch_size=1)
+    initial = batch.boards[:, 0]
+    solved = batch.goals
+    wrong = solved.clone()
+    wrong[:, 0, 2] = (wrong[:, 0, 2] % 9) + 1
+    boards = torch.stack([initial, solved, wrong], dim=1)
+
+    wrong_targets = _sudoku_wrong_commitment_targets(boards, batch.goals, batch.editable_mask)
+    remaining_targets = _sudoku_remaining_edit_targets(boards, batch.goals, batch.editable_mask)
+
+    assert wrong_targets.sum(dim=-1).tolist() == [[0.0, 0.0, 1.0]]
+    assert remaining_targets.sum(dim=-1)[0, 0].item() == int((initial != solved).sum().item())
+    assert remaining_targets.sum(dim=-1).tolist()[0][1:] == [0.0, 1.0]
+
+
+def test_verifier_corruption_preserves_clues_and_creates_wrong_commitment():
+    batch = _small_batch(batch_size=1)
+    corrupt = _sudoku_one_wrong_corruptions(batch.boards[:, :2], batch.goals, batch.editable_mask)
+
+    assert torch.equal(corrupt[:, :, batch.clue_mask[0]], batch.boards[:, :2, batch.clue_mask[0]])
+    wrong_counts = _sudoku_wrong_commitment_targets(corrupt, batch.goals, batch.editable_mask).sum(dim=-1)
+    assert torch.all(wrong_counts >= 1.0)
+
+
+def test_verifier_losses_are_finite_and_reported_on_encoded_and_predicted_latents():
+    from puzzle_jepa.train.grid_goal_sudoku import _sample_rank_actions
+
+    batch = _small_batch(batch_size=2)
+    rank_states, positives, negatives = _sample_rank_actions(
+        batch.boards,
+        batch.goals,
+        np.random.default_rng(10),
+        masks=batch.masks,
+        device=torch.device("cpu"),
+        allow_overwrite=True,
+    )
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        compatibility_weight=0.2,
+        remaining_weight=0.2,
+        verifier_predicted_weight=0.2,
+        verifier_corruption_weight=0.5,
+        verifier_rank_weight=0.2,
+        verifier_rank_mode="pairwise",
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+        action_rank_states=rank_states,
+        positive_actions=positives,
+        negative_actions=negatives,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.compatibility_loss.item() > 0.0
+    assert output.remaining_loss.item() > 0.0
+    assert output.verifier_predicted_loss.item() > 0.0
+    assert output.verifier_rank_loss.item() > 0.0
+
+
+def test_verifier_listwise_rank_loss_runs_over_editable_actions():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        compatibility_weight=0.1,
+        remaining_weight=0.1,
+        verifier_rank_weight=0.1,
+        verifier_rank_mode="listwise",
+        listwise_action_rank_max_actions=64,
+    )
+
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=batch.oracle_mask,
+        action_rank_states=batch.boards[:, 0],
+        positive_actions=batch.actions[:, 0],
+        negative_actions=batch.actions[:, 0],
+    )
+
+    assert torch.isfinite(output.verifier_rank_loss)
+    assert output.verifier_rank_loss.item() > 0.0
+
+
+def test_verifier_planner_score_modes_do_not_depend_on_goal_latent():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(verifier_score_alpha=2.0, verifier_score_beta=0.5)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    latents = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    fake_goal_a = torch.zeros_like(latents)
+    fake_goal_b = torch.randn_like(latents)
+
+    score_a = latent_distance(model, latents, fake_goal_a, fake_goal_b, batch.active_mask, "verifier_energy")
+    score_b = latent_distance(model, latents, fake_goal_b, fake_goal_a, batch.active_mask, "verifier_energy")
+
+    assert torch.allclose(score_a, score_b)
+    assert torch.allclose(score_a, model.verifier_score(latents, batch.active_mask))
+
+
+def test_rank_sampler_with_overwrite_repairs_wrong_filled_cells():
+    from puzzle_jepa.train.grid_goal_sudoku import _sample_rank_actions
+
+    batch = _small_batch(batch_size=1)
+    board = batch.goals.clone()
+    board[:, 0, 2] = (board[:, 0, 2] % 9) + 1
+    rank_states, positives, negatives = _sample_rank_actions(
+        board,
+        batch.goals,
+        np.random.default_rng(0),
+        device=torch.device("cpu"),
+        allow_overwrite=True,
+    )
+
+    assert torch.equal(rank_states, board)
+    assert positives.tolist() == [[0, 2, int(batch.goals[0, 0, 2].item())]]
+    assert negatives[0, 0].item() == 0
+    assert negatives[0, 1].item() == 2
+    assert negatives[0, 2].item() != positives[0, 2].item()
+
+
+def test_verifier_diagnostics_report_calibration_and_successor_metrics():
+    from puzzle_jepa.eval.grid_goal_verifier_diagnostics import run_verifier_diagnostics
+
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        compatibility_weight=1.0,
+        remaining_weight=1.0,
+    ).eval()
+
+    metrics = run_verifier_diagnostics(
+        model,
+        [_example()],
+        device=torch.device("cpu"),
+        seed=0,
+        max_examples=1,
+        max_actions=32,
+    )
+
+    for key in (
+        "compatibility_auc",
+        "remaining_mae",
+        "remaining_spearman",
+        "successor_top1",
+        "successor_top5",
+        "successor_true_score_gap",
+        "successor_rollout_score_gap",
+    ):
+        assert key in metrics
+        assert math.isfinite(metrics[key])
 
 
 @pytest.mark.parametrize("metric_geometry_mode", ["terminal_progress", "hindsight", "contrastive", "iql", "success", "success_iql", "terminal_value"])

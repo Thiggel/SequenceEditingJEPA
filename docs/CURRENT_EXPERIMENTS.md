@@ -4,7 +4,42 @@ Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
 # Current Experiments
 
-Last updated: 2026-07-06 08:28 CEST
+Last updated: 2026-07-06 09:20 CEST
+
+## Prepared, Not Submitted: Verifier-Free Energy Sweep
+
+Purpose:
+- Replace oracle/predicted goal latent scoring with learned verifier-like
+  signals: compatibility energy `W` for wrong commitments and remaining-edit
+  head `R` for progress.
+- Keep the base fixed to full-grid EMA+VICReg, editable cells,
+  counterfactual branches, K8 smooth/count dense rollout, and affected-context
+  dynamics weighting.
+
+Prepared variants:
+
+| Variant | Purpose |
+|---|---|
+| `E0_base_oracle_sanity` | Oracle raw-L2 sanity baseline with no verifier heads. |
+| `E1_compat_state` | W only on encoded states plus corruptions. |
+| `E2_remaining_state` | R only on encoded states plus corruptions. |
+| `E3_wr_state` | W+R on encoded states. |
+| `E4_wr_predicted` | Add W/R supervision on predicted successor latents. |
+| `E5_wr_pairwise_rank` | Add pairwise latent-successor ranking. |
+| `E6_wr_listwise_rank` | Add listwise latent-successor ranking. |
+| `E7_wr_listwise_policy` | Add verifier-targeted policy prior. |
+| `E8_wr_no_counterfactual` | Remove counterfactual dynamics branches from the full scorer. |
+| `E9_wr_no_corruption` | Remove synthetic corruption negatives from the full scorer. |
+| `F0_full_score` | Full W+R score without policy prior. |
+| `F1_full_policy` | Full W+R score with verifier-targeted policy prior. |
+
+Prepared scripts:
+- `scripts/slurm/run_grid_goal_verifier_energy_train.slurm`
+- `scripts/slurm/run_grid_goal_verifier_energy_eval.slurm`
+- `scripts/experiments/submit_grid_goal_verifier_energy.sh`
+
+Submission state:
+- Not submitted. Waiting for explicit user go-ahead.
 
 ## Active: Wide Single-CLS Oracle Probe
 
