@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-07 12:21 CEST
+Last updated: 2026-07-07 17:17 CEST
 
 ## Structured JEPA Wave
 
@@ -61,6 +61,27 @@ Operational fixes after submission:
 Eval runs diagnostics first, including LDAD action-delta probes,
 delta-locality probes, and SD-progress ordering probes; goal/waypoint rows
 include the combined `predicted_waypoint_goal_raw_euclidean_distance` score.
+
+Current state at 17:17 CEST:
+
+- All 46 train jobs have started and emitted metrics.
+- 13 train jobs have completed: the six `DJ*_single` rows and seven
+  combination `_single` rows (`C0`, `C1`, `C3`, `C4`, `C5`, `C6`, `C7`).
+- 33 train jobs are still running. The last 18 previously pending rows have
+  now started; four are on A100 nodes and the rest are on RTX Pro 6000.
+- 13 eval jobs have started for the completed `_single` checkpoints; the rest
+  are still dependency-held.
+
+Early eval rows are very partial. The only planner rows written so far are
+single-latent `mpc_beam`, latent rollout, depth 4, oracle raw-L2 rows:
+
+| Variant group | Rows | Current result |
+|---|---:|---|
+| `DJ*_single` | 6 | all `0/8`, h `54.375` |
+| `C0_single`, `C1_single` | 2 | `0/8`, h `55.125` and `55.25` |
+
+No full-grid structured result exists yet. These shallow single-latent rows
+match the previous one-vector failure mode and are not enough to judge the wave.
 
 ## Wide Single-CLS Oracle Probe
 
