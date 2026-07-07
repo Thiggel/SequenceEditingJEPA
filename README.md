@@ -1,8 +1,9 @@
 # Puzzle JEPA
 
-This repo is now focused on objective puzzle-world reasoning for Sudoku-Extreme
-and Maze-Hard. The previous sequence-editing/iGSM work was archived outside the
-repo at `../legacy-sequence-editing` and summarized in
+This repo is now focused on objective puzzle-world reasoning for Sudoku,
+Maze-Hard, and ARC-style candidate-output refinement. The previous
+sequence-editing/iGSM work was archived outside the repo at
+`../legacy-sequence-editing` and summarized in
 `../sequence-editing-report/notes/legacy.md`.
 
 Long-form status, backlog, results, and the ongoing LaTeX report live in
@@ -11,12 +12,15 @@ operational pointers only.
 
 The active scaffold has four pieces:
 
-- `puzzle_jepa.data`: Sudoku and maze state/action worlds, Hugging Face string
-  adapters, oracle transition sampling, and tensor collation.
+- `puzzle_jepa.data`: Sudoku and maze state/action worlds, ARC grid/task
+  loaders, ARC proposal/action scaffolding, Hugging Face string adapters,
+  oracle transition sampling, and tensor collation.
 - `puzzle_jepa.models`: minimal HRM, TRM, PTRM sampler, and a decoder-free
   action-conditioned JEPA world model.
 - `puzzle_jepa.planning`: symbolic action enumeration plus latent action scoring
   against an oracle goal state.
+- `puzzle_jepa.eval.arc_oracle_coverage`: CPU-only ARC proposal/action coverage
+  analyzer used before any ARC model training.
 - `configs/puzzle`: Hydra smoke configs for JEPA, HRM, TRM, and PTRM.
 
 ## Setup
@@ -24,6 +28,23 @@ The active scaffold has four pieces:
 ```bash
 source scripts/env.sh
 python -m pytest -q tests
+```
+
+## ARC Coverage Probe
+
+The first ARC implementation is intentionally non-neural. It checks whether the
+state/action interface is concrete enough before training a value model or
+JEPA:
+
+```bash
+python scripts/analysis/arc_oracle_coverage.py \
+  --data-root /path/to/arc-agi \
+  --split training \
+  --limit 50 \
+  --max-episodes-per-task 2 \
+  --max-depth 1 \
+  --beam-width 4 \
+  --no-cell-actions
 ```
 
 ## Smoke Runs

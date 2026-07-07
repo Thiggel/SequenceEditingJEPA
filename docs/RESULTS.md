@@ -1,6 +1,37 @@
 # Results
 
-Last updated: 2026-07-03 11:00 CEST
+Last updated: 2026-07-07 19:26 CEST
+
+## ARC CPU Coverage Scaffold
+
+Implemented a non-neural ARC-AGI-1 state/action coverage probe before any ARC
+model training. The scaffold includes variable-size ARC grids with `30x30`
+padding masks, leave-one-out train episodes, deterministic proposal extraction,
+a typed action renderer, and a bounded oracle coverage analyzer.
+
+Full ARC-AGI-1 training taxonomy from the official 400 training tasks:
+
+| Metric | Value |
+|---|---:|
+| Training tasks | `400` |
+| Leave-one-out train episodes | `1302` |
+| All train pairs same-shape | `262` tasks |
+| At least one shape-changing train pair | `138` tasks |
+
+Bounded coverage on the first 50 sorted training tasks, two episodes per task,
+depth `1`, beam width `4`:
+
+| Setting | Solved | Mean distance |
+|---|---:|---:|
+| no cell fallback, no oracle output shape | `18/100` | `18.60 -> 12.59` |
+| no cell fallback, oracle output shape | `20/100` | `17.04 -> 11.76` |
+| bounded cell fallback, oracle output shape | `21/100` | `17.04 -> 11.67` |
+
+Interpretation: the interface is now concrete, but it is not yet a good ARC
+training substrate. Current depth-1 coverage is narrow, oracle output shape
+helps, and bounded pixel fallback adds little in this shallow setting. The next
+step is to improve proposal/action coverage and add raw-grid/proposal-aware
+baselines before training an ARC JEPA.
 
 ## Horizon-Length Ablation Partial Results
 

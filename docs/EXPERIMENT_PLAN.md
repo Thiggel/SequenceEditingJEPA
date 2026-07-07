@@ -131,6 +131,21 @@ Required diagnostics:
 - qualitative panels with context, query, target, candidate trajectory, top
   actions, and failure reason.
 
+Implementation status on 2026-07-07:
+
+- CPU scaffold implemented in `puzzle_jepa.data.arc`,
+  `puzzle_jepa.data.arc_proposals`, `puzzle_jepa.data.arc_actions`, and
+  `puzzle_jepa.eval.arc_oracle_coverage`.
+- The first coverage probe is deliberately non-neural and target-independent
+  except for oracle scoring. It supports runs with/without oracle output shape
+  and with/without bounded `set_cell` fallback.
+- First official ARC-AGI-1 train slice result: first 50 sorted tasks, two
+  episodes per task, depth `1`, beam width `4`, no cell fallback, no oracle
+  output shape solves `18/100`; with oracle output shape solves `20/100`;
+  adding bounded cell fallback solves `21/100`.
+- Decision: do not train raw-grid/proposal/JEPA models yet. First improve and
+  measure coverage beyond the current shallow typed DSL.
+
 ## Structured JEPA Wave
 
 Implemented and prepared, not submitted.
