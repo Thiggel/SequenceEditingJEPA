@@ -36,6 +36,21 @@ VARIANTS=(
   GW2_waypoint_goal
   GW3_goal_conditioned_waypoint
   GW4_multi_waypoint
+  C0_full_ldad_sd
+  C0_full_ldad_sd_single
+  C1_full_ldad_pr
+  C1_full_ldad_pr_single
+  C2_full_sd_pr
+  C3_full_ldad_sd_pr
+  C3_full_ldad_sd_pr_single
+  C4_full_ldad_sd_waypoint
+  C4_full_ldad_sd_waypoint_single
+  C5_full_ldad_sd_pr_waypoint
+  C5_full_ldad_sd_pr_waypoint_single
+  C6_cross_ldad_sd_pr_waypoint
+  C6_cross_ldad_sd_pr_waypoint_single
+  C7_local_ldad_sd_pr
+  C7_local_ldad_sd_pr_single
 )
 
 TRAIN_IDS=()

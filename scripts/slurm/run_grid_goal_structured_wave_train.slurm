@@ -44,6 +44,21 @@ VARIANTS=(
   GW2_waypoint_goal
   GW3_goal_conditioned_waypoint
   GW4_multi_waypoint
+  C0_full_ldad_sd
+  C0_full_ldad_sd_single
+  C1_full_ldad_pr
+  C1_full_ldad_pr_single
+  C2_full_sd_pr
+  C3_full_ldad_sd_pr
+  C3_full_ldad_sd_pr_single
+  C4_full_ldad_sd_waypoint
+  C4_full_ldad_sd_waypoint_single
+  C5_full_ldad_sd_pr_waypoint
+  C5_full_ldad_sd_pr_waypoint_single
+  C6_cross_ldad_sd_pr_waypoint
+  C6_cross_ldad_sd_pr_waypoint_single
+  C7_local_ldad_sd_pr
+  C7_local_ldad_sd_pr_single
 )
 
 if [[ -n "${VARIANT:-}" ]]; then
@@ -144,11 +159,50 @@ case "${SELECTED_VARIANT}" in
     STRUCTURED_SLOTS="full"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[8]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; GOAL_CONDITIONING="initial_current"; WAYPOINT_CONDITIONING="current_goal"; GOAL_DISTANCE_FIELD_WEIGHT="0.25" ;;
   GW4_multi_waypoint)
     STRUCTURED_SLOTS="full"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[4,8,16]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; WAYPOINT_PLANNING_WEIGHT="1.0"; GOAL_PLANNING_WEIGHT="0.1" ;;
+  C0_full_ldad_sd)
+    STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units"; SD_PROGRESS_WEIGHT="1.0" ;;
+  C0_full_ldad_sd_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens"; SD_PROGRESS_WEIGHT="1.0" ;;
+  C1_full_ldad_pr)
+    STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
+  C1_full_ldad_pr_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
+  C2_full_sd_pr)
+    STRUCTURED_SLOTS="full"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
+  C3_full_ldad_sd_pr)
+    STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
+  C3_full_ldad_sd_pr_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
+  C4_full_ldad_sd_waypoint)
+    STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units"; SD_PROGRESS_WEIGHT="1.0"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[8]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; WAYPOINT_PLANNING_WEIGHT="1.0"; GOAL_PLANNING_WEIGHT="0.1" ;;
+  C4_full_ldad_sd_waypoint_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens"; SD_PROGRESS_WEIGHT="1.0"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[8]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; WAYPOINT_PLANNING_WEIGHT="1.0"; GOAL_PLANNING_WEIGHT="0.1" ;;
+  C5_full_ldad_sd_pr_waypoint)
+    STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[8]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; WAYPOINT_PLANNING_WEIGHT="1.0"; GOAL_PLANNING_WEIGHT="0.1" ;;
+  C5_full_ldad_sd_pr_waypoint_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[8]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; WAYPOINT_PLANNING_WEIGHT="1.0"; GOAL_PLANNING_WEIGHT="0.1" ;;
+  C6_cross_ldad_sd_pr_waypoint)
+    STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="action_cross_attention"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[8]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; WAYPOINT_PLANNING_WEIGHT="1.0"; GOAL_PLANNING_WEIGHT="0.1" ;;
+  C6_cross_ldad_sd_pr_waypoint_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="action_cross_attention"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0"; GOAL_MSE_WEIGHT="0.25"; WAYPOINT_HORIZONS="[8]"; WAYPOINT_WEIGHT="1.0"; WAYPOINT_FINAL_WEIGHT="0.1"; WAYPOINT_PLANNING_WEIGHT="1.0"; GOAL_PLANNING_WEIGHT="0.1" ;;
+  C7_local_ldad_sd_pr)
+    STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="local_action_feature"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
+  C7_local_ldad_sd_pr_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="local_action_feature"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens"; SD_PROGRESS_WEIGHT="1.0"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
   *)
     echo "Unknown variant ${SELECTED_VARIANT}" >&2
     exit 2
     ;;
 esac
+
+MICRO_BATCH_SIZE="${BATCH_SIZE:-4}"
+ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-2}"
+if [[ -z "${BATCH_SIZE:-}" && -z "${GRADIENT_ACCUMULATION_STEPS:-}" ]]; then
+  if [[ "${LATENT_REPRESENTATION}" == "grid" && "${STRUCTURED_SLOTS}" != "none" ]]; then
+    MICRO_BATCH_SIZE="2"
+    ACCUMULATION_STEPS="4"
+  fi
+fi
 
 RUN_SUFFIX="${RUN_SUFFIX:-}"
 RUN_NAME="grid_goal_structured_wave_${SELECTED_VARIANT}${RUN_SUFFIX}"
@@ -169,8 +223,8 @@ python -m puzzle_jepa.train.grid_goal_sudoku \
   "task.train_limit=${TRAIN_LIMIT:-null}" \
   "task.eval_limit=${EVAL_LIMIT:-null}" \
   "training.max_steps=${TRAIN_MAX_STEPS:-5000}" \
-  "training.batch_size=${BATCH_SIZE:-4}" \
-  "training.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS:-2}" \
+  "training.batch_size=${MICRO_BATCH_SIZE}" \
+  "training.gradient_accumulation_steps=${ACCUMULATION_STEPS}" \
   "training.eval_every_steps=${EVAL_EVERY_STEPS:-500}" \
   "training.save_every_steps=${SAVE_EVERY_STEPS:-5000}" \
   "training.learning_rate=${LEARNING_RATE:-1.0e-4}" \

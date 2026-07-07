@@ -43,7 +43,11 @@ case "${VARIANT}" in
     DEFAULT_SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance,predicted_waypoint_goal_raw_euclidean_distance"
     DEFAULT_PLANNERS="waypoint_beam"
     DEFAULT_BEAM_DEPTHS="4,16" ;;
-  PR*|SD*|DJ*|S*)
+  C4*|C5*|C6*)
+    DEFAULT_SCORES="oracle_waypoint_raw_euclidean_distance,predicted_waypoint_raw_euclidean_distance,predicted_waypoint_goal_raw_euclidean_distance"
+    DEFAULT_PLANNERS="waypoint_beam"
+    DEFAULT_BEAM_DEPTHS="4,16" ;;
+  PR*|SD*|DJ*|S*|C*)
     DEFAULT_SCORES="oracle_goal_raw_euclidean_distance,oracle_goal_changed_cell_raw_euclidean_distance" ;;
 esac
 

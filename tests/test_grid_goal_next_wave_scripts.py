@@ -229,6 +229,24 @@ def test_grid_goal_sudoku_config_defaults_to_dropout_off():
     assert "\n  predict_delta: false\n" in config
 
 
+def _grid_goal_model_config_keys() -> set[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    config = (repo_root / "configs" / "puzzle" / "grid_goal_sudoku.yaml").read_text()
+    keys: set[str] = set()
+    in_model = False
+    for line in config.splitlines():
+        if line == "model:":
+            in_model = True
+            continue
+        if in_model and line and not line.startswith(" "):
+            break
+        if in_model:
+            match = re.match(r"^  ([A-Za-z0-9_]+):", line)
+            if match:
+                keys.add(match.group(1))
+    return keys
+
+
 def _default_eval_planners(tmp_path: Path, *, stage: str, array_index: int) -> str:
     repo_root = Path(__file__).resolve().parents[1]
     work = tmp_path / "work"
@@ -2486,12 +2504,38 @@ def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_wayp
         "GW2_waypoint_goal",
         "GW3_goal_conditioned_waypoint",
         "GW4_multi_waypoint",
+        "C0_full_ldad_sd",
+        "C0_full_ldad_sd_single",
+        "C1_full_ldad_pr",
+        "C1_full_ldad_pr_single",
+        "C2_full_sd_pr",
+        "C3_full_ldad_sd_pr",
+        "C3_full_ldad_sd_pr_single",
+        "C4_full_ldad_sd_waypoint",
+        "C4_full_ldad_sd_waypoint_single",
+        "C5_full_ldad_sd_pr_waypoint",
+        "C5_full_ldad_sd_pr_waypoint_single",
+        "C6_cross_ldad_sd_pr_waypoint",
+        "C6_cross_ldad_sd_pr_waypoint_single",
+        "C7_local_ldad_sd_pr",
+        "C7_local_ldad_sd_pr_single",
     ]
 
     assert _shell_array_entries(train_text, "VARIANTS") == expected
     assert _shell_array_entries(submit_text, "VARIANTS") == expected
     for variant in expected:
-        if variant.startswith("DJ") and not variant.endswith("_single"):
+        if (
+            (variant.startswith("DJ") or variant in {
+                "C0_full_ldad_sd",
+                "C1_full_ldad_pr",
+                "C3_full_ldad_sd_pr",
+                "C4_full_ldad_sd_waypoint",
+                "C5_full_ldad_sd_pr_waypoint",
+                "C6_cross_ldad_sd_pr_waypoint",
+                "C7_local_ldad_sd_pr",
+            })
+            and not variant.endswith("_single")
+        ):
             assert f"{variant}_single" in expected
 
     args = _capture_verifier_energy_calls(
@@ -2504,6 +2548,8 @@ def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_wayp
     assert "model.delta_action_weight=3.0" in args
     assert "model.delta_action_source=changed_cell_units" in args
     assert "model.dense_rollout_weighting=smooth_count" in args
+    assert "training.batch_size=2" in args
+    assert "training.gradient_accumulation_steps=4" in args
     assert "training.counterfactual_depth=8" in args
 
     args = _capture_verifier_energy_calls(
@@ -2515,6 +2561,8 @@ def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_wayp
     assert "model.structured_slots=none" in args
     assert "model.action_conditioning=affected_marker" in args
     assert "model.delta_action_source=all_tokens" in args
+    assert "training.batch_size=4" in args
+    assert "training.gradient_accumulation_steps=2" in args
 
     args = _capture_verifier_energy_calls(
         tmp_path,
@@ -2540,6 +2588,44 @@ def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_wayp
     assert "model.goal_mse_weight=0.25" in args
     assert "model.waypoint_conditioning=current_goal" in args
 
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="C5_full_ldad_sd_pr_waypoint",
+    )[0]
+    assert "model.structured_slots=full" in args
+    assert "model.delta_action_source=changed_cell_units" in args
+    assert "model.sd_progress_weight=1.0" in args
+    assert "model.action_rank_mode=successor_pairwise" in args
+    assert "model.waypoint_loss_weight=1.0" in args
+
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="C5_full_ldad_sd_pr_waypoint_single",
+    )[0]
+    assert "model.latent_representation=single" in args
+    assert "model.structured_slots=none" in args
+    assert "model.delta_action_source=all_tokens" in args
+    assert "model.sd_progress_weight=1.0" in args
+
+
+def test_structured_wave_train_model_overrides_are_declared_in_hydra_config(tmp_path):
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="C5_full_ldad_sd_pr_waypoint",
+    )[0]
+    declared_model_keys = _grid_goal_model_config_keys()
+    overridden_model_keys = {
+        arg.split("=", 1)[0].split(".", 1)[1]
+        for arg in args
+        if arg.startswith("model.") and "=" in arg
+    }
+
+    assert overridden_model_keys
+    assert overridden_model_keys <= declared_model_keys
+
 
 def test_structured_wave_goal_waypoint_eval_runs_probes_and_combined_score(tmp_path):
     calls = _capture_verifier_energy_calls(
@@ -2558,3 +2644,12 @@ def test_structured_wave_goal_waypoint_eval_runs_probes_and_combined_score(tmp_p
         "predicted_waypoint_goal_raw_euclidean_distance"
     )
     assert "--allow-overwrite" in calls[1]
+
+    calls = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_eval.slurm",
+        variant="C5_full_ldad_sd_pr_waypoint",
+        checkpoint=True,
+    )
+    assert calls[1][calls[1].index("--planners") + 1] == "waypoint_beam"
+    assert "predicted_waypoint_goal_raw_euclidean_distance" in calls[1][calls[1].index("--scores") + 1]

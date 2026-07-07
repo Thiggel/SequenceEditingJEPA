@@ -58,6 +58,9 @@ model:
   waypoint_horizons: []
   waypoint_loss_weight: 0.0
   waypoint_final_weight: 0.0
+  waypoint_planning_weight: 1.0
+  goal_planning_weight: 0.1
+  waypoint_conditioning: current
   progress_rank_target: predicted
   action_rank_mode: pairwise
   action_rank_target: predicted
@@ -88,6 +91,10 @@ model:
   verifier_energy_projection: none
   verifier_score_alpha: 1.0
   verifier_score_beta: 1.0
+  structured_slots: none
+  delta_action_source: all_tokens
+  sd_progress_weight: 0.0
+  sd_progress_dim: 32
   policy_prior_target: goal
   distance_mode: tokenwise
   latent_representation: grid

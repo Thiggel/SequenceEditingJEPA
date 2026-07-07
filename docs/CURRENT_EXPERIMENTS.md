@@ -2,26 +2,27 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-07 12:05 CEST
+Last updated: 2026-07-07 12:21 CEST
 
 ## Structured JEPA Wave
 
-Status: implemented and script-prepared, not submitted.
+Status: submitted and running.
 
 Purpose: test the next architectural hypothesis one component at a time after
 single-CLS, predicted-goal, waypoint, Delta-JEPA, and verifier-free W/R waves
 failed to produce non-oracle solves. This wave keeps the reliable full-grid
 Sudoku base and adds structured latent slots, Delta-JEPA delta-source variants,
 SD-JEPA-style progress subspace supervision, preference/action ranking, and a
-goal+waypoint planner score.
+goal+waypoint planner score. At the user's request it also includes combination
+rows that stack LDAD, SD-progress, preference ranking, and waypoint/goal losses.
 
-Prepared scripts:
+Scripts:
 
 - `scripts/slurm/run_grid_goal_structured_wave_train.slurm`
 - `scripts/slurm/run_grid_goal_structured_wave_eval.slurm`
 - `scripts/experiments/submit_grid_goal_structured_wave.sh`
 
-Prepared variants:
+Submitted variants:
 
 | Block | Variants | What it tests |
 |---|---|---|
@@ -30,12 +31,36 @@ Prepared variants:
 | SD-JEPA | `SD0`-`SD3` | Separate progress projection and action-effect subspace. |
 | Preference ranking | `PR0`-`PR4` | State progress rank, legal/listwise action rank, and predictor-successor ranking for PR2. |
 | Goal/waypoint | `GW0`-`GW4` | Terminal goal, waypoint, waypoint+goal score, goal-conditioned waypoint, and multi-waypoint sketch. |
+| Combinations | `C0`-`C7` plus required `_single` Delta pairs | LDAD+SD, LDAD+ranking, SD+ranking, LDAD+SD+ranking, and waypoint combinations. |
 
-No Slurm job IDs exist yet. The submitter now creates 31 training jobs and 31
-dependency-held individual eval jobs. Eval runs diagnostics first, including
-LDAD action-delta probes, delta-locality probes, and SD-progress ordering
-probes; goal/waypoint rows include the combined
-`predicted_waypoint_goal_raw_euclidean_distance` score.
+Submitted 46 training jobs and 46 dependency-held individual eval jobs. Initial
+submission `3819274`-`3819365` failed at Hydra startup because newly added
+model keys were missing from `configs/puzzle/grid_goal_sudoku.yaml`; those
+eval placeholders were canceled. The corrected submission is active:
+
+- Non-unit/full-slot train jobs: `3819405`, `3819409`, `3819411`,
+  `3819415`, `3819417`, `3819419`, `3819421`, `3819427`, `3819429`,
+  `3819431`, `3819433`, `3819435`, `3819437`, `3819469`, `3819473`,
+  `3819479`, `3819483`, `3819487`, `3819491`, `3819495`.
+- Unit/full-slot replacement train jobs: `3819499`, `3819501`, `3819503`,
+  `3819505`, `3819507`, `3819509`, `3819511`, `3819513`, `3819515`,
+  `3819517`, `3819519`, `3819521`, `3819523`, `3819525`, `3819527`,
+  `3819529`, `3819531`, `3819533`, `3819535`, `3819537`, `3819539`,
+  `3819541`, `3819543`, `3819545`, `3819547`, `3819549`.
+- Dependency-held evals: matching even IDs from `3819406` through `3819550`
+  after canceled stale rows were replaced.
+
+Operational fixes after submission:
+
+- Declared the structured-wave model keys in Hydra config and added regression
+  coverage that structured-wave `model.*` overrides are declared.
+- Unit/full structured-slot rows OOMed at micro-batch 4 with 16 branches and
+  depth 8. They now default to micro-batch 2 and grad accumulation 4, preserving
+  effective batch size 8.
+
+Eval runs diagnostics first, including LDAD action-delta probes,
+delta-locality probes, and SD-progress ordering probes; goal/waypoint rows
+include the combined `predicted_waypoint_goal_raw_euclidean_distance` score.
 
 ## Wide Single-CLS Oracle Probe
 
