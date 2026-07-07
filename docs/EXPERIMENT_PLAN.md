@@ -3,6 +3,36 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
+## Strategic Reframing
+
+The current Sudoku evidence should not be read as JEPA reasoning. Oracle
+full-grid solves can be explained by a per-cell symbolic latent plus a supplied
+solution latent; predicted goals, learned verifier/value energies, waypoints,
+and single-vector latents remain the meaningful failures.
+
+For maze/ARC/language, low-level edit dynamics such as setting a cell or
+inserting a token are too trivial to be the core world-model test. The next
+proposal is to define tasks around abstract solution/output structure:
+HRM-style maze as input grid to optimal path grid or candidate-output
+refinement, ARC as output-grid/object refinement, and language as latent
+block/future-solution prediction or high-level edits. New JEPA sweeps should
+first specify direct HRM/TRM/seq2seq and raw-grid/value baselines.
+
+Concrete architecture sketch:
+
+- Encode `(task context, current candidate output)` into cell/object/segment
+  latents, not only one global vector.
+- Use high-level actions where possible: object transform, output-region fill,
+  section rewrite, proof-step proposal, critique repair, or tool call. Primitive
+  pixel/token edits are fallback decoder actions, not the main reasoning action.
+- Train a JEPA predictor from `(latent state, action, context)` to the
+  target-encoder latent of the next improved candidate or a future solution
+  state.
+- Keep a generator/decoder separate: it proposes concrete edits or renders a
+  latent/candidate state into pixels/tokens. JEPA supplies representation,
+  rollout prediction, value/energy regularization, and search scoring; it does
+  not replace generation by itself.
+
 ## Structured JEPA Wave
 
 Implemented and prepared, not submitted.
