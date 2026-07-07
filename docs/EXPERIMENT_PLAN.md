@@ -145,7 +145,7 @@ Implementation status on 2026-07-07:
   adding bounded cell fallback solves `21/100`.
 - First training jobs are now complete: `raw_grid_energy`, `proposal_energy`,
   and `jepa_energy`. They validate the end-to-end training path but not the
-  research hypothesis; learned pass@1 is only `2.1-6.3%` against an oracle
+  research hypothesis; learned pass@1 is only `0-6.3%` against an oracle
   candidate-set reachability of `20.8%`. Next ARC work should improve
   candidate-set supervision/eval and add listwise ranking before scaling JEPA.
 

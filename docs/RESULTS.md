@@ -1,26 +1,28 @@
 # Results
 
-Last updated: 2026-07-07 20:26 CEST
+Last updated: 2026-07-07 20:52 CEST
 
 ## ARC First-Pass Training Results
 
-Three ARC candidate-scoring jobs were implemented and completed:
+Three ARC candidate-scoring jobs were implemented and completed after adding
+explicit active masks for padded context grids:
 
 | Variant | Job | Eval pass@1 | Oracle reachable | Pred distance | Oracle distance |
 |---|---:|---:|---:|---:|---:|
-| `raw_grid_energy` | `3821200` | `0.0625` | `0.2083` | `117.04` | `15.94` |
-| `proposal_energy` | `3821201` | `0.0208` | `0.2083` | `131.27` | `15.94` |
-| `jepa_energy` | `3821202` | `0.0625` | `0.2083` | `129.48` | `15.94` |
+| `raw_grid_energy` | `3821438` | `0.0000` | `0.2083` | `95.19` | `15.94` |
+| `proposal_energy` | `3821439` | `0.0000` | `0.2083` | `126.23` | `15.94` |
+| `jepa_energy` | `3821440` | `0.0625` | `0.2083` | `129.35` | `15.94` |
 
 All jobs completed with exit `0:0` on `rtxpro6k`. Output root:
 `/home/vault/c107fa/c107fa12/sequence-editing/runs/arc_jepa`.
 
 Interpretation: the first actual training jobs ran, but the result is negative.
 The generated candidate sets contain exact solutions for `20.8%` of eval
-episodes, while learned pass@1 is only `2.1-6.3%`. The proposal-aware and JEPA
-variants overfit their sampled binary objective and select worse candidates
-than the raw-grid scorer. Next work should improve supervision/evaluation and
-candidate scoring before launching broader ARC JEPA sweeps.
+episodes, while learned pass@1 is only `0-6.3%`. Raw-grid energy selects
+closer candidates on average but no exact targets; only the JEPA variant gets
+nonzero exact pass@1. Next work should improve candidate-set supervision/eval,
+especially same-episode listwise ranking, before launching broader ARC JEPA
+sweeps.
 
 ## ARC CPU Coverage Scaffold
 
@@ -47,12 +49,22 @@ depth `1`, beam width `4`:
 | no cell fallback, oracle output shape | `20/100` | `17.04 -> 11.76` |
 | bounded cell fallback, oracle output shape | `21/100` | `17.04 -> 11.67` |
 
+After adding full-grid/hole proposals plus scale/color-map/mask-render actions,
+the same no-cell depth-1 slice kept the exact solve counts but improved mean
+best distance:
+
+| Setting | Solved | Mean distance |
+|---|---:|---:|
+| improved, no oracle output shape | `18/100` | `18.60 -> 11.93` |
+| improved, oracle output shape | `20/100` | `17.04 -> 11.18` |
+
 Interpretation: the interface is concrete, and the first training jobs now
 prove the training/eval path runs end to end. Current depth-1 coverage remains
 narrow, oracle output shape helps, and bounded pixel fallback adds little in
-this shallow setting. After training, the new bottleneck is learned candidate
+this shallow setting. The improved action layer helps distance but not exact
+depth-1 solve count. After training, the bottleneck is learned candidate
 scoring: exact targets exist in `20.8%` of held-out candidate sets, but the
-models select exact targets only `2.1-6.3%` of the time.
+models select exact targets only `0-6.3%` of the time.
 
 ## Horizon-Length Ablation Partial Results
 
