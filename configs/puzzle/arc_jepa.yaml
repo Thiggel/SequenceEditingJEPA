@@ -1,0 +1,32 @@
+seed: 1707
+variant: raw_grid_energy
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/arc_jepa/${variant}
+data:
+  data_root: ${oc.env:ARC_AGI_ROOT}
+  split: training
+  task_limit: 120
+  eval_task_count: 20
+  max_context: 4
+model:
+  d_model: 128
+sampler:
+  oracle_shape: false
+  include_cell_actions: true
+  max_actions: 700
+  positive_probability: 0.25
+  best_action_probability: 0.5
+training:
+  max_steps: 1500
+  batch_size: 16
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  bf16: true
+  eval_every_steps: 250
+  save_every_steps: 1500
+eval:
+  episodes: 48
+  oracle_shape: false
+  include_cell_actions: true
+  max_actions: 700
+  beam_width: 1

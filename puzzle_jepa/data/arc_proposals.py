@@ -99,6 +99,7 @@ def extract_grid_proposals(
             )
         )
 
+    add("full_grid", np.ones(grid.shape, dtype=bool), f"{source}:full_grid")
     for color in sorted(int(x) for x in np.unique(grid.values)):
         color_mask = grid.values == color
         if color != background:
@@ -106,8 +107,14 @@ def extract_grid_proposals(
             for component in connected_components(color_mask)[:max_components]:
                 add("component", component, f"{source}:component color={color}")
                 add("bbox", bbox_mask(grid.shape, mask_bbox(component)), f"{source}:bbox color={color}")
+                if not _touches_border(component):
+                    add("hole", component, f"{source}:enclosed color={color}")
         elif color == 0:
             add("background_group", color_mask, f"{source}:background color=0")
+        if color == background:
+            for component in connected_components(color_mask)[:max_components]:
+                if not _touches_border(component):
+                    add("hole", component, f"{source}:hole background={background}")
 
     non_background = grid.values != background
     if bool(non_background.any()):
@@ -185,3 +192,8 @@ def candidate_rectangles(grid: ARCGrid, background: int) -> list[BBox]:
 def proposal_patch(grid: ARCGrid, proposal: ARCProposal) -> tuple[np.ndarray, np.ndarray]:
     row0, col0, row1, col1 = proposal.bbox
     return grid.values[row0:row1, col0:col1].copy(), proposal.mask[row0:row1, col0:col1].copy()
+
+
+def _touches_border(mask: np.ndarray) -> bool:
+    arr = np.asarray(mask, dtype=bool)
+    return bool(arr[0, :].any() or arr[-1, :].any() or arr[:, 0].any() or arr[:, -1].any())

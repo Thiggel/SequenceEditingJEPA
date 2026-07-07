@@ -47,6 +47,12 @@ python scripts/analysis/arc_oracle_coverage.py \
   --no-cell-actions
 ```
 
+First-pass ARC train jobs:
+
+```bash
+scripts/experiments/submit_arc_jepa_firstpass.sh
+```
+
 ## Smoke Runs
 
 ```bash

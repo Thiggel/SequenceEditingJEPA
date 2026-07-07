@@ -2,7 +2,46 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-07 17:17 CEST
+Last updated: 2026-07-07 20:26 CEST
+
+## ARC First-Pass Candidate Scorers
+
+Status: implemented, submitted, and complete.
+
+Purpose: after making ARC state/action sampling concrete, run the first three
+actual train jobs on ARC candidate scoring:
+
+- `raw_grid_energy`: context/query/candidate grid energy;
+- `proposal_energy`: raw grid energy plus symbolic action/proposal features;
+- `jepa_energy`: proposal-aware energy plus JEPA-style successor latent
+  prediction from `(current state, action)`.
+
+Jobs:
+
+| Variant | Job | State | Output |
+|---|---:|---|---|
+| `raw_grid_energy` | `3821200` | completed `0:0` | `/home/vault/c107fa/c107fa12/sequence-editing/runs/arc_jepa/arc_raw_grid_energy_firstpass` |
+| `proposal_energy` | `3821201` | completed `0:0` | `/home/vault/c107fa/c107fa12/sequence-editing/runs/arc_jepa/arc_proposal_energy_firstpass` |
+| `jepa_energy` | `3821202` | completed `0:0` | `/home/vault/c107fa/c107fa12/sequence-editing/runs/arc_jepa/arc_jepa_energy_firstpass` |
+
+Setup: 120 ARC-AGI-1 train tasks, last 20 as task-level eval, 323 train
+episodes, 64 eval episodes sampled from 20 eval tasks, 1500 steps, batch 16,
+700 generated candidates per eval episode.
+
+Results:
+
+| Variant | Eval pass@1 | Oracle reachable | Pred distance | Oracle distance |
+|---|---:|---:|---:|---:|
+| `raw_grid_energy` | `0.0625` | `0.2083` | `117.04` | `15.94` |
+| `proposal_energy` | `0.0208` | `0.2083` | `131.27` | `15.94` |
+| `jepa_energy` | `0.0625` | `0.2083` | `129.48` | `15.94` |
+
+Interpretation: the jobs started and completed successfully, but the learned
+scorers are not useful yet. Candidate generation contains exact solutions for
+about `20.8%` of eval episodes, while learned pass@1 is only `2.1-6.3%` and
+the selected candidates are much worse than the oracle candidates. The next
+ARC step should fix candidate scoring supervision/eval before adding model
+complexity.
 
 ## Structured JEPA Wave
 

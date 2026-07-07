@@ -143,8 +143,11 @@ Implementation status on 2026-07-07:
   episodes per task, depth `1`, beam width `4`, no cell fallback, no oracle
   output shape solves `18/100`; with oracle output shape solves `20/100`;
   adding bounded cell fallback solves `21/100`.
-- Decision: do not train raw-grid/proposal/JEPA models yet. First improve and
-  measure coverage beyond the current shallow typed DSL.
+- First training jobs are now complete: `raw_grid_energy`, `proposal_energy`,
+  and `jepa_energy`. They validate the end-to-end training path but not the
+  research hypothesis; learned pass@1 is only `2.1-6.3%` against an oracle
+  candidate-set reachability of `20.8%`. Next ARC work should improve
+  candidate-set supervision/eval and add listwise ranking before scaling JEPA.
 
 ## Structured JEPA Wave
 

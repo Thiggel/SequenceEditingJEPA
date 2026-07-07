@@ -123,6 +123,35 @@ def apply_arc_action(
         source = sources[str(params["source"])]
         return ARCGrid(_apply_partition_map(source.values, params))
 
+    if op == "scale_source":
+        source = sources[str(params["source"])]
+        scaled = _scale_array(source.values, int(params["factor"]))
+        if "height" in params and "width" in params:
+            scaled = _fit_to_shape(scaled, int(params["height"]), int(params["width"]), fill=int(params.get("fill", 0)))
+        return ARCGrid(scaled)
+
+    if op == "scale_patch":
+        proposal = proposals[str(params["proposal_id"])]
+        source = sources[proposal.source]
+        patch, mask = proposal_patch(source, proposal)
+        scaled_patch = _scale_array(patch, int(params["factor"]))
+        scaled_mask = _scale_array(mask.astype(np.int64), int(params["factor"])).astype(bool)
+        return ARCGrid(_paste_patch(values, scaled_patch, scaled_mask, int(params["dst_row"]), int(params["dst_col"])))
+
+    if op == "apply_color_map":
+        source = sources[str(params["source"])]
+        mapped = source.values.copy()
+        mapped[mapped == int(params["from_color"])] = int(params["to_color"])
+        return ARCGrid(mapped)
+
+    if op == "render_color_mask":
+        source = sources[str(params["source"])]
+        fg = int(params["foreground"])
+        bg = int(params["background"])
+        rendered = np.full(source.shape, bg, dtype=np.int64)
+        rendered[source.values == int(params["color"])] = fg
+        return ARCGrid(rendered)
+
     raise ValueError(f"Unsupported ARC action op {op!r}.")
 
 
@@ -162,6 +191,46 @@ def generate_arc_actions(
             for color in colors[:3]:
                 add("set_canvas", {"height": height, "width": width, "fill": int(color)}, f"set_canvas {height}x{width} fill={color}")
 
+    for source_name in ("query_input", "current_output"):
+        if source_name == "query_input":
+            source_grid = query_input
+        else:
+            source_grid = candidate
+        for from_color in colors:
+            for to_color in colors:
+                if from_color != to_color:
+                    add(
+                        "apply_color_map",
+                        {"source": source_name, "from_color": int(from_color), "to_color": int(to_color)},
+                        f"color_map {source_name} {from_color}->{to_color}",
+                    )
+            for foreground in colors:
+                add(
+                    "render_color_mask",
+                    {
+                        "source": source_name,
+                        "color": int(from_color),
+                        "foreground": int(foreground),
+                        "background": 0,
+                    },
+                    f"render_color_mask {source_name} color={from_color} fg={foreground}",
+                )
+        for factor in (2, 3, 4):
+            scaled_shape = (source_grid.height * factor, source_grid.width * factor)
+            if scaled_shape[0] <= 30 and scaled_shape[1] <= 30:
+                add(
+                    "scale_source",
+                    {"source": source_name, "factor": factor},
+                    f"scale_source {source_name} x{factor}",
+                )
+            for height, width in candidate_shapes:
+                if height <= 30 and width <= 30:
+                    add(
+                        "scale_source",
+                        {"source": source_name, "factor": factor, "height": height, "width": width, "fill": 0},
+                        f"scale_source {source_name} x{factor} fit={height}x{width}",
+                    )
+
     if include_cell_actions:
         cell_budget = max(0, int(max_cell_actions))
         produced = 0
@@ -178,6 +247,29 @@ def generate_arc_actions(
                     break
             if produced >= cell_budget:
                 break
+
+    for out_h, out_w in candidate_shapes:
+        for mode in ("majority", "presence"):
+            for color in colors:
+                add(
+                    "partition_map",
+                    {"source": "query_input", "height": out_h, "width": out_w, "mode": mode, "color": int(color)},
+                    f"partition_map query_input -> {out_h}x{out_w} {mode} color={color}",
+                )
+        for row_offset in (0, 1):
+            for col_offset in (0, 1):
+                add(
+                    "partition_map",
+                    {
+                        "source": "query_input",
+                        "height": out_h,
+                        "width": out_w,
+                        "mode": "stride_sample",
+                        "row_offset": row_offset,
+                        "col_offset": col_offset,
+                    },
+                    f"stride_sample query_input -> {out_h}x{out_w} offset={row_offset},{col_offset}",
+                )
 
     proposal_items = sorted(proposals.values(), key=lambda item: (item.kind, -item.area, item.proposal_id))
     for proposal in proposal_items:
@@ -221,33 +313,19 @@ def generate_arc_actions(
                     {"proposal_id": proposal.proposal_id, "turns": turns, "dst_row": dst_row, "dst_col": dst_col},
                     f"rotate {proposal.proposal_id} k={turns} -> ({dst_row},{dst_col})",
                 )
+            for factor in (2, 3, 4):
+                patch_h = (proposal.bbox[2] - proposal.bbox[0]) * factor
+                patch_w = (proposal.bbox[3] - proposal.bbox[1]) * factor
+                if patch_h <= 30 and patch_w <= 30:
+                    add(
+                        "scale_patch",
+                        {"proposal_id": proposal.proposal_id, "factor": factor, "dst_row": dst_row, "dst_col": dst_col},
+                        f"scale_patch {proposal.proposal_id} x{factor} -> ({dst_row},{dst_col})",
+                    )
         add("crop", {"proposal_id": proposal.proposal_id}, f"crop {proposal.proposal_id}")
 
         if len(actions) >= max_actions:
             return actions[:max_actions]
-
-    for out_h, out_w in candidate_shapes:
-        for mode in ("majority", "presence"):
-            for color in colors:
-                add(
-                    "partition_map",
-                    {"source": "query_input", "height": out_h, "width": out_w, "mode": mode, "color": int(color)},
-                    f"partition_map query_input -> {out_h}x{out_w} {mode} color={color}",
-                )
-        for row_offset in (0, 1):
-            for col_offset in (0, 1):
-                add(
-                    "partition_map",
-                    {
-                        "source": "query_input",
-                        "height": out_h,
-                        "width": out_w,
-                        "mode": "stride_sample",
-                        "row_offset": row_offset,
-                        "col_offset": col_offset,
-                    },
-                    f"stride_sample query_input -> {out_h}x{out_w} offset={row_offset},{col_offset}",
-                )
     return actions[:max_actions]
 
 
@@ -376,4 +454,19 @@ def _apply_partition_map(source: np.ndarray, params: dict[str, Any]) -> np.ndarr
                 output[row, col] = int(values[np.argmax(counts)])
             else:
                 raise ValueError(f"Unsupported partition_map mode {mode!r}.")
+    return output
+
+
+def _scale_array(values: np.ndarray, factor: int) -> np.ndarray:
+    factor = int(factor)
+    if factor <= 0:
+        raise ValueError("Scale factor must be positive.")
+    return np.repeat(np.repeat(values, factor, axis=0), factor, axis=1)
+
+
+def _fit_to_shape(values: np.ndarray, height: int, width: int, *, fill: int = 0) -> np.ndarray:
+    output = np.full((height, width), int(fill), dtype=np.int64)
+    copy_h = min(height, values.shape[0])
+    copy_w = min(width, values.shape[1])
+    output[:copy_h, :copy_w] = values[:copy_h, :copy_w]
     return output

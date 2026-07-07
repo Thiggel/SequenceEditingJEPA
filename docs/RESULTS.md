@@ -1,6 +1,26 @@
 # Results
 
-Last updated: 2026-07-07 19:26 CEST
+Last updated: 2026-07-07 20:26 CEST
+
+## ARC First-Pass Training Results
+
+Three ARC candidate-scoring jobs were implemented and completed:
+
+| Variant | Job | Eval pass@1 | Oracle reachable | Pred distance | Oracle distance |
+|---|---:|---:|---:|---:|---:|
+| `raw_grid_energy` | `3821200` | `0.0625` | `0.2083` | `117.04` | `15.94` |
+| `proposal_energy` | `3821201` | `0.0208` | `0.2083` | `131.27` | `15.94` |
+| `jepa_energy` | `3821202` | `0.0625` | `0.2083` | `129.48` | `15.94` |
+
+All jobs completed with exit `0:0` on `rtxpro6k`. Output root:
+`/home/vault/c107fa/c107fa12/sequence-editing/runs/arc_jepa`.
+
+Interpretation: the first actual training jobs ran, but the result is negative.
+The generated candidate sets contain exact solutions for `20.8%` of eval
+episodes, while learned pass@1 is only `2.1-6.3%`. The proposal-aware and JEPA
+variants overfit their sampled binary objective and select worse candidates
+than the raw-grid scorer. Next work should improve supervision/evaluation and
+candidate scoring before launching broader ARC JEPA sweeps.
 
 ## ARC CPU Coverage Scaffold
 
@@ -27,11 +47,12 @@ depth `1`, beam width `4`:
 | no cell fallback, oracle output shape | `20/100` | `17.04 -> 11.76` |
 | bounded cell fallback, oracle output shape | `21/100` | `17.04 -> 11.67` |
 
-Interpretation: the interface is now concrete, but it is not yet a good ARC
-training substrate. Current depth-1 coverage is narrow, oracle output shape
-helps, and bounded pixel fallback adds little in this shallow setting. The next
-step is to improve proposal/action coverage and add raw-grid/proposal-aware
-baselines before training an ARC JEPA.
+Interpretation: the interface is concrete, and the first training jobs now
+prove the training/eval path runs end to end. Current depth-1 coverage remains
+narrow, oracle output shape helps, and bounded pixel fallback adds little in
+this shallow setting. After training, the new bottleneck is learned candidate
+scoring: exact targets exist in `20.8%` of held-out candidate sets, but the
+models select exact targets only `2.1-6.3%` of the time.
 
 ## Horizon-Length Ablation Partial Results
 
