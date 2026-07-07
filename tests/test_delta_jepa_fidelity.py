@@ -143,6 +143,35 @@ def test_ldad_loss_backprops_to_both_displacement_endpoints():
     assert _grad_sum(state_latents.grad[:, 1]) > 0.0
 
 
+def test_ldad_predicted_delta_backprops_through_transition_predictor():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(delta_action_weight=1.0, delta_action_horizons=(1,))
+    model.zero_grad(set_to_none=True)
+    batch_size, frames = batch.boards.shape[:2]
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    flat_context = context[:, None].expand(batch_size, frames, *context.shape[1:]).reshape(
+        batch_size * frames,
+        context.shape[1],
+        model.d_model,
+    )
+    flat_clue = batch.clue_mask[:, None].expand(batch_size, frames, 9, 9).reshape(batch_size * frames, 9, 9)
+    flat_edit = batch.editable_mask[:, None].expand(batch_size, frames, 9, 9).reshape(batch_size * frames, 9, 9)
+    flat_active = batch.active_mask[:, None].expand(batch_size, frames, 9, 9).reshape(batch_size * frames, 9, 9)
+    state_latents = model.encode_state(
+        batch.boards.reshape(batch_size * frames, 9, 9),
+        flat_context,
+        flat_clue,
+        flat_edit,
+        flat_active,
+    ).reshape(batch_size, frames, 81, model.d_model)
+
+    loss = model._delta_action_objective(state_latents, batch.actions, batch.masks, batch.active_mask, context)
+    loss.backward()
+
+    predictor_grad = sum(_grad_sum(parameter.grad) for parameter in model.predictor.parameters())
+    assert predictor_grad > 0.0
+
+
 def test_delta_action_weight_with_no_horizons_is_rejected_instead_of_silently_disabling_ldad():
     with pytest.raises(ValueError, match="delta_action_horizons"):
         _small_model(delta_action_weight=1.0, delta_action_horizons=())

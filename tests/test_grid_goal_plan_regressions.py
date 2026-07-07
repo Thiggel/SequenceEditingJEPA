@@ -485,6 +485,12 @@ def test_diagnostics_include_rollout_and_goal_alignment_metrics(tmp_path):
         "goal_fill_100_state_pred_distance",
         "q_to_goal_mse",
         "distance_hamming_spearman",
+        "ldad_predicted_delta_action_acc",
+        "ldad_target_delta_action_acc",
+        "predicted_delta_changed_cell_top1",
+        "target_delta_affected_f1",
+        "sd_progress_pairwise_order_accuracy",
+        "sd_progress_oracle_monotone_fraction",
     }
     assert required <= set(metrics)
 

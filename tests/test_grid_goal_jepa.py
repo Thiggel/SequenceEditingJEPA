@@ -2088,6 +2088,51 @@ def test_forward_runs_with_conditional_goal_and_listwise_oracle_ranking():
     assert output.action_rank_loss.item() >= 0.0
 
 
+def test_successor_pairwise_action_rank_uses_predictor_successors():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_mode="successor_pairwise",
+        action_rank_target="oracle",
+        action_rank_weight=1.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        sigreg_weight=0.0,
+        regularizer="none",
+    )
+    positive = batch.actions[:, 0]
+    negative = positive.clone()
+    negative[:, 2] = (negative[:, 2] % 9) + 1
+    calls = []
+    original_predict_next = model.predict_next
+
+    def record_predict_next(state_latent, action, context_latents):
+        calls.append(tuple(action.shape))
+        return original_predict_next(state_latent, action, context_latents)
+
+    model.predict_next = record_predict_next
+    output = model(
+        batch.boards[:, :1],
+        batch.actions[:, :1],
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks[:, :1],
+        oracle_mask=batch.oracle_mask,
+        action_rank_states=batch.boards[:, 0],
+        positive_actions=positive,
+        negative_actions=negative,
+    )
+
+    assert torch.isfinite(output.loss)
+    assert output.action_rank_loss.item() > 0.0
+    assert calls == [(1, 3), (1, 3)]
+
+
 def test_policy_prior_scores_primitive_and_macro_actions():
     batch = _small_batch(batch_size=1)
     model = _small_model(hierarchy_levels=(2,), hierarchy_loss_weight=1.0, policy_prior_weight=1.0)

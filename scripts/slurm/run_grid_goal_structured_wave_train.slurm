@@ -24,6 +24,12 @@ VARIANTS=(
   DJ3_cross_all
   DJ4_marker_cell_units
   DJ5_cross_cell_units
+  DJ0_action_token_all_single
+  DJ1_marker_all_single
+  DJ2_local_all_single
+  DJ3_cross_all_single
+  DJ4_marker_cell_units_single
+  DJ5_cross_cell_units_single
   SD0_projection_only
   SD1_progress_rank
   SD2_action_subspace
@@ -52,6 +58,7 @@ else
 fi
 
 STRUCTURED_SLOTS="none"
+LATENT_REPRESENTATION="grid"
 ACTION_CONDITIONING="affected_marker"
 DELTA_WEIGHT="0.0"
 DELTA_SOURCE="all_tokens"
@@ -97,6 +104,18 @@ case "${SELECTED_VARIANT}" in
     STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units" ;;
   DJ5_cross_cell_units)
     STRUCTURED_SLOTS="full"; ACTION_CONDITIONING="action_cross_attention"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="changed_cell_units" ;;
+  DJ0_action_token_all_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="action_token"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens" ;;
+  DJ1_marker_all_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens" ;;
+  DJ2_local_all_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="local_action_feature"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens" ;;
+  DJ3_cross_all_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="action_cross_attention"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens" ;;
+  DJ4_marker_cell_units_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="affected_marker"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens" ;;
+  DJ5_cross_cell_units_single)
+    LATENT_REPRESENTATION="single"; ACTION_CONDITIONING="action_cross_attention"; DELTA_WEIGHT="3.0"; DELTA_SOURCE="all_tokens" ;;
   SD0_projection_only)
     STRUCTURED_SLOTS="full"; SD_PROGRESS_WEIGHT="0.0" ;;
   SD1_progress_rank)
@@ -110,7 +129,7 @@ case "${SELECTED_VARIANT}" in
   PR1_legal_listwise)
     STRUCTURED_SLOTS="full"; ACTION_RANK_MODE="listwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
   PR2_counterfactual_successor)
-    STRUCTURED_SLOTS="full"; ACTION_RANK_MODE="pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
+    STRUCTURED_SLOTS="full"; ACTION_RANK_MODE="successor_pairwise"; ACTION_RANK_TARGET="oracle"; ACTION_RANK_WEIGHT="1.0" ;;
   PR3_progress_slot_rank)
     STRUCTURED_SLOTS="full"; SD_PROGRESS_WEIGHT="1.0"; PROGRESS_RANK_TARGET="oracle"; PROGRESS_RANK_WEIGHT="1.0" ;;
   PR4_successor_progress)
@@ -165,7 +184,7 @@ python -m puzzle_jepa.train.grid_goal_sudoku \
   "training.counterfactual_depth=${COUNTERFACTUAL_DEPTH:-8}" \
   "training.counterfactual_max_pairs=${COUNTERFACTUAL_MAX_PAIRS:-128}" \
   "model.dropout=0.0" \
-  "model.latent_representation=grid" \
+  "model.latent_representation=${LATENT_REPRESENTATION}" \
   "model.structured_slots=${STRUCTURED_SLOTS}" \
   "model.action_conditioning=${ACTION_CONDITIONING}" \
   "model.predict_delta=false" \

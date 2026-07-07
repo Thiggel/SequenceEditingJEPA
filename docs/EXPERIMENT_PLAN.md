@@ -13,11 +13,13 @@ Research questions:
   slot preserve the factorization that single-CLS latents destroyed?
 - Does Delta-JEPA LDAD work better when the decoded displacement is selected
   from all tokens, only cell tokens, the changed cell, or the changed cell plus
-  Sudoku unit slots?
+  Sudoku unit slots? Every Delta row is paired with a learned-CLS single-latent
+  run.
 - Does an SD-JEPA-style progress projection separate content dynamics from
   goal-distance/progress ranking?
 - Do preference/ranking losses improve the local branch discrimination that
-  verifier-free W/R heads failed to turn into solves?
+  verifier-free W/R heads failed to turn into solves? PR2 uses predictor
+  successor latents rather than re-encoded symbolic successors.
 - Can terminal goal prediction and receding waypoint prediction help when the
   planner scores waypoint distance strongly and terminal-goal distance weakly?
 
@@ -28,6 +30,8 @@ Prepared scripts:
 - `scripts/experiments/submit_grid_goal_structured_wave.sh`
 
 No jobs have been submitted.
+
+Current prepared size: 31 train jobs plus 31 dependency-held eval jobs.
 
 ## Verifier-Free Compatibility / Progress Energy Plan
 

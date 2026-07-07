@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-07 11:46 CEST
+Last updated: 2026-07-07 12:05 CEST
 
 ## Structured JEPA Wave
 
@@ -26,14 +26,15 @@ Prepared variants:
 | Block | Variants | What it tests |
 |---|---|---|
 | Structured slots | `S0`-`S4` | 81 cells versus unit/global/progress/full slot layouts. |
-| Delta-JEPA | `DJ0`-`DJ5` | Action conditioning crossed with all-token versus changed-cell+unit LDAD sources. |
+| Delta-JEPA | `DJ0`-`DJ5` plus paired `_single` rows | Action conditioning crossed with all-token versus changed-cell+unit LDAD sources; every full-grid Delta row has a learned-CLS single-latent counterpart. |
 | SD-JEPA | `SD0`-`SD3` | Separate progress projection and action-effect subspace. |
-| Preference ranking | `PR0`-`PR4` | State progress rank, legal/listwise action rank, and counterfactual successor rank. |
+| Preference ranking | `PR0`-`PR4` | State progress rank, legal/listwise action rank, and predictor-successor ranking for PR2. |
 | Goal/waypoint | `GW0`-`GW4` | Terminal goal, waypoint, waypoint+goal score, goal-conditioned waypoint, and multi-waypoint sketch. |
 
-No Slurm job IDs exist yet. The submitter creates one training job and one
-dependency-held individual eval job per variant. Eval runs diagnostics first,
-then planner rows; goal/waypoint rows include the combined
+No Slurm job IDs exist yet. The submitter now creates 31 training jobs and 31
+dependency-held individual eval jobs. Eval runs diagnostics first, including
+LDAD action-delta probes, delta-locality probes, and SD-progress ordering
+probes; goal/waypoint rows include the combined
 `predicted_waypoint_goal_raw_euclidean_distance` score.
 
 ## Wide Single-CLS Oracle Probe

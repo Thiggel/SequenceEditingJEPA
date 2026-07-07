@@ -16,6 +16,12 @@ VARIANTS=(
   DJ3_cross_all
   DJ4_marker_cell_units
   DJ5_cross_cell_units
+  DJ0_action_token_all_single
+  DJ1_marker_all_single
+  DJ2_local_all_single
+  DJ3_cross_all_single
+  DJ4_marker_cell_units_single
+  DJ5_cross_cell_units_single
   SD0_projection_only
   SD1_progress_rank
   SD2_action_subspace

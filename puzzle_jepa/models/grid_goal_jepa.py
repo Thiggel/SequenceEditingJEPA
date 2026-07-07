@@ -731,7 +731,7 @@ class GridTokenGoalJEPA(nn.Module):
         allowed_progress_targets = {"predicted", "oracle", "both", "none"}
         if progress_rank_target not in allowed_progress_targets:
             raise ValueError(f"progress_rank_target must be one of {sorted(allowed_progress_targets)}.")
-        allowed_action_rank_modes = {"pairwise", "listwise", "none"}
+        allowed_action_rank_modes = {"pairwise", "successor_pairwise", "listwise", "none"}
         if action_rank_mode not in allowed_action_rank_modes:
             raise ValueError(f"action_rank_mode must be one of {sorted(allowed_action_rank_modes)}.")
         allowed_policy_prior_modes = {"pairwise", "listwise", "none"}
@@ -2295,6 +2295,12 @@ class GridTokenGoalJEPA(nn.Module):
                         rank_goal,
                         goal_target,
                     )
+                elif self.action_rank_mode == "successor_pairwise":
+                    pos_latents = self.predict_next(rank_state_latents, positive_actions, context_latents)
+                    neg_latents = self.predict_next(rank_state_latents, negative_actions, context_latents)
+                    pos_d = self._rank_target_distance(pos_latents, rank_goal, goal_target, active_mask)
+                    neg_d = self._rank_target_distance(neg_latents, rank_goal, goal_target, active_mask)
+                    action_rank_loss = F.softplus((pos_d - neg_d + self.rank_margin) / self.rank_temperature).mean()
                 else:
                     pos_boards = _apply_set_cell_actions(rank_states, positive_actions)
                     neg_boards = _apply_set_cell_actions(rank_states, negative_actions)
@@ -2352,7 +2358,7 @@ class GridTokenGoalJEPA(nn.Module):
             policy_prior_loss = torch.stack(policy_prior_terms).mean()
 
         if self.delta_action_weight > 0.0:
-            delta_action_loss = self._delta_action_objective(state_latents, actions, masks, active_mask)
+            delta_action_loss = self._delta_action_objective(state_latents, actions, masks, active_mask, context_latents)
         else:
             delta_action_loss = zero_loss
 
@@ -2929,6 +2935,7 @@ class GridTokenGoalJEPA(nn.Module):
         actions: torch.Tensor,
         masks: torch.Tensor,
         active_mask: torch.Tensor,
+        context_latents: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if actions.shape[:2] != state_latents.shape[:2] or actions.shape[-1] != 3:
             raise ValueError(
@@ -2947,7 +2954,16 @@ class GridTokenGoalJEPA(nn.Module):
                 valid = valid & masks[:, offset : offset + start_count]
             if not bool(valid.any()):
                 continue
-            delta = state_latents[:, horizon : horizon + start_count] - state_latents[:, :start_count]
+            if context_latents is None:
+                future_latents = state_latents[:, horizon : horizon + start_count]
+            else:
+                future_latents = self._delta_action_predicted_future(
+                    state_latents[:, :start_count],
+                    actions,
+                    context_latents,
+                    horizon=int(horizon),
+                )
+            delta = future_latents - state_latents[:, :start_count]
             action_sequence = torch.stack(
                 [actions[:, offset : offset + start_count] for offset in range(horizon)],
                 dim=2,
@@ -2982,6 +2998,48 @@ class GridTokenGoalJEPA(nn.Module):
         if not terms:
             return state_latents.sum() * 0.0
         return torch.stack(terms).mean()
+
+    def _delta_action_predicted_future(
+        self,
+        start_latents: torch.Tensor,
+        actions: torch.Tensor,
+        context_latents: torch.Tensor,
+        *,
+        horizon: int,
+    ) -> torch.Tensor:
+        if start_latents.ndim != 4:
+            raise ValueError(f"Delta rollout expects start latents [batch, starts, tokens, dim], got {tuple(start_latents.shape)}.")
+        if actions.ndim != 3 or actions.shape[-1] != 3:
+            raise ValueError(f"Delta rollout expects actions [batch, frames, 3], got {tuple(actions.shape)}.")
+        if horizon <= 0:
+            raise ValueError(f"Delta rollout horizon must be positive, got {horizon}.")
+        batch, start_count, token_count, dim = start_latents.shape
+        if actions.shape[0] != batch or actions.shape[1] < start_count + horizon - 1:
+            raise ValueError("Delta rollout actions do not cover the requested horizon.")
+        context = context_latents[:, None].expand(batch, start_count, *context_latents.shape[1:]).reshape(
+            batch * start_count,
+            context_latents.shape[1],
+            self.d_model,
+        )
+        if self.latent_representation == "single":
+            history = start_latents.reshape(batch * start_count, 1, token_count, dim)
+            action_history_parts = []
+            current = history[:, 0]
+            for offset in range(horizon):
+                step_actions = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
+                action_history_parts.append(step_actions)
+                action_history = torch.stack(action_history_parts, dim=1)
+                predicted = self.predict_next_sequence(history, action_history, context)
+                current = predicted[:, -1]
+                if offset + 1 < horizon:
+                    history = torch.cat([history, current[:, None]], dim=1)
+            return current.reshape(batch, start_count, token_count, dim)
+
+        rollout = start_latents.reshape(batch * start_count, token_count, dim)
+        for offset in range(horizon):
+            step_actions = actions[:, offset : offset + start_count].reshape(batch * start_count, 3)
+            rollout = self.predict_next(rollout, step_actions, context)
+        return rollout.reshape(batch, start_count, token_count, dim)
 
     def _select_delta_action_source(
         self,

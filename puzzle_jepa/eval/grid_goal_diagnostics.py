@@ -10,7 +10,7 @@ import torch
 
 from puzzle_jepa.data.grid_goal_sudoku import apply_fill_action, corrupt_terminal, legal_fill_actions
 from puzzle_jepa.data.worlds import PuzzleExample, WorldAction
-from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA
+from puzzle_jepa.models.grid_goal_jepa import GridTokenGoalJEPA, _latent_active_mask
 from puzzle_jepa.planning.grid_goal_planner import _predict_goal_for_board, _prepare_goal_latents, score_board
 
 
@@ -34,6 +34,8 @@ def run_grid_goal_diagnostics(
     metrics.update(_trajectory_distance_metrics(model, examples[:max_examples], device=device))
     metrics.update(_action_rank_metrics(model, examples[:max_examples], device=device))
     metrics.update(_latent_rollout_action_rank_metrics(model, examples[:max_examples], device=device))
+    metrics.update(_delta_action_probe_metrics(model, examples[:max_examples], device=device))
+    metrics.update(_sd_progress_probe_metrics(model, examples[:max_examples], device=device))
     metrics.update(_rollout_drift_metrics(model, examples[:max_examples], device=device))
     metrics.update(_goal_alignment_metrics(model, examples[:max_examples], device=device))
     metrics.update(_goal_by_fill_depth_metrics(model, examples[:max_examples], device=device))
@@ -268,6 +270,167 @@ def _latent_rollout_action_rank_metrics(
         "latent_rollout_predicted_goal_action_top1": predicted_top1_mean,
         "latent_rollout_action_top1": predicted_top1_mean,
     }
+
+
+def _delta_action_probe_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExample], *, device: torch.device) -> dict[str, float]:
+    totals = {
+        "ldad_target_delta_row_acc": [],
+        "ldad_target_delta_col_acc": [],
+        "ldad_target_delta_digit_acc": [],
+        "ldad_target_delta_action_acc": [],
+        "ldad_predicted_delta_row_acc": [],
+        "ldad_predicted_delta_col_acc": [],
+        "ldad_predicted_delta_digit_acc": [],
+        "ldad_predicted_delta_action_acc": [],
+        "target_delta_changed_cell_top1": [],
+        "predicted_delta_changed_cell_top1": [],
+        "target_delta_affected_f1": [],
+        "predicted_delta_affected_f1": [],
+    }
+    for example in examples:
+        boards, actions = _oracle_probe_sequence(example, max_steps=16)
+        if len(actions) == 0:
+            continue
+        clue_mask = example.state != 0
+        editable_mask = ~clue_mask
+        active_mask = np.ones((9, 9), dtype=bool)
+        context, _, oracle_goal, _ = _prepare_goal_latents(
+            model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+        )
+        del oracle_goal
+        boards_t = torch.as_tensor(np.stack(boards), dtype=torch.long, device=device)
+        clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device).expand(len(boards), -1, -1)
+        edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device).expand(len(boards), -1, -1)
+        active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(len(boards), -1, -1)
+        latents = model.encode_state(boards_t, context.expand(len(boards), -1, -1), clue_t, edit_t, active_t)
+        actions_t = torch.as_tensor(np.asarray(actions), dtype=torch.long, device=device)[None]
+        starts = latents[:-1][None]
+        target_future = latents[1:][None]
+        active_probe = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
+        predicted_future = model._delta_action_predicted_future(starts, actions_t, context, horizon=1)
+        for prefix, future in (("ldad_target", target_future), ("ldad_predicted", predicted_future)):
+            values = _decode_ldad_probe(model, future - starts, active_probe, actions_t)
+            for key, value in values.items():
+                totals[f"{prefix}_delta_{key}"].append(value)
+        if latents.shape[-2] >= 81:
+            for prefix, future in (("target", target_future), ("predicted", predicted_future)):
+                locality = _delta_locality_probe(future - starts, actions_t)
+                totals[f"{prefix}_delta_changed_cell_top1"].extend(locality["changed_cell_top1"])
+                totals[f"{prefix}_delta_affected_f1"].extend(locality["affected_f1"])
+    return {key: float(np.mean(values)) if values else 0.0 for key, values in totals.items()}
+
+
+def _sd_progress_probe_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExample], *, device: torch.device) -> dict[str, float]:
+    pairs = []
+    monotone = []
+    pairwise = []
+    for example in examples:
+        boards, _ = _oracle_probe_sequence(example, max_steps=16)
+        if len(boards) < 2:
+            continue
+        clue_mask = example.state != 0
+        editable_mask = ~clue_mask
+        active_mask = np.ones((9, 9), dtype=bool)
+        context, _, oracle_goal, _ = _prepare_goal_latents(
+            model, example.state, example.goal, clue_mask, editable_mask, active_mask, device=device
+        )
+        boards_t = torch.as_tensor(np.stack(boards), dtype=torch.long, device=device)
+        clue_t = torch.as_tensor(clue_mask[None], dtype=torch.bool, device=device).expand(len(boards), -1, -1)
+        edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device).expand(len(boards), -1, -1)
+        active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device).expand(len(boards), -1, -1)
+        latents = model.encode_state(boards_t, context.expand(len(boards), -1, -1), clue_t, edit_t, active_t)
+        goal_latents = oracle_goal.expand(len(boards), -1, -1)
+        distances = model.sd_progress_distance(latents, goal_latents, active_t).detach().cpu().numpy()
+        hammings = np.asarray([np.not_equal(board, example.goal).sum() for board in boards], dtype=np.float64)
+        pairs.extend((float(hamming), float(distance)) for hamming, distance in zip(hammings, distances, strict=True))
+        monotone.extend(float(cur <= prev) for prev, cur in zip(distances[:-1], distances[1:], strict=True))
+        for before in range(len(distances)):
+            for after in range(before + 1, len(distances)):
+                if hammings[before] > hammings[after]:
+                    pairwise.append(float(distances[before] > distances[after]))
+    return {
+        "sd_progress_distance_hamming_spearman": _spearman(pairs),
+        "sd_progress_oracle_monotone_fraction": float(np.mean(monotone)) if monotone else 0.0,
+        "sd_progress_pairwise_order_accuracy": float(np.mean(pairwise)) if pairwise else 0.0,
+    }
+
+
+def _decode_ldad_probe(
+    model: GridTokenGoalJEPA,
+    delta: torch.Tensor,
+    active_mask: torch.Tensor,
+    actions: torch.Tensor,
+) -> dict[str, float]:
+    steps = 1
+    batch, starts, token_count = delta.shape[:3]
+    flat_delta = delta.reshape(batch * starts, token_count, model.d_model)
+    flat_mask = active_mask.expand(batch, *active_mask.shape[1:])
+    flat_mask = flat_mask[:, None].expand(batch, starts, *flat_mask.shape[1:]).reshape(batch * starts, *flat_mask.shape[1:])
+    action_sequence = actions[:, :starts].reshape(batch * starts, steps, 3)
+    decoder_mask = _latent_active_mask(flat_mask, token_count=token_count)
+    try:
+        selected, selected_mask = model._select_delta_action_source(flat_delta, decoder_mask, action_sequence)
+        row_logits, col_logits, digit_logits = model.delta_action_decoder(selected, selected_mask, steps)
+    except (IndexError, ValueError):
+        return {"row_acc": 0.0, "col_acc": 0.0, "digit_acc": 0.0, "action_acc": 0.0}
+    row_pred = row_logits[:, 0].argmax(dim=-1)
+    col_pred = col_logits[:, 0].argmax(dim=-1)
+    digit_pred = digit_logits[:, 0].argmax(dim=-1)
+    labels = action_sequence[:, 0]
+    row_ok = row_pred == labels[:, 0].clamp(0, 8)
+    col_ok = col_pred == labels[:, 1].clamp(0, 8)
+    digit_ok = digit_pred == labels[:, 2].clamp(0, 9)
+    return {
+        "row_acc": float(row_ok.float().mean().item()),
+        "col_acc": float(col_ok.float().mean().item()),
+        "digit_acc": float(digit_ok.float().mean().item()),
+        "action_acc": float((row_ok & col_ok & digit_ok).float().mean().item()),
+    }
+
+
+def _delta_locality_probe(delta: torch.Tensor, actions: torch.Tensor) -> dict[str, list[float]]:
+    magnitudes = delta[..., :81, :].square().sum(dim=-1).squeeze(0)
+    action_rows = actions[0, : magnitudes.shape[0], 0].detach().cpu().numpy()
+    action_cols = actions[0, : magnitudes.shape[0], 1].detach().cpu().numpy()
+    top1 = magnitudes.argmax(dim=-1).detach().cpu().numpy()
+    topk = torch.topk(magnitudes, k=min(21, magnitudes.shape[-1]), dim=-1).indices.detach().cpu().numpy()
+    changed = []
+    affected_f1 = []
+    for index, (row, col) in enumerate(zip(action_rows, action_cols, strict=True)):
+        row = int(np.clip(row, 0, 8))
+        col = int(np.clip(col, 0, 8))
+        changed_position = row * 9 + col
+        changed.append(float(int(top1[index]) == changed_position))
+        affected = _affected_positions(row, col)
+        predicted = set(int(item) for item in topk[index])
+        overlap = len(affected & predicted)
+        precision = overlap / max(1, len(predicted))
+        recall = overlap / max(1, len(affected))
+        affected_f1.append(0.0 if precision + recall == 0.0 else 2.0 * precision * recall / (precision + recall))
+    return {"changed_cell_top1": changed, "affected_f1": affected_f1}
+
+
+def _affected_positions(row: int, col: int) -> set[int]:
+    positions = {row * 9 + item for item in range(9)}
+    positions.update(item * 9 + col for item in range(9))
+    block_row = (row // 3) * 3
+    block_col = (col // 3) * 3
+    positions.update((block_row + dr) * 9 + block_col + dc for dr in range(3) for dc in range(3))
+    return positions
+
+
+def _oracle_probe_sequence(example: PuzzleExample, *, max_steps: int) -> tuple[list[np.ndarray], list[list[int]]]:
+    board = example.state.copy()
+    boards = [board.copy()]
+    actions = []
+    for row, col in np.argwhere(board == 0)[:max_steps]:
+        row = int(row)
+        col = int(col)
+        value = int(example.goal[row, col])
+        actions.append([row, col, value])
+        board = apply_fill_action(board, WorldAction(row, col, value), allow_conflicts=True)
+        boards.append(board.copy())
+    return boards, actions
 
 
 def _rollout_drift_metrics(model: GridTokenGoalJEPA, examples: list[PuzzleExample], *, device: torch.device) -> dict[str, float]:

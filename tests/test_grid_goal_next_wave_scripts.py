@@ -2466,6 +2466,12 @@ def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_wayp
         "DJ3_cross_all",
         "DJ4_marker_cell_units",
         "DJ5_cross_cell_units",
+        "DJ0_action_token_all_single",
+        "DJ1_marker_all_single",
+        "DJ2_local_all_single",
+        "DJ3_cross_all_single",
+        "DJ4_marker_cell_units_single",
+        "DJ5_cross_cell_units_single",
         "SD0_projection_only",
         "SD1_progress_rank",
         "SD2_action_subspace",
@@ -2484,6 +2490,9 @@ def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_wayp
 
     assert _shell_array_entries(train_text, "VARIANTS") == expected
     assert _shell_array_entries(submit_text, "VARIANTS") == expected
+    for variant in expected:
+        if variant.startswith("DJ") and not variant.endswith("_single"):
+            assert f"{variant}_single" in expected
 
     args = _capture_verifier_energy_calls(
         tmp_path,
@@ -2500,10 +2509,28 @@ def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_wayp
     args = _capture_verifier_energy_calls(
         tmp_path,
         script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="DJ4_marker_cell_units_single",
+    )[0]
+    assert "model.latent_representation=single" in args
+    assert "model.structured_slots=none" in args
+    assert "model.action_conditioning=affected_marker" in args
+    assert "model.delta_action_source=all_tokens" in args
+
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
         variant="SD3_progress_action",
     )[0]
     assert "model.sd_progress_weight=1.0" in args
     assert "model.delta_action_source=changed_cell_units" in args
+
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="PR2_counterfactual_successor",
+    )[0]
+    assert "model.action_rank_mode=successor_pairwise" in args
+    assert "model.action_rank_target=oracle" in args
 
     args = _capture_verifier_energy_calls(
         tmp_path,
