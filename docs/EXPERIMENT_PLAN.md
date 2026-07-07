@@ -33,6 +33,104 @@ Concrete architecture sketch:
   rollout prediction, value/energy regularization, and search scoring; it does
   not replace generation by itself.
 
+## ARC Concrete Plan
+
+Dataset:
+
+- Start with ARC-AGI-1 public training tasks only for development. Official
+  ARC-AGI-1 has 400 public training tasks and 400 public evaluation tasks.
+- Use task-level train/validation splits inside the 400 training tasks for
+  iteration. Hold public evaluation for final checks only.
+- Each task episode is `(context examples, query input, target output)`.
+  Construct leave-one-out episodes from all solved examples available in a
+  training task: one pair is the query target, the remaining pairs are context.
+- Pad grids to `30x30` with active masks. Stage 0 uses same-shape tasks or
+  oracle output shape. Later stages add explicit canvas/shape actions.
+
+State and action sampler:
+
+- State is the current candidate output grid for the query, plus context.
+- Initial states: blank/masked canvas, copied query input when shape-compatible,
+  background-only grid, direct-baseline candidate, and hard corruptions of the
+  target output.
+- Object proposals are deterministic first: color connected components,
+  non-background components, color groups, bounding boxes, rows/columns/lines,
+  rectangles, holes/enclosed regions, and components from context inputs,
+  context outputs, query input, and current candidate.
+- Selection is part of an action, not necessarily a separate first step.
+  Actions reference proposal IDs and parameters.
+- Initial action DSL: set canvas, copy/paste object, translate, rotate,
+  reflect, recolor, delete object, fill region, draw line/rectangle, crop/pad,
+  apply color map, and fallback set-cell/set-region.
+- For each sampled state, enumerate or sample a candidate action set containing
+  target-improving oracle repairs, same-family hard negatives with wrong
+  object/parameter/color, and random plausible DSL actions.
+- Apply every sampled action symbolically to produce `next_state`. JEPA trains
+  on both useful and bad transitions; value/ranking decides which successors
+  are desirable.
+
+Value/energy targets:
+
+- Do not rely on an oracle goal latent at inference. Use it only as an upper
+  bound/probe.
+- Train a context-compatibility energy `E(context, query_input, candidate)`.
+  Positives are target outputs; negatives are hard corruptions and wrong-action
+  successors.
+- Train action ranking/listwise loss on sampled candidate actions using target
+  improvement during training: all actions that best reduce target distance or
+  repair a target object are positives.
+- Train optional progress/value targets as normalized edit distance or
+  object-level distance to the target. These are training labels and probes,
+  not an inference oracle.
+- Goal-latent prediction from `(context, query_input)` is an ablation, not the
+  default planner score.
+
+Representations:
+
+- Primary representation: grid tokens plus global context token and optional
+  object slots. Grid tokens are not considered a trivial success because
+  inference does not receive the target output; the hard question is context
+  compatibility and transformation induction.
+- Ablate `grid_only`, `grid_global`, `grid_object_global`,
+  `object_global_only`, and `single_cls`.
+- Treat `single_cls` as a compression stress test, not the expected main path.
+
+Experiment gates:
+
+1. DSL oracle coverage: before training, measure how often the action set can
+   reach or substantially approach the target under oracle ranking.
+2. Direct baselines: HRM/TRM/seq2seq and raw-grid value/policy baselines on the
+   same episodes.
+3. JEPA representation value: frozen JEPA latents plus small heads must beat
+   raw-grid heads in compatibility/action ranking or sample efficiency.
+4. JEPA dynamics value: latent rollout planning must approach symbolic
+   re-encode planning; otherwise the transition predictor is not useful.
+5. Non-oracle solve value: context-compatibility/value/search must improve
+   exact output pass@1/pass@2 on held-out training tasks before public eval.
+
+Initial experiment grid:
+
+| Block | Variants | Question |
+|---|---|---|
+| State/action coverage | DSL oracle, corruptions, direct candidate repair | Is the proposed action space sufficient before learning? |
+| Baselines | Direct HRM/TRM, raw-grid policy/value, raw-grid energy | Does JEPA beat non-JEPA baselines? |
+| Representation | `grid_only`, `grid_global`, `grid_object_global`, `object_global_only`, `single_cls` | Are object/global slots useful and is single-state viable? |
+| Target dynamics | EMA target, EMA+VICReg/SIGReg, online Delta-JEPA+LDAD | Which JEPA target scheme avoids collapse and helps action ranking? |
+| Energy/value | compatibility, progress value, action ranking, goal latent, combined | Which planner score works without target output at inference? |
+| Planning | symbolic re-encode beam, latent rollout beam, policy-prior beam | Does the learned world model actually reduce search cost? |
+
+Required diagnostics:
+
+- exact output pass@1/pass@2, cell accuracy, and shape accuracy;
+- DSL oracle reachable rate and average oracle repair depth;
+- energy AUC/calibration on target vs hard negatives;
+- action top-1/top-5 target-improvement accuracy;
+- frozen-latent probe performance versus raw-grid probes;
+- latent rollout drift versus re-encoded successor latents;
+- object proposal recall against changed target regions;
+- qualitative panels with context, query, target, candidate trajectory, top
+  actions, and failure reason.
+
 ## Structured JEPA Wave
 
 Implemented and prepared, not submitted.
