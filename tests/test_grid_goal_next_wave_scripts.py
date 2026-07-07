@@ -2326,7 +2326,10 @@ def _capture_verifier_energy_calls(
     fake_python.chmod(0o755)
 
     if checkpoint:
-        run_root = work / "runs" / "grid_goal_verifier_energy" / f"grid_goal_verifier_energy_{variant}"
+        if "structured_wave" in script:
+            run_root = work / "runs" / "grid_goal_structured_wave" / f"grid_goal_structured_wave_{variant}"
+        else:
+            run_root = work / "runs" / "grid_goal_verifier_energy" / f"grid_goal_verifier_energy_{variant}"
         run_root.mkdir(parents=True, exist_ok=True)
         (run_root / "checkpoint.pt").write_bytes(b"placeholder")
 
@@ -2445,3 +2448,86 @@ def test_verifier_energy_submit_prepares_dependency_held_individual_evals():
 
     assert 'sbatch --parsable scripts/slurm/run_grid_goal_verifier_energy_train.slurm' in submit_text
     assert 'sbatch --parsable --dependency="afterok:${train_id}" scripts/slurm/run_grid_goal_verifier_energy_eval.slurm' in submit_text
+
+
+def test_structured_wave_train_variants_cover_slots_delta_sd_preference_and_waypoints(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    train_text = (repo_root / "scripts/slurm/run_grid_goal_structured_wave_train.slurm").read_text()
+    submit_text = (repo_root / "scripts/experiments/submit_grid_goal_structured_wave.sh").read_text()
+    expected = [
+        "S0_cell_baseline",
+        "S1_unit_slots",
+        "S2_global_slot",
+        "S3_progress_slot",
+        "S4_full_slots",
+        "DJ0_action_token_all",
+        "DJ1_marker_all",
+        "DJ2_local_all",
+        "DJ3_cross_all",
+        "DJ4_marker_cell_units",
+        "DJ5_cross_cell_units",
+        "SD0_projection_only",
+        "SD1_progress_rank",
+        "SD2_action_subspace",
+        "SD3_progress_action",
+        "PR0_state_pair",
+        "PR1_legal_listwise",
+        "PR2_counterfactual_successor",
+        "PR3_progress_slot_rank",
+        "PR4_successor_progress",
+        "GW0_terminal_goal",
+        "GW1_waypoint_only",
+        "GW2_waypoint_goal",
+        "GW3_goal_conditioned_waypoint",
+        "GW4_multi_waypoint",
+    ]
+
+    assert _shell_array_entries(train_text, "VARIANTS") == expected
+    assert _shell_array_entries(submit_text, "VARIANTS") == expected
+
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="DJ4_marker_cell_units",
+    )[0]
+    assert "model.structured_slots=full" in args
+    assert "model.action_conditioning=affected_marker" in args
+    assert "model.delta_action_weight=3.0" in args
+    assert "model.delta_action_source=changed_cell_units" in args
+    assert "model.dense_rollout_weighting=smooth_count" in args
+    assert "training.counterfactual_depth=8" in args
+
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="SD3_progress_action",
+    )[0]
+    assert "model.sd_progress_weight=1.0" in args
+    assert "model.delta_action_source=changed_cell_units" in args
+
+    args = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_train.slurm",
+        variant="GW3_goal_conditioned_waypoint",
+    )[0]
+    assert "model.goal_mse_weight=0.25" in args
+    assert "model.waypoint_conditioning=current_goal" in args
+
+
+def test_structured_wave_goal_waypoint_eval_runs_probes_and_combined_score(tmp_path):
+    calls = _capture_verifier_energy_calls(
+        tmp_path,
+        script="scripts/slurm/run_grid_goal_structured_wave_eval.slurm",
+        variant="GW2_waypoint_goal",
+        checkpoint=True,
+    )
+
+    assert calls[0][0:2] == ["-m", "puzzle_jepa.eval.grid_goal_diagnostics"]
+    assert calls[1][0:2] == ["-m", "puzzle_jepa.eval.grid_goal_planner_matrix"]
+    assert calls[1][calls[1].index("--planners") + 1] == "waypoint_beam"
+    assert calls[1][calls[1].index("--scores") + 1] == (
+        "oracle_waypoint_raw_euclidean_distance,"
+        "predicted_waypoint_raw_euclidean_distance,"
+        "predicted_waypoint_goal_raw_euclidean_distance"
+    )
+    assert "--allow-overwrite" in calls[1]

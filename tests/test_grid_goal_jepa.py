@@ -18,6 +18,7 @@ from puzzle_jepa.data.worlds import PuzzleExample, SudokuWorld, WorldAction
 from puzzle_jepa.models.grid_goal_jepa import (
     GridTokenGoalJEPA,
     _affected_token_weights,
+    _latent_active_mask,
     _sudoku_bad_state_labels,
     _sudoku_one_wrong_corruptions,
     _sudoku_remaining_edit_targets,
@@ -45,6 +46,7 @@ from puzzle_jepa.planning.grid_goal_planner import (
     run_categorical_cem_mpc,
     run_hierarchical_beam_mpc,
     run_hierarchical_cem_mpc,
+    run_waypoint_beam_mpc,
     run_waypoint_hierarchical_cem_mpc,
 )
 
@@ -2718,6 +2720,193 @@ def test_delta_jepa_ldad_decodes_each_configured_horizon():
     assert output.delta_action_loss.item() > 0.0
     assert [call[0] for call in calls] == [1, 3]
     assert all(shape[-2] == 81 for _, shape, _ in calls)
+
+
+def test_structured_slots_extend_latent_sequence_and_active_mask():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        structured_slots="full",
+        goal_conditioning="context",
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+    )
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    latents = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    active = _latent_active_mask(batch.active_mask, token_count=latents.shape[1])
+
+    assert latents.shape == (1, 110, 32)
+    assert active.shape == (1, 110)
+    assert bool(active[:, :81].all())
+    assert bool(active[:, 81:].all())
+    assert model.predict_goal(context, batch.active_mask).shape == (1, 110, 32)
+
+
+def test_structured_slots_keep_cell_targets_aligned_to_extra_tokens():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        structured_slots="full",
+        compatibility_weight=1.0,
+        remaining_weight=1.0,
+        verifier_corruption_weight=0.5,
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+    )
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+    )
+
+    assert output.state_latents.shape[2] == 110
+    assert torch.isfinite(output.compatibility_loss)
+    assert torch.isfinite(output.remaining_loss)
+
+
+def test_structured_slots_have_ema_target_copies():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        structured_slots="full",
+        use_ema_target_encoder=True,
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+    )
+    assert model.target_unit_slot_base is not None
+    assert model.target_global_slot is not None
+    assert model.target_progress_slot is not None
+    with torch.no_grad():
+        model.unit_slot_base.add_(1.0)
+        model.global_slot.add_(1.0)
+        model.progress_slot.add_(1.0)
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    online = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    target = model.encode_state_target(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+
+    assert online.shape == target.shape == (1, 110, 32)
+    assert not torch.allclose(online[:, 81:], target[:, 81:])
+    model.update_ema_target_encoder(decay=0.0)
+    target_after = model.encode_state_target(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    torch.testing.assert_close(online[:, 81:], target_after[:, 81:], rtol=1e-4, atol=1e-4)
+
+
+def test_delta_action_source_changed_cell_units_selects_local_and_unit_deltas():
+    model = _small_model(structured_slots="full", delta_action_source="changed_cell_units")
+    delta = torch.randn(2, 110, 32)
+    mask = torch.ones(2, 110, dtype=torch.bool)
+    actions = torch.tensor([[[0, 0, 1], [4, 5, 7]], [[8, 8, 9], [3, 3, 2]]])
+
+    selected, selected_mask = model._select_delta_action_source(delta, mask, actions)
+
+    assert selected.shape == (2, 8, 32)
+    assert selected_mask.shape == (2, 8)
+    torch.testing.assert_close(selected[:, 0], delta[torch.arange(2), torch.tensor([0, 80])])
+
+
+def test_sd_progress_loss_uses_progress_slot_without_replacing_content_latents():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        structured_slots="full",
+        sd_progress_weight=1.0,
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+    )
+    output = model(
+        batch.boards,
+        batch.actions,
+        batch.context,
+        batch.clue_mask,
+        batch.editable_mask,
+        batch.active_mask,
+        batch.goals,
+        masks=batch.masks,
+        oracle_mask=torch.ones(batch.boards.shape[0], dtype=torch.bool),
+    )
+
+    assert output.state_latents.shape[2] == 110
+    assert torch.isfinite(output.sd_progress_loss)
+    assert output.sd_progress_loss.item() >= 0.0
+    output.loss.backward()
+    assert model.sd_progress_projector[1].weight.grad is not None
+
+
+def test_waypoint_goal_combined_score_adds_weighted_terminal_goal_distance():
+    model = _small_model()
+    model.waypoint_planning_weight = 1.0
+    model.goal_planning_weight = 0.25
+    latent = torch.zeros(1, 81, 4)
+    waypoint = torch.ones_like(latent)
+    terminal = torch.full_like(latent, 2.0)
+    mask = torch.ones(1, 9, 9, dtype=torch.bool)
+
+    score = latent_distance(
+        model,
+        latent,
+        waypoint,
+        terminal,
+        mask,
+        "predicted_goal_waypoint_goal_raw_euclidean_distance",
+    )
+
+    expected = raw_tokenwise_euclidean_distance(latent, waypoint, mask) + 0.25 * raw_tokenwise_euclidean_distance(
+        latent,
+        terminal,
+        mask,
+    )
+    torch.testing.assert_close(score, expected)
+
+
+def test_goal_conditioned_waypoint_requires_goal_latents_and_preserves_shape():
+    batch = _small_batch(batch_size=1)
+    model = _small_model(
+        structured_slots="full",
+        waypoint_conditioning="current_goal",
+        waypoint_horizons=(8,),
+        sigreg_weight=0.0,
+        goal_mse_weight=0.0,
+        goal_nce_weight=0.0,
+        progress_rank_weight=0.0,
+        action_rank_weight=0.0,
+        temporal_straightening_weight=0.0,
+        terminal_corrupt_weight=0.0,
+        regularizer="none",
+    )
+    context = model.encode_context(batch.context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    current = model.encode_state(batch.boards[:, 0], context, batch.clue_mask, batch.editable_mask, batch.active_mask)
+    goal = current + 0.1
+
+    with pytest.raises(ValueError, match="goal_latents"):
+        model.predict_waypoint(context, batch.active_mask, current, horizon=8)
+
+    waypoint = model.predict_waypoint(context, batch.active_mask, current, horizon=8, goal_latents=goal)
+    assert waypoint.shape == current.shape
 
 
 def test_goal_online_no_stopgrad_uses_online_goal_encoder_without_ema_target():

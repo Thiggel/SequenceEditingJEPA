@@ -39,6 +39,7 @@ ScoreMode = Literal[
     "predicted_goal_delta_top5_raw_euclidean_distance",
     "oracle_goal_projected_euclidean_distance",
     "predicted_goal_projected_euclidean_distance",
+    "predicted_goal_waypoint_goal_raw_euclidean_distance",
     "success_metric_distance",
     "terminal_value",
     "compatibility_energy",
@@ -46,6 +47,7 @@ ScoreMode = Literal[
     "verifier_energy",
     "oracle_waypoint_raw_euclidean_distance",
     "predicted_waypoint_raw_euclidean_distance",
+    "predicted_waypoint_goal_raw_euclidean_distance",
 ]
 TransitionMode = Literal["symbolic_reencode", "latent_rollout"]
 PlannerMode = Literal[
@@ -591,7 +593,7 @@ def run_waypoint_beam_mpc(
     context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
         model, current, goal, clue_mask, editable_mask, active_mask, device=device
     )
-    del predicted_goal, oracle_goal, initial_latents
+    del oracle_goal
     action_evals = 0
     for _ in range(max_steps):
         if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
@@ -616,12 +618,29 @@ def run_waypoint_beam_mpc(
                 model,
                 current,
                 context_latents,
+                initial_latents,
                 clue_mask,
                 editable_mask,
                 active_mask,
                 horizon=waypoint_horizon,
                 device=device,
             )
+        terminal_goal = waypoint
+        inner_score_mode = "oracle_goal_raw_euclidean_distance"
+        if str(score_mode) == "predicted_waypoint_goal_raw_euclidean_distance":
+            predicted_goal = _predict_goal_for_board(
+                model,
+                current,
+                context_latents,
+                initial_latents,
+                clue_mask,
+                editable_mask,
+                active_mask,
+                device=device,
+                allow_overwrite=allow_overwrite,
+            )
+            terminal_goal = predicted_goal
+            inner_score_mode = "predicted_goal_waypoint_goal_raw_euclidean_distance"
         if hierarchical:
             first, evals = _waypoint_hierarchical_beam_once(
                 model,
@@ -645,11 +664,11 @@ def run_waypoint_beam_mpc(
                 goal,
                 context_latents,
                 waypoint,
-                waypoint,
+                terminal_goal,
                 clue_mask,
                 editable_mask,
                 active_mask,
-                score_mode="oracle_goal_raw_euclidean_distance",
+                score_mode=inner_score_mode,
                 transition_mode=transition_mode,
                 beam_width=beam_width,
                 beam_depth=depth,
@@ -728,7 +747,7 @@ def run_waypoint_hierarchical_cem_mpc(
     context_latents, predicted_goal, oracle_goal, initial_latents = _prepare_goal_latents(
         model, current, goal, clue_mask, editable_mask, active_mask, device=device
     )
-    del predicted_goal, oracle_goal, initial_latents
+    del predicted_goal, oracle_goal
     action_evals = 0
     for _ in range(max_steps):
         if np.array_equal(current, goal) or ((not allow_overwrite) and not np.any(current == 0)):
@@ -753,6 +772,7 @@ def run_waypoint_hierarchical_cem_mpc(
                 model,
                 current,
                 context_latents,
+                initial_latents,
                 clue_mask,
                 editable_mask,
                 active_mask,
@@ -1819,6 +1839,14 @@ def latent_distance(
         return model.distance(latent, predicted_goal, mask)
     if score_mode == "oracle_goal_distance":
         return model.distance(latent, oracle_goal, mask)
+    if score_mode == "predicted_goal_waypoint_goal_raw_euclidean_distance":
+        waypoint_weight = float(getattr(model, "waypoint_planning_weight", 1.0) or 1.0)
+        goal_weight = float(getattr(model, "goal_planning_weight", 0.1) or 0.1)
+        return waypoint_weight * raw_tokenwise_euclidean_distance(
+            latent,
+            predicted_goal,
+            mask,
+        ) + goal_weight * raw_tokenwise_euclidean_distance(latent, oracle_goal, mask)
     target_goal = _target_goal_latents(score_mode, predicted_goal, oracle_goal)
     metric = _score_metric_name(score_mode)
     if metric in {"raw_euclidean_distance", "raw_euclidean_progress"}:
@@ -2320,6 +2348,7 @@ def _predict_waypoint_for_board(
     model: GridTokenGoalJEPA,
     board: np.ndarray,
     context_latents: torch.Tensor,
+    initial_latents: torch.Tensor | None,
     clue_mask: np.ndarray,
     editable_mask: np.ndarray,
     active_mask: np.ndarray,
@@ -2332,7 +2361,17 @@ def _predict_waypoint_for_board(
     edit_t = torch.as_tensor(editable_mask[None], dtype=torch.bool, device=device)
     active_t = torch.as_tensor(active_mask[None], dtype=torch.bool, device=device)
     current_latents = model.encode_state(board_t, context_latents, clue_t, edit_t, active_t)
-    return model.predict_waypoint(context_latents, active_t, current_latents, horizon=horizon)
+    goal_latents = None
+    if getattr(model, "waypoint_conditioning", "current") == "current_goal":
+        if initial_latents is None:
+            raise ValueError("waypoint_conditioning='current_goal' requires initial_latents during planning.")
+        goal_latents = model.predict_goal(
+            context_latents,
+            active_t,
+            initial_latents=initial_latents if model.goal_conditioning == "initial_current" else None,
+            current_latents=current_latents if model.goal_conditioning in {"initial_current", "context_current"} else None,
+        )
+    return model.predict_waypoint(context_latents, active_t, current_latents, horizon=horizon, goal_latents=goal_latents)
 
 
 @torch.no_grad()

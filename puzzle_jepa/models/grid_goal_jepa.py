@@ -38,6 +38,7 @@ class GridGoalJEPAOutput:
     remaining_loss: torch.Tensor
     verifier_predicted_loss: torch.Tensor
     verifier_rank_loss: torch.Tensor
+    sd_progress_loss: torch.Tensor
     temporal_straightening_loss: torch.Tensor
     terminal_corrupt_loss: torch.Tensor
     state_latents: torch.Tensor
@@ -484,6 +485,9 @@ class GridTokenGoalJEPA(nn.Module):
         waypoint_horizons: tuple[int, ...] = (),
         waypoint_loss_weight: float = 0.0,
         waypoint_final_weight: float = 0.0,
+        waypoint_planning_weight: float = 1.0,
+        goal_planning_weight: float = 0.1,
+        waypoint_conditioning: str = "current",
         progress_rank_target: str = "predicted",
         action_rank_mode: str = "pairwise",
         action_rank_target: str = "predicted",
@@ -514,6 +518,10 @@ class GridTokenGoalJEPA(nn.Module):
         verifier_energy_projection: str = "none",
         verifier_score_alpha: float = 1.0,
         verifier_score_beta: float = 1.0,
+        structured_slots: str = "none",
+        delta_action_source: str = "all_tokens",
+        sd_progress_weight: float = 0.0,
+        sd_progress_dim: int = 32,
         policy_prior_target: str = "goal",
         distance_mode: str = "tokenwise",
         latent_representation: str = "grid",
@@ -531,11 +539,48 @@ class GridTokenGoalJEPA(nn.Module):
         self.d_model = int(d_model)
         self.max_rows = 9
         self.max_cols = 9
+        allowed_structured_slots = {
+            "none",
+            "unit",
+            "global",
+            "progress",
+            "unit_global",
+            "unit_progress",
+            "global_progress",
+            "full",
+        }
+        if structured_slots not in allowed_structured_slots:
+            raise ValueError(f"structured_slots must be one of {sorted(allowed_structured_slots)}.")
+        self.structured_slots = str(structured_slots)
         allowed_latent_representations = {"grid", "single"}
         if latent_representation not in allowed_latent_representations:
             raise ValueError(f"latent_representation must be one of {sorted(allowed_latent_representations)}.")
         self.latent_representation = str(latent_representation)
+        if self.latent_representation == "single" and self.structured_slots != "none":
+            raise ValueError("structured_slots are only supported for latent_representation='grid'.")
         self.embedder = GridTokenEmbedder(d_model=d_model)
+        self.use_unit_slots = self.structured_slots in {"unit", "unit_global", "unit_progress", "full"}
+        self.use_global_slot = self.structured_slots in {"global", "unit_global", "global_progress", "full"}
+        self.use_progress_slot = self.structured_slots in {"progress", "unit_progress", "global_progress", "full"}
+        if self.use_unit_slots:
+            self.unit_slot_base = nn.Parameter(torch.empty(27, d_model))
+            self.unit_slot_type = nn.Embedding(3, d_model)
+            self.unit_slot_index = nn.Embedding(9, d_model)
+            nn.init.normal_(self.unit_slot_base, std=0.02)
+        else:
+            self.unit_slot_base = None
+            self.unit_slot_type = None
+            self.unit_slot_index = None
+        if self.use_global_slot:
+            self.global_slot = nn.Parameter(torch.empty(1, d_model))
+            nn.init.normal_(self.global_slot, std=0.02)
+        else:
+            self.global_slot = None
+        if self.use_progress_slot:
+            self.progress_slot = nn.Parameter(torch.empty(1, d_model))
+            nn.init.normal_(self.progress_slot, std=0.02)
+        else:
+            self.progress_slot = None
         self.context_encoder = BidirectionalTransformer(
             num_layers=context_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
         )
@@ -678,6 +723,11 @@ class GridTokenGoalJEPA(nn.Module):
         self.waypoint_horizons = tuple(sorted({int(horizon) for horizon in waypoint_horizons if int(horizon) > 0}))
         self.waypoint_loss_weight = float(waypoint_loss_weight)
         self.waypoint_final_weight = float(waypoint_final_weight)
+        self.waypoint_planning_weight = float(waypoint_planning_weight)
+        self.goal_planning_weight = float(goal_planning_weight)
+        if waypoint_conditioning not in {"current", "current_goal"}:
+            raise ValueError("waypoint_conditioning must be 'current' or 'current_goal'.")
+        self.waypoint_conditioning = str(waypoint_conditioning)
         allowed_progress_targets = {"predicted", "oracle", "both", "none"}
         if progress_rank_target not in allowed_progress_targets:
             raise ValueError(f"progress_rank_target must be one of {sorted(allowed_progress_targets)}.")
@@ -742,6 +792,22 @@ class GridTokenGoalJEPA(nn.Module):
         self.verifier_energy_projection_mode = str(verifier_energy_projection)
         self.verifier_score_alpha = float(verifier_score_alpha)
         self.verifier_score_beta = float(verifier_score_beta)
+        allowed_delta_action_sources = {
+            "all_tokens",
+            "cell_tokens",
+            "changed_cell",
+            "changed_cell_units",
+            "global_slot",
+            "progress_slot",
+            "global_progress",
+        }
+        if delta_action_source not in allowed_delta_action_sources:
+            raise ValueError(f"delta_action_source must be one of {sorted(allowed_delta_action_sources)}.")
+        self.delta_action_source = str(delta_action_source)
+        self.sd_progress_weight = float(sd_progress_weight)
+        self.sd_progress_dim = int(sd_progress_dim)
+        if self.sd_progress_dim <= 0:
+            raise ValueError("sd_progress_dim must be positive.")
         if policy_prior_target not in {"goal", "verifier"}:
             raise ValueError("policy_prior_target must be 'goal' or 'verifier'.")
         self.policy_prior_target = str(policy_prior_target)
@@ -767,6 +833,11 @@ class GridTokenGoalJEPA(nn.Module):
             self.verifier_energy_projection = nn.Identity()
         self.compatibility_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
         self.remaining_head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
+        self.sd_progress_projector = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, self.sd_progress_dim),
+            nn.LayerNorm(self.sd_progress_dim),
+        )
         self.sigreg_weight = float(sigreg_weight)
         self.goal_mse_weight = float(goal_mse_weight)
         self.goal_nce_weight = float(goal_nce_weight)
@@ -841,11 +912,24 @@ class GridTokenGoalJEPA(nn.Module):
             raise ValueError("use_ema_target_encoder=true is incompatible with dynamics_target_mode='online_no_stopgrad'.")
         self.target_single_state_norm = None
         self.target_single_state_cls = None
+        self.target_unit_slot_base = None
+        self.target_unit_slot_type = None
+        self.target_unit_slot_index = None
+        self.target_global_slot = None
+        self.target_progress_slot = None
         if self.use_ema_target_encoder:
             self.target_embedder = GridTokenEmbedder(d_model=d_model)
             self.target_state_encoder = BidirectionalTransformer(
                 num_layers=state_layers, d_model=d_model, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout
             )
+            if self.use_unit_slots:
+                self.target_unit_slot_base = nn.Parameter(torch.empty(27, d_model))
+                self.target_unit_slot_type = nn.Embedding(3, d_model)
+                self.target_unit_slot_index = nn.Embedding(9, d_model)
+            if self.use_global_slot:
+                self.target_global_slot = nn.Parameter(torch.empty(1, d_model))
+            if self.use_progress_slot:
+                self.target_progress_slot = nn.Parameter(torch.empty(1, d_model))
             self.target_metric_src_projector = nn.Linear(d_model, distance_dim)
             if self.metric_asymmetric_projection:
                 self.target_metric_goal_projector = nn.Linear(d_model, distance_dim)
@@ -884,6 +968,7 @@ class GridTokenGoalJEPA(nn.Module):
         tokens = self.embedder(
             state, role=ROLE_STATE, known_mask=clue_mask, editable_mask=editable_mask, active_mask=active_mask
         )
+        tokens = self._append_structured_slots(tokens)
         if self.latent_representation == "single":
             if self.single_state_cls is None or self.single_state_norm is None:
                 raise RuntimeError("Single-state CLS encoder was not initialized.")
@@ -909,6 +994,7 @@ class GridTokenGoalJEPA(nn.Module):
             tokens = self.target_embedder(
                 state, role=ROLE_STATE, known_mask=clue_mask, editable_mask=editable_mask, active_mask=active_mask
             )
+            tokens = self._append_structured_slots(tokens, target=True)
             if self.latent_representation == "single":
                 if self.target_single_state_cls is None or self.target_single_state_norm is None:
                     raise RuntimeError("Target single-state CLS encoder was not initialized.")
@@ -1040,6 +1126,16 @@ class GridTokenGoalJEPA(nn.Module):
             self.target_single_state_cls.data.mul_(decay).add_(self.single_state_cls.data, alpha=1.0 - decay)
         if self.target_single_state_norm is not None and self.single_state_norm is not None:
             _ema_update(self.target_single_state_norm, self.single_state_norm, decay)
+        if self.target_unit_slot_base is not None and self.unit_slot_base is not None:
+            self.target_unit_slot_base.data.mul_(decay).add_(self.unit_slot_base.data, alpha=1.0 - decay)
+        if self.target_unit_slot_type is not None and self.unit_slot_type is not None:
+            _ema_update(self.target_unit_slot_type, self.unit_slot_type, decay)
+        if self.target_unit_slot_index is not None and self.unit_slot_index is not None:
+            _ema_update(self.target_unit_slot_index, self.unit_slot_index, decay)
+        if self.target_global_slot is not None and self.global_slot is not None:
+            self.target_global_slot.data.mul_(decay).add_(self.global_slot.data, alpha=1.0 - decay)
+        if self.target_progress_slot is not None and self.progress_slot is not None:
+            self.target_progress_slot.data.mul_(decay).add_(self.progress_slot.data, alpha=1.0 - decay)
 
     def predict_goal(
         self,
@@ -1054,7 +1150,7 @@ class GridTokenGoalJEPA(nn.Module):
                 raise RuntimeError("single_goal_query was not initialized.")
             queries = self.single_goal_query.view(1, 1, -1).expand(context_latents.shape[0], -1, -1)
         else:
-            queries = self.embedder.query_tokens(active_mask)
+            queries = self._latent_query_tokens(active_mask)
         memory = context_latents
         if self.goal_conditioning in {"initial_current", "context_current"}:
             if current_latents is None:
@@ -1085,6 +1181,7 @@ class GridTokenGoalJEPA(nn.Module):
         current_latents: torch.Tensor,
         *,
         horizon: int | None = None,
+        goal_latents: torch.Tensor | None = None,
     ) -> torch.Tensor:
         configured = self.waypoint_horizons or (int(horizon) if horizon is not None else 1,)
         horizons = (int(horizon),) if horizon is not None else configured
@@ -1093,7 +1190,7 @@ class GridTokenGoalJEPA(nn.Module):
                 raise RuntimeError("single_waypoint_query was not initialized.")
             base_queries = self.single_waypoint_query.view(1, 1, -1).expand(context_latents.shape[0], -1, -1)
         else:
-            base_queries = self.embedder.query_tokens(active_mask)
+            base_queries = self._latent_query_tokens(active_mask)
         horizon_ids = torch.as_tensor(
             [min(max(int(item), 0), self.waypoint_horizon_embedding.num_embeddings - 1) for item in horizons],
             dtype=torch.long,
@@ -1106,7 +1203,17 @@ class GridTokenGoalJEPA(nn.Module):
             len(horizons) * query_count,
             self.d_model,
         )
-        memory = torch.cat([context_latents, current_latents], dim=-2)
+        if self.waypoint_conditioning == "current_goal":
+            if goal_latents is None:
+                raise ValueError("waypoint_conditioning='current_goal' requires goal_latents.")
+            if goal_latents.shape != current_latents.shape:
+                raise ValueError(
+                    f"Waypoint goal latents and current latents must match, got "
+                    f"{tuple(goal_latents.shape)} and {tuple(current_latents.shape)}."
+                )
+            memory = torch.cat([context_latents, current_latents, goal_latents], dim=-2)
+        else:
+            memory = torch.cat([context_latents, current_latents], dim=-2)
         decoded = self.waypoint_decoder(queries, memory).reshape(
             context_latents.shape[0],
             len(horizons),
@@ -1116,6 +1223,88 @@ class GridTokenGoalJEPA(nn.Module):
         if horizon is not None:
             return decoded[:, 0]
         return decoded
+
+    def _append_structured_slots(self, tokens: torch.Tensor, *, target: bool = False) -> torch.Tensor:
+        if self.structured_slots == "none":
+            return tokens
+        extras = []
+        batch = tokens.shape[0]
+        dtype = tokens.dtype
+        device = tokens.device
+        if self.use_unit_slots:
+            unit_base = self.target_unit_slot_base if target and self.target_unit_slot_base is not None else self.unit_slot_base
+            unit_type = self.target_unit_slot_type if target and self.target_unit_slot_type is not None else self.unit_slot_type
+            unit_index = self.target_unit_slot_index if target and self.target_unit_slot_index is not None else self.unit_slot_index
+            if unit_base is None or unit_type is None or unit_index is None:
+                raise RuntimeError("Unit slots were not initialized.")
+            unit_ids = torch.arange(27, device=device)
+            type_ids = unit_ids // 9
+            index_ids = unit_ids % 9
+            unit_slots = (
+                unit_base.to(dtype=dtype, device=device)
+                + unit_type(type_ids).to(dtype=dtype)
+                + unit_index(index_ids).to(dtype=dtype)
+            )
+            extras.append(unit_slots.unsqueeze(0).expand(batch, -1, -1))
+        if self.use_global_slot:
+            global_slot = self.target_global_slot if target and self.target_global_slot is not None else self.global_slot
+            if global_slot is None:
+                raise RuntimeError("Global slot was not initialized.")
+            extras.append(global_slot.to(dtype=dtype, device=device).view(1, 1, -1).expand(batch, -1, -1))
+        if self.use_progress_slot:
+            progress_slot = self.target_progress_slot if target and self.target_progress_slot is not None else self.progress_slot
+            if progress_slot is None:
+                raise RuntimeError("Progress slot was not initialized.")
+            extras.append(progress_slot.to(dtype=dtype, device=device).view(1, 1, -1).expand(batch, -1, -1))
+        return torch.cat([tokens, *extras], dim=1) if extras else tokens
+
+    def _latent_query_tokens(self, active_mask: torch.Tensor) -> torch.Tensor:
+        return self._append_structured_slots(self.embedder.query_tokens(active_mask))
+
+    def _progress_summary(self, latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
+        if self.use_progress_slot and latents.shape[-2] > self.max_rows * self.max_cols:
+            return latents[..., -1, :]
+        mask = _latent_active_mask(active_mask, token_count=latents.shape[-2])
+        return _masked_summary(latents, mask)
+
+    def sd_progress_distance(
+        self,
+        state_latents: torch.Tensor,
+        goal_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        state_summary = self._progress_summary(state_latents, active_mask)
+        goal_summary = self._progress_summary(goal_latents, active_mask)
+        state_proj = F.normalize(self.sd_progress_projector(state_summary.float()), dim=-1, eps=1.0e-6)
+        goal_proj = F.normalize(self.sd_progress_projector(goal_summary.float()), dim=-1, eps=1.0e-6)
+        return (state_proj - goal_proj).square().sum(dim=-1)
+
+    def _sd_progress_objective(
+        self,
+        state_latents: torch.Tensor,
+        goal_latents: torch.Tensor,
+        active_mask: torch.Tensor,
+        masks: torch.Tensor,
+    ) -> torch.Tensor:
+        batch, frames, token_count = state_latents.shape[:3]
+        goal_sequence = goal_latents[:, None].expand(batch, frames, token_count, self.d_model)
+        distances = self.sd_progress_distance(
+            state_latents.reshape(batch * frames, token_count, self.d_model),
+            goal_sequence.reshape(batch * frames, token_count, self.d_model),
+            _expand_frame_mask(active_mask, frames),
+        ).reshape(batch, frames)
+        rank_loss = _progress_rank_loss(
+            distances,
+            masks,
+            margin=self.progress_margin,
+            temperature=self.rank_temperature,
+        )
+        terminal_valid = masks[:, -1]
+        if bool(terminal_valid.any()):
+            terminal_loss = distances[:, -1][terminal_valid].mean()
+        else:
+            terminal_loss = distances.sum() * 0.0
+        return rank_loss + terminal_loss
 
     def distance(self, state_latents: torch.Tensor, goal_latents: torch.Tensor, active_mask: torch.Tensor) -> torch.Tensor:
         mask = _latent_active_mask(active_mask, token_count=state_latents.shape[-2])
@@ -1975,10 +2164,12 @@ class GridTokenGoalJEPA(nn.Module):
             lengths = masks.long().sum(dim=1).clamp_min(1)
             frame_ids = torch.arange(frames, device=boards.device)[None].expand(batch, frames)
             flat_current = state_latents.reshape(batch * frames, token_count, self.d_model)
+            flat_waypoint_goal = predicted_goal_sequence.reshape(batch * frames, token_count, self.d_model)
             waypoint_pred_sequence = self.predict_waypoint(
                 flat_context,
                 flat_active,
                 flat_current.detach() if self.goal_conditioning_detach_state else flat_current,
+                goal_latents=flat_waypoint_goal.detach() if self.goal_conditioning_detach_state else flat_waypoint_goal,
             ).reshape(batch, frames, len(self.waypoint_horizons), token_count, self.d_model)
             for horizon_index, horizon in enumerate(self.waypoint_horizons):
                 target_ids = torch.minimum(frame_ids + int(horizon), (lengths - 1)[:, None])
@@ -2033,6 +2224,10 @@ class GridTokenGoalJEPA(nn.Module):
             progress_rank_loss = self._progress_rank_objective(predicted_distances, oracle_distances, progress_masks)
         else:
             progress_rank_loss = zero_loss
+        if self.sd_progress_weight > 0.0:
+            sd_progress_loss = self._sd_progress_objective(state_latents, goal_target, active_mask, progress_masks)
+        else:
+            sd_progress_loss = zero_loss
         if self.temporal_straightening_weight > 0.0:
             temporal_straightening_loss = _temporal_straightening_loss(
                 state_latents,
@@ -2318,6 +2513,8 @@ class GridTokenGoalJEPA(nn.Module):
             loss = loss + self.verifier_predicted_weight * verifier_predicted_loss
         if self.verifier_rank_weight > 0.0:
             loss = loss + self.verifier_rank_weight * verifier_rank_loss
+        if self.sd_progress_weight > 0.0:
+            loss = loss + self.sd_progress_weight * sd_progress_loss
         if self.temporal_straightening_weight > 0.0:
             loss = loss + self.temporal_straightening_weight * temporal_straightening_loss
         if self.terminal_corrupt_weight > 0.0:
@@ -2346,6 +2543,7 @@ class GridTokenGoalJEPA(nn.Module):
             remaining_loss=remaining_loss.detach(),
             verifier_predicted_loss=verifier_predicted_loss.detach(),
             verifier_rank_loss=verifier_rank_loss.detach(),
+            sd_progress_loss=sd_progress_loss.detach(),
             temporal_straightening_loss=temporal_straightening_loss.detach(),
             terminal_corrupt_loss=terminal_corrupt_loss.detach(),
             state_latents=state_latents,
@@ -2750,16 +2948,17 @@ class GridTokenGoalJEPA(nn.Module):
             if not bool(valid.any()):
                 continue
             delta = state_latents[:, horizon : horizon + start_count] - state_latents[:, :start_count]
+            action_sequence = torch.stack(
+                [actions[:, offset : offset + start_count] for offset in range(horizon)],
+                dim=2,
+            ).reshape(batch * start_count, horizon, 3)
             delta = delta.reshape(batch * start_count, token_count, self.d_model)
             decoder_mask = latent_mask[:, None].expand(batch, start_count, token_count).reshape(
                 batch * start_count,
                 token_count,
             )
+            delta, decoder_mask = self._select_delta_action_source(delta, decoder_mask, action_sequence)
             row_logits, col_logits, digit_logits = self.delta_action_decoder(delta, decoder_mask, int(horizon))
-            action_sequence = torch.stack(
-                [actions[:, offset : offset + start_count] for offset in range(horizon)],
-                dim=2,
-            ).reshape(batch * start_count, horizon, 3)
             valid_flat = valid.reshape(batch * start_count)
             rows = action_sequence[..., 0].clamp(0, self.max_rows - 1)
             cols = action_sequence[..., 1].clamp(0, self.max_cols - 1)
@@ -2783,6 +2982,108 @@ class GridTokenGoalJEPA(nn.Module):
         if not terms:
             return state_latents.sum() * 0.0
         return torch.stack(terms).mean()
+
+    def _select_delta_action_source(
+        self,
+        delta_tokens: torch.Tensor,
+        active_mask: torch.Tensor,
+        action_sequence: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        source = self.delta_action_source
+        if source == "all_tokens":
+            return delta_tokens, active_mask
+        cell_count = self.max_rows * self.max_cols
+        if source == "cell_tokens":
+            return delta_tokens[:, :cell_count], active_mask[:, :cell_count]
+        if source == "changed_cell":
+            return self._gather_changed_cell_delta(delta_tokens, action_sequence), torch.ones(
+                (delta_tokens.shape[0], action_sequence.shape[1]),
+                dtype=torch.bool,
+                device=delta_tokens.device,
+            )
+        if source == "changed_cell_units":
+            changed = self._gather_changed_cell_delta(delta_tokens, action_sequence)
+            if not self.use_unit_slots:
+                return changed, torch.ones(changed.shape[:2], dtype=torch.bool, device=changed.device)
+            unit_delta, unit_mask = self._gather_action_unit_delta(delta_tokens, action_sequence)
+            tokens = torch.cat([changed, unit_delta], dim=1)
+            mask = torch.cat(
+                [
+                    torch.ones(changed.shape[:2], dtype=torch.bool, device=changed.device),
+                    unit_mask,
+                ],
+                dim=1,
+            )
+            return tokens, mask
+        if source == "global_slot":
+            if not self.use_global_slot:
+                raise ValueError("delta_action_source='global_slot' requires structured_slots with a global slot.")
+            index = self._global_slot_index(delta_tokens.shape[1])
+            return delta_tokens[:, index : index + 1], torch.ones((delta_tokens.shape[0], 1), dtype=torch.bool, device=delta_tokens.device)
+        if source == "progress_slot":
+            if not self.use_progress_slot:
+                raise ValueError("delta_action_source='progress_slot' requires structured_slots with a progress slot.")
+            index = self._progress_slot_index(delta_tokens.shape[1])
+            return delta_tokens[:, index : index + 1], torch.ones((delta_tokens.shape[0], 1), dtype=torch.bool, device=delta_tokens.device)
+        if source == "global_progress":
+            indices = []
+            if self.use_global_slot:
+                indices.append(self._global_slot_index(delta_tokens.shape[1]))
+            if self.use_progress_slot:
+                indices.append(self._progress_slot_index(delta_tokens.shape[1]))
+            if not indices:
+                raise ValueError("delta_action_source='global_progress' requires global or progress structured slots.")
+            selected = delta_tokens[:, indices]
+            return selected, torch.ones(selected.shape[:2], dtype=torch.bool, device=delta_tokens.device)
+        raise RuntimeError(f"Unhandled delta_action_source={source!r}.")
+
+    def _gather_changed_cell_delta(self, delta_tokens: torch.Tensor, action_sequence: torch.Tensor) -> torch.Tensor:
+        positions = _action_positions(action_sequence.reshape(-1, 3), rows=self.max_rows, cols=self.max_cols).reshape(
+            action_sequence.shape[:2]
+        )
+        batch_ids = torch.arange(delta_tokens.shape[0], device=delta_tokens.device)[:, None].expand_as(positions)
+        return delta_tokens[batch_ids, positions]
+
+    def _gather_action_unit_delta(
+        self,
+        delta_tokens: torch.Tensor,
+        action_sequence: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        cell_count = self.max_rows * self.max_cols
+        unit_start = cell_count
+        if delta_tokens.shape[1] < unit_start + 27:
+            empty = delta_tokens[:, :0]
+            return empty, torch.zeros(empty.shape[:2], dtype=torch.bool, device=delta_tokens.device)
+        flat_actions = action_sequence.reshape(-1, 3)
+        rows = flat_actions[:, 0].clamp(0, 8)
+        cols = flat_actions[:, 1].clamp(0, 8)
+        boxes = (rows // 3) * 3 + (cols // 3)
+        unit_indices = torch.stack([rows, 9 + cols, 18 + boxes], dim=1).reshape(
+            action_sequence.shape[0],
+            action_sequence.shape[1] * 3,
+        )
+        batch_ids = torch.arange(delta_tokens.shape[0], device=delta_tokens.device)[:, None].expand_as(unit_indices)
+        gathered = delta_tokens[batch_ids, unit_start + unit_indices]
+        mask = torch.ones(gathered.shape[:2], dtype=torch.bool, device=delta_tokens.device)
+        return gathered, mask
+
+    def _global_slot_index(self, token_count: int) -> int:
+        index = self.max_rows * self.max_cols
+        if self.use_unit_slots:
+            index += 27
+        if not self.use_global_slot or index >= token_count:
+            raise ValueError("Global slot is not present in this latent sequence.")
+        return index
+
+    def _progress_slot_index(self, token_count: int) -> int:
+        index = self.max_rows * self.max_cols
+        if self.use_unit_slots:
+            index += 27
+        if self.use_global_slot:
+            index += 1
+        if not self.use_progress_slot or index >= token_count:
+            raise ValueError("Progress slot is not present in this latent sequence.")
+        return index
 
     def _listwise_action_rank_loss(
         self,
@@ -2996,12 +3297,12 @@ class GridTokenGoalJEPA(nn.Module):
         per_token = (predicted - target).square().mean(dim=-1)
         if self.dynamics_weighting == "uniform":
             return per_token.mean(dim=-1)
-        if per_token.shape[-1] != rows * cols:
+        if per_token.shape[-1] < rows * cols:
             return per_token.mean(dim=-1)
         context_weight = self.context_dynamics_weight if self.dynamics_weighting == "affected_context" else None
         weights = _affected_token_weights(
             actions,
-            token_count=rows * cols,
+            token_count=per_token.shape[-1],
             rows=rows,
             cols=cols,
             affected_weight=self.affected_dynamics_weight,
@@ -3033,6 +3334,21 @@ class GridTokenGoalJEPA(nn.Module):
         if self.target_single_state_norm is not None and self.single_state_norm is not None:
             self.target_single_state_norm.load_state_dict(self.single_state_norm.state_dict())
             modules.append(self.target_single_state_norm)
+        if self.target_unit_slot_base is not None and self.unit_slot_base is not None:
+            self.target_unit_slot_base.data.copy_(self.unit_slot_base.data)
+            self.target_unit_slot_base.requires_grad_(False)
+        if self.target_unit_slot_type is not None and self.unit_slot_type is not None:
+            self.target_unit_slot_type.load_state_dict(self.unit_slot_type.state_dict())
+            modules.append(self.target_unit_slot_type)
+        if self.target_unit_slot_index is not None and self.unit_slot_index is not None:
+            self.target_unit_slot_index.load_state_dict(self.unit_slot_index.state_dict())
+            modules.append(self.target_unit_slot_index)
+        if self.target_global_slot is not None and self.global_slot is not None:
+            self.target_global_slot.data.copy_(self.global_slot.data)
+            self.target_global_slot.requires_grad_(False)
+        if self.target_progress_slot is not None and self.progress_slot is not None:
+            self.target_progress_slot.data.copy_(self.progress_slot.data)
+            self.target_progress_slot.requires_grad_(False)
         for module in modules:
             module.requires_grad_(False)
 
@@ -3057,6 +3373,13 @@ def _latent_active_mask(active_mask: torch.Tensor, *, token_count: int) -> torch
         return mask
     if int(token_count) == 1:
         return torch.ones((*mask.shape[:-1], 1), dtype=torch.bool, device=mask.device)
+    if int(token_count) > int(mask.shape[-1]):
+        extra = torch.ones(
+            (*mask.shape[:-1], int(token_count) - int(mask.shape[-1])),
+            dtype=torch.bool,
+            device=mask.device,
+        )
+        return torch.cat([mask, extra], dim=-1)
     raise ValueError(f"Active mask with {mask.shape[-1]} tokens cannot mask latent sequence with {token_count} tokens.")
 
 
@@ -3066,6 +3389,16 @@ def _expand_batch_tokens(tokens: torch.Tensor, reference: torch.Tensor) -> torch
     if tokens.shape[0] == 1 and tokens.shape[1:] == reference.shape[1:]:
         return tokens.expand(reference.shape[0], -1, -1)
     return tokens
+
+
+def _expand_frame_mask(active_mask: torch.Tensor, frames: int) -> torch.Tensor:
+    if active_mask.ndim == 3:
+        batch, rows, cols = active_mask.shape
+        return active_mask[:, None].expand(batch, frames, rows, cols).reshape(batch * frames, rows, cols)
+    if active_mask.ndim == 2:
+        batch, tokens = active_mask.shape
+        return active_mask[:, None].expand(batch, frames, tokens).reshape(batch * frames, tokens)
+    raise ValueError(f"Active mask must have shape [batch, tokens] or [batch, rows, cols], got {tuple(active_mask.shape)}.")
 
 
 def _masked_summary(tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -3150,6 +3483,13 @@ def _align_token_targets(targets: torch.Tensor, token_count: int) -> torch.Tenso
         return targets
     if token_count == 1:
         return targets.sum(dim=-1, keepdim=True)
+    if token_count > targets.shape[-1]:
+        pad = torch.zeros(
+            (*targets.shape[:-1], int(token_count) - int(targets.shape[-1])),
+            dtype=targets.dtype,
+            device=targets.device,
+        )
+        return torch.cat([targets, pad], dim=-1)
     raise ValueError(f"Cannot align {targets.shape[-1]} Sudoku targets to {token_count} latent tokens.")
 
 

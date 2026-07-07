@@ -2,7 +2,39 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-07 11:15 CEST
+Last updated: 2026-07-07 11:46 CEST
+
+## Structured JEPA Wave
+
+Status: implemented and script-prepared, not submitted.
+
+Purpose: test the next architectural hypothesis one component at a time after
+single-CLS, predicted-goal, waypoint, Delta-JEPA, and verifier-free W/R waves
+failed to produce non-oracle solves. This wave keeps the reliable full-grid
+Sudoku base and adds structured latent slots, Delta-JEPA delta-source variants,
+SD-JEPA-style progress subspace supervision, preference/action ranking, and a
+goal+waypoint planner score.
+
+Prepared scripts:
+
+- `scripts/slurm/run_grid_goal_structured_wave_train.slurm`
+- `scripts/slurm/run_grid_goal_structured_wave_eval.slurm`
+- `scripts/experiments/submit_grid_goal_structured_wave.sh`
+
+Prepared variants:
+
+| Block | Variants | What it tests |
+|---|---|---|
+| Structured slots | `S0`-`S4` | 81 cells versus unit/global/progress/full slot layouts. |
+| Delta-JEPA | `DJ0`-`DJ5` | Action conditioning crossed with all-token versus changed-cell+unit LDAD sources. |
+| SD-JEPA | `SD0`-`SD3` | Separate progress projection and action-effect subspace. |
+| Preference ranking | `PR0`-`PR4` | State progress rank, legal/listwise action rank, and counterfactual successor rank. |
+| Goal/waypoint | `GW0`-`GW4` | Terminal goal, waypoint, waypoint+goal score, goal-conditioned waypoint, and multi-waypoint sketch. |
+
+No Slurm job IDs exist yet. The submitter creates one training job and one
+dependency-held individual eval job per variant. Eval runs diagnostics first,
+then planner rows; goal/waypoint rows include the combined
+`predicted_waypoint_goal_raw_euclidean_distance` score.
 
 ## Wide Single-CLS Oracle Probe
 

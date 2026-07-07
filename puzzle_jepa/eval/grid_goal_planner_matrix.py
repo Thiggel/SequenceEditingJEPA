@@ -49,6 +49,7 @@ def load_checkpoint(path: Path, device: torch.device) -> tuple[GridTokenGoalJEPA
             "metric_value_head.",
             "compatibility_head.",
             "remaining_head.",
+            "sd_progress_projector.",
             "target_metric_src_projector.",
             "target_metric_goal_projector.",
             "waypoint_horizon_embedding.",

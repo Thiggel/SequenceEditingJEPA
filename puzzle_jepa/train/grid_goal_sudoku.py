@@ -188,6 +188,7 @@ def run_grid_goal_sudoku(config: dict[str, Any]) -> dict[str, Any]:
                 "train_remaining_loss": _output_scalar(output, "remaining_loss"),
                 "train_verifier_predicted_loss": _output_scalar(output, "verifier_predicted_loss"),
                 "train_verifier_rank_loss": _output_scalar(output, "verifier_rank_loss"),
+                "train_sd_progress_loss": _output_scalar(output, "sd_progress_loss"),
                 "train_temporal_straightening_loss": _output_scalar(output, "temporal_straightening_loss"),
                 "train_terminal_corrupt_loss": _output_scalar(output, "terminal_corrupt_loss"),
                 "learning_rate": lr,

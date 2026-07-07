@@ -3,6 +3,32 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
+## Structured JEPA Wave
+
+Implemented and prepared, not submitted.
+
+Research questions:
+
+- Do explicit row/column/box unit slots, a global slot, and a separate progress
+  slot preserve the factorization that single-CLS latents destroyed?
+- Does Delta-JEPA LDAD work better when the decoded displacement is selected
+  from all tokens, only cell tokens, the changed cell, or the changed cell plus
+  Sudoku unit slots?
+- Does an SD-JEPA-style progress projection separate content dynamics from
+  goal-distance/progress ranking?
+- Do preference/ranking losses improve the local branch discrimination that
+  verifier-free W/R heads failed to turn into solves?
+- Can terminal goal prediction and receding waypoint prediction help when the
+  planner scores waypoint distance strongly and terminal-goal distance weakly?
+
+Prepared scripts:
+
+- `scripts/slurm/run_grid_goal_structured_wave_train.slurm`
+- `scripts/slurm/run_grid_goal_structured_wave_eval.slurm`
+- `scripts/experiments/submit_grid_goal_structured_wave.sh`
+
+No jobs have been submitted.
+
 ## Verifier-Free Compatibility / Progress Energy Plan
 
 Implemented, audit-fixed, submitted.

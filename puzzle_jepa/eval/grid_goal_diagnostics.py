@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -623,3 +624,31 @@ def _action_panels(
             if positives:
                 board = apply_fill_action(board, positives[0], allow_conflicts=True)
     return panels
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run Grid-Token Goal-JEPA diagnostic probes.")
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--examples", type=int, default=32)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    args = parser.parse_args()
+
+    from puzzle_jepa.eval.grid_goal_planner_matrix import load_checkpoint, load_eval_examples
+
+    device = torch.device(args.device)
+    model, config = load_checkpoint(args.checkpoint, device)
+    examples = load_eval_examples(config, limit=int(args.examples))
+    run_grid_goal_diagnostics(
+        model,
+        examples,
+        args.output_dir,
+        device=device,
+        seed=int(args.seed),
+        max_examples=int(args.examples),
+    )
+
+
+if __name__ == "__main__":
+    main()
