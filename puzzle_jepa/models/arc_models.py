@@ -65,13 +65,21 @@ class ARCContextEncoder(nn.Module):
             nn.LayerNorm(d_model),
         )
 
-    def forward(self, context_inputs: torch.Tensor, context_outputs: torch.Tensor, context_mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        context_inputs: torch.Tensor,
+        context_outputs: torch.Tensor,
+        context_input_active: torch.Tensor,
+        context_output_active: torch.Tensor,
+        context_mask: torch.Tensor,
+    ) -> torch.Tensor:
         batch, max_context, height, width = context_inputs.shape
         inputs = context_inputs.reshape(batch * max_context, height, width)
         outputs = context_outputs.reshape(batch * max_context, height, width)
-        active = torch.ones_like(inputs, dtype=torch.bool)
-        in_vec = self.grid(inputs, active)
-        out_vec = self.grid(outputs, active)
+        input_active = context_input_active.reshape(batch * max_context, height, width)
+        output_active = context_output_active.reshape(batch * max_context, height, width)
+        in_vec = self.grid(inputs, input_active)
+        out_vec = self.grid(outputs, output_active)
         pair_vec = self.pair(torch.cat([in_vec, out_vec], dim=-1)).reshape(batch, max_context, -1)
         weights = context_mask.float().unsqueeze(-1)
         denom = weights.sum(dim=1).clamp_min(1.0)
@@ -118,7 +126,13 @@ class ARCCandidateScorer(nn.Module):
         )
 
     def forward(self, batch: ARCBatch) -> ARCModelOutput:
-        context = self.context(batch.context_inputs, batch.context_outputs, batch.context_mask)
+        context = self.context(
+            batch.context_inputs,
+            batch.context_outputs,
+            batch.context_input_active,
+            batch.context_output_active,
+            batch.context_mask,
+        )
         query = self.grid(batch.query, batch.query_active)
         candidate = self.grid(batch.candidate, batch.candidate_active)
         energy_parts = [context, query, candidate]

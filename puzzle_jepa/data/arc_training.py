@@ -64,6 +64,8 @@ class ARCCandidateRecord:
 class ARCBatch:
     context_inputs: torch.Tensor
     context_outputs: torch.Tensor
+    context_input_active: torch.Tensor
+    context_output_active: torch.Tensor
     context_mask: torch.Tensor
     query: torch.Tensor
     query_active: torch.Tensor
@@ -171,6 +173,8 @@ def collate_arc_records(
         raise ValueError("Cannot collate an empty ARC record list.")
     context_inputs = []
     context_outputs = []
+    context_input_active = []
+    context_output_active = []
     context_masks = []
     queries = []
     query_active = []
@@ -184,17 +188,23 @@ def collate_arc_records(
         cin = np.zeros((max_context, 30, 30), dtype=np.int64)
         cout = np.zeros((max_context, 30, 30), dtype=np.int64)
         cmask = np.zeros((max_context,), dtype=bool)
+        cin_active = np.zeros((max_context, 30, 30), dtype=bool)
+        cout_active = np.zeros((max_context, 30, 30), dtype=bool)
         for index, example in enumerate(record.episode.context[:max_context]):
-            in_values, _ = example.input.padded()
-            out_values, _ = example.output.padded() if example.output is not None else example.input.padded()
+            in_values, in_mask = example.input.padded()
+            out_values, out_mask = example.output.padded() if example.output is not None else example.input.padded()
             cin[index] = in_values
             cout[index] = out_values
+            cin_active[index] = in_mask
+            cout_active[index] = out_mask
             cmask[index] = True
         q_values, q_active = record.episode.query_input.padded()
         cand_values, cand_active = record.candidate.padded()
         current_values, current_mask = record.current.padded()
         context_inputs.append(cin)
         context_outputs.append(cout)
+        context_input_active.append(cin_active)
+        context_output_active.append(cout_active)
         context_masks.append(cmask)
         queries.append(q_values)
         query_active.append(q_active)
@@ -207,6 +217,8 @@ def collate_arc_records(
     return ARCBatch(
         context_inputs=torch.as_tensor(np.stack(context_inputs), dtype=torch.long, device=device),
         context_outputs=torch.as_tensor(np.stack(context_outputs), dtype=torch.long, device=device),
+        context_input_active=torch.as_tensor(np.stack(context_input_active), dtype=torch.bool, device=device),
+        context_output_active=torch.as_tensor(np.stack(context_output_active), dtype=torch.bool, device=device),
         context_mask=torch.as_tensor(np.stack(context_masks), dtype=torch.bool, device=device),
         query=torch.as_tensor(np.stack(queries), dtype=torch.long, device=device),
         query_active=torch.as_tensor(np.stack(query_active), dtype=torch.bool, device=device),
