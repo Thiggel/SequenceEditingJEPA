@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-07 20:52 CEST
+Last updated: 2026-07-08 13:36 CEST
 
 ## ARC First-Pass Candidate Scorers
 
@@ -43,6 +43,10 @@ about `20.8%` of eval episodes, while learned pass@1 is only `0-6.3%`.
 Raw-grid energy gives the best mean predicted distance but selects no exact
 targets; JEPA is the only nonzero exact pass@1 variant. The next ARC step
 should fix candidate scoring supervision/eval before adding model complexity.
+
+Rendered proposal/action examples are in
+`../sequence-editing-report/assets/arc/diagrams/`, including PNGs and PDFs for
+real ARC traces and one synthetic checkerboard copy-then-recolor trajectory.
 
 ## Structured JEPA Wave
 

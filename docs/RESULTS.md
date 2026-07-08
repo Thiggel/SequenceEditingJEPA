@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-07 20:52 CEST
+Last updated: 2026-07-08 13:36 CEST
 
 ## ARC First-Pass Training Results
 
@@ -57,6 +57,12 @@ best distance:
 |---|---:|---:|
 | improved, no oracle output shape | `18/100` | `18.60 -> 11.93` |
 | improved, oracle output shape | `20/100` | `17.04 -> 11.18` |
+
+Rendered proposal/action examples are available in
+`../sequence-editing-report/assets/arc/diagrams/` as PNG and PDF files. They
+cover complete-corners, crop, copy-patch, rotate, shape-changing copy, a
+mask-render near miss, and a synthetic checkerboard copy-then-recolor
+composition.
 
 Interpretation: the interface is concrete, and the first training jobs now
 prove the training/eval path runs end to end. Current depth-1 coverage remains

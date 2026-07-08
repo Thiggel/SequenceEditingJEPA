@@ -53,6 +53,12 @@ First-pass ARC train jobs:
 scripts/experiments/submit_arc_jepa_firstpass.sh
 ```
 
+Render ARC proposal/action example diagrams:
+
+```bash
+python scripts/analysis/render_arc_example_diagrams.py
+```
+
 ## Smoke Runs
 
 ```bash
