@@ -1,0 +1,13 @@
+description: Learning-rate and train-length calibration before the first trajectory/model sweep.
+learning_rates:
+  - 1.0e-4
+  - 3.0e-4
+  - 1.0e-3
+max_steps:
+  - 500
+  - 1500
+default_data: semantic_mix
+default_models:
+  - cls64_r1
+  - cls64_r8
+default_objective: base

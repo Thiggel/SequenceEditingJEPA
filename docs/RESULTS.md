@@ -1,6 +1,23 @@
 # Results
 
-Last updated: 2026-07-08 13:36 CEST
+Last updated: 2026-07-08 16:19 CEST
+
+## Object Dynamics Scaffold Verification
+
+No scientific sweep results exist yet; no Slurm jobs were submitted. The new
+object-dynamics surface was verified locally:
+
+| Check | Result |
+|---|---|
+| New object-dynamics tests | pass |
+| Full repo tests | pass |
+| Hydra smoke run | pass, CPU, one train step |
+| Prestage wrapper | 12 dry-run commands |
+| Phase wrapper | 78 dry-run commands |
+
+The smoke metrics are only a plumbing check, not an interpretation result. The
+first meaningful result will compare probe quality across trajectory regimes
+after the prestage LR/train-length calibration.
 
 ## ARC First-Pass Training Results
 

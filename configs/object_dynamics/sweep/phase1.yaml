@@ -1,0 +1,23 @@
+description: Initial object-dynamics emergence sweep across trajectory regimes and JEPA variants.
+data:
+  - object_blocked
+  - frontier_build
+  - random_within_object
+  - interleaved_build
+  - global_random
+  - noisy_repair
+phase1_models:
+  - cls64_r1
+  - cls64_r4
+  - cls64_r8
+  - cls128_r4
+  - cls128_r8
+phase2_objectives:
+  - ldad
+  - vicreg
+  - sigreg
+  - ema
+hierarchy_models:
+  - h_cls128_h4
+  - h_cls128_h8
+  - h_cls128_h16

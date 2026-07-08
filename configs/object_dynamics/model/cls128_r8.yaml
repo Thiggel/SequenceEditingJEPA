@@ -1,0 +1,6 @@
+name: M4_cls128_r8
+d_model: 128
+encoder_layers: 3
+encoder_heads: 4
+rollout_horizon: 8
+hierarchy_horizon: 0

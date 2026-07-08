@@ -1,13 +1,49 @@
 # Runbook
 
-Last updated: 2026-07-03 10:35 CEST
+Last updated: 2026-07-08 16:19 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
 ## Active Surface
 
-This repo has been reset to one active experiment path: **Grid-Token
-Goal-JEPA** for Sudoku.
+The current new surface is **Object Dynamics JEPA**. It tests whether a
+compressed single-CLS latent world model trained only on low-level grid edit
+dynamics can recover hidden object/process structure. Hidden objects are used
+by the generator and probes only; training sees grids plus
+`paint/erase/recolor(row, col, color)` actions.
+
+- Package: `puzzle_jepa/object_dynamics/`
+- Trainer: `puzzle_jepa/train/object_dynamics.py`
+- Config root: `configs/object_dynamics/`
+- Slurm template: `scripts/slurm/run_object_dynamics_train.slurm`
+- Prestage dry-run wrapper:
+  `scripts/experiments/submit_object_dynamics_prestage.sh`
+- Phase sweep dry-run wrapper:
+  `scripts/experiments/submit_object_dynamics_phase1.sh`
+
+Prestage comes before T1/T2/etc. It calibrates LR and train length on the
+`semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.
+
+Smoke command:
+
+```bash
+source scripts/env.sh
+PUZZLE_JEPA_WORK_ROOT=/tmp/puzzle_jepa_object_dynamics_smoke \
+python -m puzzle_jepa.train.object_dynamics \
+  --config-name train \
+  data=object_blocked model=cls64_r1 objective=base \
+  output_dir=/tmp/puzzle_jepa_object_dynamics_smoke/run \
+  training.max_steps=1 training.batch_size=2 \
+  eval.probe_train_samples=8 eval.probe_eval_samples=6 eval.probe_steps=2
+```
+
+The wrappers do not submit by default. Use `SUBMIT=1` only after reviewing the
+dry-run grid.
+
+## Legacy Sudoku Surface
+
+The previous active path was **Grid-Token Goal-JEPA** for Sudoku. It remains in
+the repo for reproducibility and tests.
 
 - Config: `configs/puzzle/grid_goal_sudoku.yaml`
 - Model: `puzzle_jepa/models/grid_goal_jepa.py`

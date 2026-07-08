@@ -1,0 +1,6 @@
+name: ldad
+target_ema: false
+ema_decay: 0.99
+ldad_weight: 0.10
+regularizer: none
+regularizer_weight: 0.0

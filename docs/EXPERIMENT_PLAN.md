@@ -33,6 +33,45 @@ Concrete architecture sketch:
   rollout prediction, value/energy regularization, and search scoring; it does
   not replace generation by itself.
 
+## Object Dynamics JEPA Emergence Plan
+
+This branch is not trying to solve ARC yet. It asks a narrower question:
+whether a LeWM-like compressed latent world model trained on low-level edit
+dynamics can recover hidden object/process abstractions.
+
+Training observations are only:
+
+- a grid state;
+- a low-level action `paint/erase/recolor(row, col, color)`;
+- future grid states for rollout supervision.
+
+Hidden object metadata is excluded from training and used only for generation
+and probes. The first trajectory regimes are:
+
+| Config | Role |
+|---|---|
+| `object_blocked` | easiest temporal grouping condition |
+| `frontier_build` | local coherent growth |
+| `random_within_object` | object grouping without frontier cues |
+| `interleaved_build` | persistent objects with interleaved edits |
+| `global_random` | weak temporal object signal negative control |
+| `noisy_repair` | structured repair/editability condition |
+
+Prestage is before T1/T2/etc.: it sweeps LR and train length on
+`semantic_mix`. The first full sweep then crosses trajectory regimes with
+single-CLS rollout horizons, stability objectives, and hierarchy:
+
+| Block | Configs |
+|---|---|
+| Phase 1 | `cls64_r1`, `cls64_r4`, `cls64_r8`, `cls128_r4`, `cls128_r8` with `base` |
+| Phase 2 | `cls128_r8` with `ldad`, `vicreg`, `sigreg`, `ema` |
+| Phase 3 | `h_cls128_h4`, `h_cls128_h8`, `h_cls128_h16` with `base`, plus `h_cls128_h8` with `ldad` |
+
+Primary probes are frozen linear probes on the CLS latent: object count, next
+hidden object id, semantic/off-manifold status, per-object completion MSE,
+latent norm, and latent feature std. These probes do not train the JEPA; they
+measure what the latent retained.
+
 ## ARC Concrete Plan
 
 Dataset:

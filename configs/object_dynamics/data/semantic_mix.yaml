@@ -1,0 +1,10 @@
+name: T0_semantic_mix
+grid_size: 16
+num_colors: 10
+min_objects: 1
+max_objects: 4
+max_shape_extent: 6
+trajectory_kind: semantic_mix
+counterfactual_ratio: 0.15
+wrong_ratio: 0.05
+max_scene_retries: 128

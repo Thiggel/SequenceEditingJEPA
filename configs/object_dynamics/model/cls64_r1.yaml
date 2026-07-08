@@ -1,0 +1,6 @@
+name: M0_cls64_r1
+d_model: 64
+encoder_layers: 2
+encoder_heads: 4
+rollout_horizon: 1
+hierarchy_horizon: 0

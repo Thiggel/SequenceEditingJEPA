@@ -1,0 +1,6 @@
+name: ema
+target_ema: true
+ema_decay: 0.99
+ldad_weight: 0.0
+regularizer: none
+regularizer_weight: 0.0

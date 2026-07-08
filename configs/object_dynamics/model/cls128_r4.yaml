@@ -1,0 +1,6 @@
+name: M3_cls128_r4
+d_model: 128
+encoder_layers: 3
+encoder_heads: 4
+rollout_horizon: 4
+hierarchy_horizon: 0

@@ -2,7 +2,47 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-08 13:36 CEST
+Last updated: 2026-07-08 16:19 CEST
+
+## Object Dynamics JEPA Scaffold
+
+Status: implemented, verified, and not submitted.
+
+Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
+hidden object/process structure from low-level grid edits. The model is not
+given object slots, object IDs, or proposal IDs during training. Hidden object
+metadata is used only to generate trajectories and run frozen probes.
+
+Trajectory configs:
+
+| Config | Meaning |
+|---|---|
+| `object_blocked` | T1: one hidden object is completed before the next. |
+| `frontier_build` | T2: objects grow through 8-neighbor frontiers. |
+| `random_within_object` | T3: object identity is blocked, local growth is removed. |
+| `interleaved_build` | T4: persistent object processes are interleaved. |
+| `global_random` | T5: final target has objects but edit order weakens temporal object signal. |
+| `noisy_repair` | T6: objects are damaged/overgrown/recolored and repaired. |
+
+Prepared grids:
+
+| Grid | Jobs | Submitted |
+|---|---:|---|
+| Prestage LR/steps | 12 dry-run commands | no |
+| Phase trajectory/model/objective sweep | 78 dry-run commands | no |
+
+Prepared scripts:
+
+- `scripts/slurm/run_object_dynamics_train.slurm`
+- `scripts/experiments/submit_object_dynamics_prestage.sh`
+- `scripts/experiments/submit_object_dynamics_phase1.sh`
+
+Verification:
+
+- `source scripts/env.sh && python -m pytest -q tests/test_object_dynamics.py`
+- `source scripts/env.sh && python -m pytest -q tests`
+- Hydra smoke run with `data=object_blocked`, `model=cls64_r1`,
+  `objective=base`, one train step, and tiny probes completed on CPU.
 
 ## ARC First-Pass Candidate Scorers
 

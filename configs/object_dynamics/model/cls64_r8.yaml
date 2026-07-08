@@ -1,0 +1,6 @@
+name: M2_cls64_r8
+d_model: 64
+encoder_layers: 2
+encoder_heads: 4
+rollout_horizon: 8
+hierarchy_horizon: 0

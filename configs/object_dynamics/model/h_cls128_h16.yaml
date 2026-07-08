@@ -1,0 +1,6 @@
+name: H3_cls128_low1_high16
+d_model: 128
+encoder_layers: 3
+encoder_heads: 4
+rollout_horizon: 1
+hierarchy_horizon: 16
