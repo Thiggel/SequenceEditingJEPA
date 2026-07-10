@@ -35,29 +35,46 @@ def evaluate_object_dynamics_checkpoint(
     model_config = {key: value for key, value in dict(config["model"]).items() if key != "name"}
     objective_config = {key: value for key, value in dict(config["objective"]).items() if key != "name"}
     generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(**data_config))
+    torch.manual_seed(int(config["seed"]))
     model = ObjectDynamicsJEPA(
         grid_size=generator.spec.grid_size,
         num_colors=generator.spec.num_colors,
         **model_config,
         **objective_config,
     ).to(resolved_device)
-    model.load_state_dict(payload["model"])
     eval_config = dict(config["eval"])
     probe_seed = int(config["seed"]) + 100_003
     torch.manual_seed(probe_seed)
     horizon = max(int(model_config.get("rollout_horizon", 1)), int(model_config.get("hierarchy_horizon", 0)), 1)
+    probe_kwargs = {
+        "train_samples": int(train_samples or eval_config.get("probe_train_samples", 512)),
+        "eval_samples": int(eval_samples or eval_config.get("probe_eval_samples", 256)),
+        "batch_size": int(batch_size or eval_config.get("probe_batch_size", 64)),
+        "horizon": horizon,
+        "device": resolved_device,
+        "steps": int(steps or eval_config.get("probe_steps", 150)),
+        "learning_rate": float(learning_rate or eval_config.get("probe_learning_rate", 1.0e-2)),
+    }
+    initial_metrics = run_object_dynamics_probes(
+        model,
+        generator,
+        np.random.default_rng(probe_seed),
+        **probe_kwargs,
+    )
+    model.load_state_dict(payload["model"])
+    torch.manual_seed(probe_seed)
     metrics = run_object_dynamics_probes(
         model,
         generator,
         np.random.default_rng(probe_seed),
-        train_samples=int(train_samples or eval_config.get("probe_train_samples", 512)),
-        eval_samples=int(eval_samples or eval_config.get("probe_eval_samples", 256)),
-        batch_size=int(batch_size or eval_config.get("probe_batch_size", 64)),
-        horizon=horizon,
-        device=resolved_device,
-        steps=int(steps or eval_config.get("probe_steps", 150)),
-        learning_rate=float(learning_rate or eval_config.get("probe_learning_rate", 1.0e-2)),
+        **probe_kwargs,
     )
+    initial_values = {f"initial_{key}": value for key, value in initial_metrics.items()}
+    delta_values = {
+        f"delta_{key}": float(value) - float(initial_metrics[key])
+        for key, value in metrics.items()
+        if key in initial_metrics and _is_finite_number(value) and _is_finite_number(initial_metrics[key])
+    }
     result = {
         "checkpoint": str(checkpoint_path),
         "checkpoint_step": int(payload["step"]),
@@ -67,11 +84,19 @@ def evaluate_object_dynamics_checkpoint(
         "seed": int(config["seed"]),
         "probe_seed": probe_seed,
         "device": resolved_device.type,
+        **initial_values,
         **metrics,
+        **delta_values,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return result
+
+
+def _is_finite_number(value: Any) -> bool:
+    if not isinstance(value, (int, float)):
+        return False
+    return bool(np.isfinite(float(value)))
 
 
 def main() -> None:

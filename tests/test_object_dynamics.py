@@ -161,6 +161,8 @@ def test_trainer_smoke_run(tmp_path) -> None:
         steps=2,
     )
     assert reprobe["probe_fit_version"] == 2
+    assert "initial_probe_current_object_acc" in reprobe
+    assert "delta_probe_current_object_acc" in reprobe
     assert (tmp_path / "run" / "probe_eval_balanced_v2.json").exists()
     assert "probe_object_count_acc" in metrics
     assert "probe_bbox_mse" in metrics
