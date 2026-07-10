@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-10 19:21 CEST
+Last updated: 2026-07-10 19:30 CEST
 
 ## Object Dynamics JEPA Scaffold
 
@@ -40,6 +40,7 @@ Experiment grids:
 | EMA/SIGReg winner replications | 8 train + 8 original probes | trains complete; four original r1 probes failed compatibility and were superseded |
 | Stable-slot v3 re-probes | 26 | completed `0:0`, jobs `3831509`-`3831534` |
 | Full-grid batch-64 smoke | 1 | completed `0:0`, job `3831536` |
+| Probe-v4 batch-64 GPU gates | 3 | completed `0:0`, jobs `3832316`-`3832318` |
 | Probe-v4 legacy re-probe | 26 | prepared/not submitted |
 | CLS64/128 EMA length calibration | 18 train + 18 dependent probes | prepared/not submitted |
 | HWM macro/schedule calibration | 7 train + 7 dependent probes | prepared/not submitted |
@@ -123,6 +124,14 @@ Verification:
   full-grid, full-grid H8+LDAD, reconstruction, joint HWM, and staged/frozen
   HWM configurations. Batch-64 A40 smoke
   `3831536` completed `0:0` with about 3.1 GiB peak GPU allocation.
+- Current batch-64 v4 A40 gates all completed `0:0`: H16 completion
+  `3832316` in 15s at 8376 MiB, full-grid H8+LDAD `3832317` in 20s at
+  5372 MiB, and reconstruction `3832318` in 20s at 2798 MiB. Their run
+  directories are respectively
+  `completion_h_cls128_h16_base_gpu_smoke_v4_h16_completion_20260710`,
+  `semantic_mix_h_grid128_h8_ldad_gpu_smoke_v4_grid_h8_ldad_20260710`, and
+  `semantic_mix_cls128_r8_reconstruction_gpu_smoke_v4_reconstruction_20260710`
+  under the object-dynamics output root.
 - LDAD now decodes encoded adjacent-state displacement with a shared
   end-to-end encoder; SIGReg now uses projected Epps-Pulley Gaussian testing.
 - Effective semantic/counterfactual/wrong sampling is tested at `80/15/5`.

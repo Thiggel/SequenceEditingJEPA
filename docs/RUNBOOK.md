@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-10 19:21 CEST
+Last updated: 2026-07-10 19:30 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -45,6 +45,10 @@ Calibration trainers disable inline full probes and use one dependent v4 probe
 at the final checkpoint. This avoids repeating MLP, attention, and CEM work.
 The complete repository verification is `329 passed`; the maximum H16 data
 contract is 32 edits and is tested for every trajectory config.
+
+Batch-64 v4 GPU gates `3832316`-`3832318` completed `0:0` on A40. They cover
+H16 completion plus executed-grid CEM probes, full-grid H8+LDAD, and the
+reconstruction control; peak allocation was 8376/5372/2798 MiB.
 
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
 `semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.

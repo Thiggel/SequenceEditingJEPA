@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-10 19:21 CEST
+Last updated: 2026-07-10 19:30 CEST
 
 ## Object Dynamics Prestage Result
 
@@ -59,6 +59,7 @@ Implementation verification:
 | Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/reconstruction/joint+staged HWM/full-grid pass on CPU |
 | Prestage jobs | 12 completed `0:0` |
 | Full-grid A40 smoke | job `3831536`, batch 64, `0:0`, about 3.1 GiB peak GPU allocation |
+| Current v4 GPU gates | `3832316`-`3832318`, all `0:0`; H16/grid/reconstruction peak 8376/5372/2798 MiB |
 | Calibration wrappers | 18 length rows and 7 HWM rows, each with dependent probe-v4 eval |
 | Phase wrapper | 486 dry-run commands; real submission guarded |
 
