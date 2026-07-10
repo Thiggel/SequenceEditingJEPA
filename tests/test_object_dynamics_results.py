@@ -36,7 +36,7 @@ def test_object_dynamics_summary_uses_fixed_step_zero_deltas(tmp_path: Path) -> 
 def test_object_dynamics_summary_aggregates_seeds_and_writes_outputs(tmp_path: Path) -> None:
     root = tmp_path / "runs"
     for seed, current in ((7, 0.5), (11, 0.7)):
-        run = root / f"run_{seed}"
+        run = root / f"campaign_seed{seed}"
         run.mkdir(parents=True)
         _write_config(run, seed=seed, max_steps=10)
         _write_metrics(run, [_record(0, std=0.5, current=0.4, object_map=0.1), _record(10, std=0.5, current=current, object_map=0.2, loss=0.2)])
@@ -53,13 +53,19 @@ def test_object_dynamics_summary_aggregates_seeds_and_writes_outputs(tmp_path: P
     assert aggregate["delta_probe_attention_entropy_mean"] == pytest.approx(0.1)
     balanced = summary["balanced_reprobe_aggregates"][0]
     assert balanced["probe_fit_version"] == 4
+    assert balanced["run_family"] == "campaign"
     assert balanced["seeds"] == [7, 11]
     assert balanced["delta_probe_current_object_acc_mean"] == pytest.approx(0.2)
+    assert balanced["raw_probe_action_process_provenance_acc_mean"] == pytest.approx(0.3)
+    assert balanced["raw_probe_action_process_provenance_balanced_acc_mean"] == pytest.approx(0.4)
 
     output = tmp_path / "summary"
     write_summary(summary, output)
     assert json.loads((output / "object_dynamics_summary.json").read_text())["run_count"] == 2
-    assert "dCurrent" in (output / "object_dynamics_summary.md").read_text()
+    markdown = (output / "object_dynamics_summary.md").read_text()
+    assert "dCurrent" in markdown
+    assert "| Probe | Family | Model" in markdown
+    assert "| v4 | campaign | M0_cls64_r1 | base | 1.0e-04 | 10 |" in markdown
 
 
 def test_object_dynamics_summary_rejects_mislabeled_probe_schema(tmp_path: Path) -> None:
@@ -76,6 +82,38 @@ def test_object_dynamics_summary_rejects_mislabeled_probe_schema(tmp_path: Path)
     summary = summarize_object_dynamics_runs(tmp_path)
 
     assert summary["balanced_reprobe_count"] == 0
+
+
+def test_summary_does_not_pool_distinct_run_families(tmp_path: Path) -> None:
+    for family, seed in (("calibration", 7), ("replication", 11)):
+        run = tmp_path / f"{family}_seed{seed}"
+        run.mkdir()
+        _write_config(run, seed=seed, max_steps=10)
+        _write_metrics(run, [_record(10, std=0.6, current=0.5, object_map=0.2, loss=0.1)])
+        (run / "checkpoint.pt").touch()
+        _write_balanced_reprobe(run, current_delta=0.2)
+
+    summary = summarize_object_dynamics_runs(tmp_path)
+
+    aggregates = summary["balanced_reprobe_aggregates"]
+    assert [row["run_family"] for row in aggregates] == ["calibration", "replication"]
+    assert [row["n"] for row in aggregates] == [1, 1]
+
+
+def test_summary_keeps_dependent_probe_when_inline_baseline_is_disabled(tmp_path: Path) -> None:
+    run = tmp_path / "calibration"
+    run.mkdir()
+    _write_config(run, seed=7, max_steps=10)
+    _write_metrics(run, [_record(10, std=0.6, current=0.5, object_map=0.2, loss=0.1)])
+    (run / "checkpoint.pt").touch()
+    _write_balanced_reprobe(run, current_delta=0.2)
+
+    summary = summarize_object_dynamics_runs(tmp_path)
+
+    assert summary["run_count"] == 1
+    assert summary["complete_run_count"] == 1
+    assert summary["balanced_reprobe_count"] == 1
+    assert summary["balanced_reprobes"][0]["run_name"] == "calibration"
 
 
 def _write_config(run: Path, *, seed: int, max_steps: int) -> None:
@@ -108,6 +146,18 @@ def _write_balanced_reprobe(run: Path, *, current_delta: float) -> None:
         "delta_probe_object_map_foreground_miou": 0.1,
         "delta_probe_grid_foreground_miou": 0.1,
         "delta_rollout_error_invalid_auroc": 0.1,
+        "probe_delta_action_process_acc": 0.4,
+        "raw_probe_action_process_provenance_acc": 0.3,
+        "raw_probe_action_process_provenance_balanced_acc": 0.4,
+        "probe_action_process_provenance_majority_acc": 0.5,
+        "probe_action_process_provenance_majority_balanced_acc": 0.2,
+        "probe_delta_action_process_balanced_acc": 0.35,
+        "latent_nn_current_shape_acc": 0.2,
+        "pixel_nn_current_shape_acc": 0.1,
+        "latent_nn_current_color_acc": 0.4,
+        "pixel_nn_current_color_acc": 0.3,
+        "latent_nn_current_completion_mae": 0.2,
+        "pixel_nn_current_completion_mae": 0.3,
     }
     (run / "probe_eval_balanced_v4.json").write_text(json.dumps(result))
 

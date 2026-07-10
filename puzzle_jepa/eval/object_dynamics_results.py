@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import statistics
 from pathlib import Path
 from typing import Any
@@ -67,6 +68,18 @@ BALANCED_FIELDS = (
     "delta_probe_hierarchy_cem_executed_goal_hamming",
     "delta_probe_hierarchy_cem_executed_goal_success",
     "delta_probe_hierarchy_cem_model_bias_l1",
+    "probe_delta_action_process_acc",
+    "probe_delta_action_process_balanced_acc",
+    "raw_probe_action_process_provenance_acc",
+    "raw_probe_action_process_provenance_balanced_acc",
+    "probe_action_process_provenance_majority_acc",
+    "probe_action_process_provenance_majority_balanced_acc",
+    "latent_nn_current_shape_acc",
+    "pixel_nn_current_shape_acc",
+    "latent_nn_current_color_acc",
+    "pixel_nn_current_color_acc",
+    "latent_nn_current_completion_mae",
+    "pixel_nn_current_completion_mae",
 )
 
 
@@ -75,14 +88,14 @@ def summarize_object_dynamics_runs(root: Path) -> dict[str, Any]:
     checkpoints = []
     balanced_reprobes = []
     for metrics_path in sorted(root.glob("*/metrics.jsonl")):
+        balanced = _load_balanced_reprobe(metrics_path.parent)
+        if balanced is not None:
+            balanced_reprobes.append(balanced)
         run = _load_run(metrics_path.parent)
         if run is None:
             continue
         runs.append(run[0])
         checkpoints.extend(run[1])
-        balanced = _load_balanced_reprobe(metrics_path.parent)
-        if balanced is not None:
-            balanced_reprobes.append(balanced)
     endpoints = [row for row in checkpoints if row["is_endpoint"]]
     return {
         "root": str(root),
@@ -117,21 +130,29 @@ def _load_run(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]] | No
         return None
     records.sort(key=lambda record: int(record["step"]))
     baseline = next((record for record in records if int(record["step"]) == 0), None)
-    if baseline is None:
-        return None
     max_steps = int(config["training"]["max_steps"])
     endpoint_step = int(records[-1]["step"])
     complete = endpoint_step >= max_steps and (run_dir / "checkpoint.pt").exists()
     identity = {
         "run_name": run_dir.name,
+        "run_family": _run_family(run_dir.name),
         "data": str(config["data"]["name"]),
         "model": str(config["model"]["name"]),
         "objective": str(config["objective"]["name"]),
         "seed": int(config["seed"]),
         "learning_rate": float(config["training"]["learning_rate"]),
         "max_steps": max_steps,
-        "probe_trajectory_kind": _probe_trajectory_kind(config, baseline),
+        "probe_trajectory_kind": _probe_trajectory_kind(config, baseline or {}),
     }
+    run_summary = {
+        **identity,
+        "endpoint_step": endpoint_step,
+        "complete": complete,
+        "checkpoint_count": max(0, len(records) - int(baseline is not None)),
+        "run_dir": str(run_dir),
+    }
+    if baseline is None:
+        return run_summary, []
     rows = []
     for record in records:
         if int(record["step"]) == 0:
@@ -162,13 +183,7 @@ def _load_run(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]] | No
             else None
         )
         rows.append(row)
-    run_summary = {
-        **identity,
-        "endpoint_step": endpoint_step,
-        "complete": complete,
-        "checkpoint_count": len(rows),
-        "run_dir": str(run_dir),
-    }
+    run_summary["checkpoint_count"] = len(rows)
     return run_summary, rows
 
 
@@ -177,6 +192,7 @@ def _aggregate_endpoints(endpoints: list[dict[str, Any]]) -> list[dict[str, Any]
     keys = (
         "probe_fit_version",
         "probe_trajectory_kind",
+        "run_family",
         "data",
         "model",
         "objective",
@@ -231,6 +247,7 @@ def _load_balanced_reprobe(run_dir: Path) -> dict[str, Any] | None:
     max_steps = int(config["training"]["max_steps"])
     row: dict[str, Any] = {
         "run_name": run_dir.name,
+        "run_family": _run_family(run_dir.name),
         "data": str(config["data"]["name"]),
         "model": str(config["model"]["name"]),
         "objective": str(config["objective"]["name"]),
@@ -257,6 +274,7 @@ def _aggregate_balanced_reprobes(rows: list[dict[str, Any]]) -> list[dict[str, A
     keys = (
         "probe_fit_version",
         "probe_trajectory_kind",
+        "run_family",
         "data",
         "model",
         "objective",
@@ -294,13 +312,14 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"Runs: {summary['run_count']} ({summary['complete_run_count']} complete)",
         "",
-        "| Probe | Model | Objective | LR | Max steps | Seeds | Complete | Loss | Std ratio | dCurrent | dObject map | dGrid | dInvalid AUROC |",
-        "|---:|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Probe | Family | Model | Objective | LR | Max steps | Seeds | Complete | Loss | Std ratio | dCurrent | dObject map | dGrid | dInvalid AUROC |",
+        "|---:|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summary["endpoint_aggregates"]:
         lines.append(
-            "| v{version} | {model} | {objective} | {lr:.1e} | {steps} | {seeds} | {complete}/{n} | {loss} | {std} | {current} | {object_map} | {grid} | {invalid} |".format(
+            "| v{version} | {family} | {model} | {objective} | {lr:.1e} | {steps} | {seeds} | {complete}/{n} | {loss} | {std} | {current} | {object_map} | {grid} | {invalid} |".format(
                 version=row["probe_fit_version"],
+                family=row["run_family"],
                 model=row["model"],
                 objective=row["objective"],
                 lr=float(row["learning_rate"]),
@@ -321,17 +340,19 @@ def _render_markdown(summary: dict[str, Any]) -> str:
             "",
             "## Class-Balanced Re-Probes",
             "",
-            "| Probe | Model | Objective | LR | Seeds | Complete | Std ratio | dCount | dCurrent | dCurrent balanced | dAction object | dObject map | dGrid | dInvalid AUROC |",
-            "|---:|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Probe | Family | Model | Objective | LR | Max steps | Seeds | Complete | Std ratio | dCount | dCurrent | dCurrent balanced | dAction object | dObject map | dGrid | dInvalid AUROC |",
+            "|---:|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["balanced_reprobe_aggregates"]:
         lines.append(
-            "| v{version} | {model} | {objective} | {lr:.1e} | {seeds} | {complete}/{n} | {std} | {count} | {current} | {balanced} | {action} | {object_map} | {grid} | {invalid} |".format(
+            "| v{version} | {family} | {model} | {objective} | {lr:.1e} | {steps} | {seeds} | {complete}/{n} | {std} | {count} | {current} | {balanced} | {action} | {object_map} | {grid} | {invalid} |".format(
                 version=row["probe_fit_version"],
+                family=row["run_family"],
                 model=row["model"],
                 objective=row["objective"],
                 lr=float(row["learning_rate"]),
+                steps=row["max_steps"],
                 seeds=",".join(str(seed) for seed in row["seeds"]),
                 complete=row["complete_n"],
                 n=row["n"],
@@ -364,6 +385,10 @@ def _probe_trajectory_kind(config: dict[str, Any], metrics: dict[str, Any]) -> s
     eval_config = dict(config.get("eval", {}))
     data_config = dict(config["data"])
     return str(eval_config.get("probe_trajectory_kind", data_config.get("trajectory_kind", data_config["name"])))
+
+
+def _run_family(run_name: str) -> str:
+    return re.sub(r"_seed\d+$", "", run_name)
 
 
 def _is_probe_metric(name: str) -> bool:

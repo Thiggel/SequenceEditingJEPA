@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-10 19:30 CEST
+Last updated: 2026-07-11 01:03 CEST
 
 ## Object Dynamics Prestage Result
 
@@ -55,12 +55,14 @@ Implementation verification:
 | Check | Result |
 |---|---|
 | JEPA fidelity contract tests | all objective/trajectory/probe/HWM/baseline/launcher contracts pass |
-| Complete repository suite | 329 passed, no xfails |
+| Complete repository suite | 332 passed, no xfails |
 | Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/reconstruction/joint+staged HWM/full-grid pass on CPU |
 | Prestage jobs | 12 completed `0:0` |
 | Full-grid A40 smoke | job `3831536`, batch 64, `0:0`, about 3.1 GiB peak GPU allocation |
 | Current v4 GPU gates | `3832316`-`3832318`, all `0:0`; H16/grid/reconstruction peak 8376/5372/2798 MiB |
-| Calibration wrappers | 18 length rows and 7 HWM rows, each with dependent probe-v4 eval |
+| Completed calibrations | length `3832365`-`3832400`; seed-1707 HWM `3832401`-`3832414`, all `0:0` |
+| Active bounded wave | macro-d4 seed confirmation `3832932`-`3832943` |
+| Corrected probe refresh | length/HWM jobs `3832957`-`3832981`, all `0:0` |
 | Phase wrapper | 486 dry-run commands; real submission guarded |
 
 The audit corrected material semantics before submission: LDAD uses encoded
@@ -76,7 +78,7 @@ executed action. The previous long-horizon sequence-decoder requirement was
 incorrect. Flat and H8 LDAD rows now have paired CLS/full-grid configs, but no
 phase jobs have been submitted.
 
-Probe v4 is implemented but has not yet been run over all checkpoints. It adds
+Probe v4 is implemented and ran over all 26 legacy checkpoints. It adds
 parts/inside, nonlinear controls, rollout count, process labels, train-selected
 attention metrics, foreground-aware neighbors, and executed-grid HWM planning
 diagnostics. Fixed-batch qualitative exports on seed-1707 `cls64_r8`
@@ -88,6 +90,52 @@ neighbors for both objectives: this panel provides no nearest-neighbor evidence
 of learned semantics. Selected-sample latent rollout MSE is `.11457` for EMA
 and `.02150` for SIGReg. Aggregate v4 fixed-head probes, not these selected
 panels, are the decision source.
+
+All v4 jobs `3832338`-`3832363` completed `0:0`. Three-seed balanced results
+split by factor: r1/SIGReg has the largest static count gain
+(`+.085 +/-.026`), r1/EMA the largest current-object gain
+(`+.056 +/-.015`), and EMA has the strongest >=4-cell fixed-head attention
+gain (`+.292` r1, `+.298` r8). All four rows gain rollout-count transfer
+(`+.413` to `+.496`) but lose hidden process-provenance decoding (`-.038` to `-.138`).
+The original foreground-aware neighbor metric is canonical-slot agreement, not
+semantic identity. Inside decoding and
+small-MLP count also fail to improve. This does not validate broad object
+abstraction or a single objective winner.
+
+The three-seed EMA length sweep is also complete. From 5k to 50k, balanced
+count gain rises from `+.004` to `+.106` for CLS64 and `+.043` to `+.091` for
+CLS128; rollout-count transfer reaches `+.470/+.482`, and fixed-head >=4-cell
+attention reaches `+.501/+.505`. Those gains do not recover the intended
+process-provenance decoding falls to `-.130/-.152`. That target uses hidden
+trajectory kind and can assign different labels to observationally equivalent
+paint transitions. The reported NN deltas `-.048/-.021` compare canonical
+scene-local slot IDs, not semantic identities. CLS128/50k gains inside
+decoding (`+.085`) and small-MLP count
+(`+.026`), but with substantial inside variance (`.091`). This is evidence for
+increasing state-manifold/readout organization, not broad object-process
+abstraction, so the 486-job phase remains held.
+
+The one-seed HWM macro sweep completed `0:0`. Joint d4 is the best combined
+row (macro retrieval `.258`, low-level retrieval and exact retrieved-action
+execution `.203`, subgoal L1 `.101`, endpoint MSE `.00124`); staged d4 reaches
+subgoal L1 `.099` but only `.133` retrieval success. All six joint/staged
+d4/d8/d16 rows have zero exact CEM executions. Confirmation jobs
+`3832932`-`3832943` now add seeds `2707/3707` for low, joint-d4, and staged-d4.
+
+The corrected refreshes `3832957`-`3832981` and `3832984`-`3833008` completed
+`0:0`. Balanced latent process accuracy is `.305-.412` versus `.181-.184` raw
+and `.167` majority, but every trained-minus-initial delta is negative
+(`-.036` to `-.139`), showing a random-feature rather than learned advantage.
+Shape NN delta is positive only for CLS64/15k (`+.010`), every color NN delta is
+negative (`-.010` to `-.170`), and completion NN MAE worsens by
+`+.008` to `+.058`. The corrected controls support no learned semantic-neighbor
+or hidden-process-provenance emergence claim.
+
+The result analyzer had two scientific reporting bugs: dependent reprobes were
+dropped when inline step-0 probes were disabled, and campaigns with identical
+model/objective/length metadata could be pooled across run families. Both now
+have regression tests; generated Markdown also displays family and max steps,
+so length and HWM rows are auditable.
 
 ## ARC First-Pass Training Results
 

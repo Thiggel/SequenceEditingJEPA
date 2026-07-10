@@ -2,14 +2,17 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-10 19:30 CEST
+Last updated: 2026-07-11 01:03 CEST
 
 ## Object Dynamics JEPA Scaffold
 
-Status: all audited implementation gates now pass. Calibration and three-seed
-winner replication are complete; `cls64_r8 + EMA`, LR `3e-4`, is the best
-current compromise. Probe-v4, train-length, and HWM calibration launchers are
-prepared but not submitted. The trajectory phase remains held for those gates.
+Status: all audited implementation gates pass. Probe-v4 and the three-seed
+5k/15k/50k EMA length sweep completed, as did the one-seed HWM macro sweep.
+Longer training improves count, rollout transfer, and attention but degrades a
+hidden-provenance process probe; the prior nearest-neighbor score compared
+scene-local canonical slots, not semantics. The 486-job
+trajectory phase remains held. Macro-d4 confirmation jobs `3832932`-`3832943`
+are active at seeds `2707/3707`.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -41,9 +44,11 @@ Experiment grids:
 | Stable-slot v3 re-probes | 26 | completed `0:0`, jobs `3831509`-`3831534` |
 | Full-grid batch-64 smoke | 1 | completed `0:0`, job `3831536` |
 | Probe-v4 batch-64 GPU gates | 3 | completed `0:0`, jobs `3832316`-`3832318` |
-| Probe-v4 legacy re-probe | 26 | prepared/not submitted |
-| CLS64/128 EMA length calibration | 18 train + 18 dependent probes | prepared/not submitted |
-| HWM macro/schedule calibration | 7 train + 7 dependent probes | prepared/not submitted |
+| Probe-v4 legacy re-probe | 26 | all completed `0:0`, jobs `3832338`-`3832363` |
+| CLS64/128 EMA length calibration | 18 train + 18 dependent probes | all completed `0:0`, `3832365`-`3832400` |
+| HWM macro/schedule calibration | 7 train + 7 dependent probes | all completed `0:0`, `3832401`-`3832414` |
+| HWM macro-d4 confirmation | 6 train + 6 dependent probes | active `3832932`-`3832943` |
+| Corrected semantic probe refresh | 18 length + 7 seed-1707 HWM checkpoints | all completed `0:0`, `3832957`-`3832981` |
 | Phase trajectory/model/objective sweep | 486 dry-run commands | held/not submitted |
 
 Original replication probes `3831380/82/84/86` failed because an unfinished
@@ -51,6 +56,15 @@ grid-only `delta_pool` was temporarily required when loading older CLS
 checkpoints. The pooler is now grid-only; v3 jobs `3831527`-`3831530`
 supersede those failures. Original r8 probes `3831388/90/92/94` completed but
 are also superseded by v3.
+
+Calibration trainers defer full probes to one dependent v4 job. All length
+pairs `3832365`-`3832400` and seed-1707 HWM pairs `3832401`-`3832414`
+completed `0:0`. Macro-d4 confirmation uses low/joint/staged train-probe pairs
+`3832932/33`, `3832934/35`, `3832936/37` at seed 2707 and `3832938/39`,
+`3832940/41`, `3832942/43` at seed 3707. At 00:48 the four independent
+low/joint trainers were running on A40; staged rows and all probes were held by
+valid dependencies. Outputs are under
+`/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics`.
 
 Prestage job map (`semantic_mix`, `base`, seed `1707`):
 
@@ -96,6 +110,76 @@ unstable, including a severe `r8/3e-4` seed-1707 failure. The phase launcher
 still requires explicit `PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and
 `MAX_STEPS`.
 
+Probe-v4 three-seed trained-minus-initial results at LR `3e-4` revise that
+interpretation:
+
+| Model/objective | dCount balanced | dCurrent balanced | dRollout count balanced | dAttention IoU, >=4 cells | dProcess provenance | dNN canonical slot |
+|---|---:|---:|---:|---:|---:|---:|
+| `cls64_r1/ema` | `+.022 +/-.016` | `+.056 +/-.015` | `+.416 +/-.023` | `+.292 +/-.122` | `-.138 +/-.018` | `-.018 +/-.023` |
+| `cls64_r1/sigreg` | `+.085 +/-.026` | `+.048 +/-.022` | `+.496 +/-.027` | `+.105 +/-.200` | `-.085 +/-.043` | `+.021 +/-.014` |
+| `cls64_r8/ema` | `+.004 +/-.019` | `+.009 +/-.017` | `+.413 +/-.020` | `+.298 +/-.118` | `-.038 +/-.038` | `-.021 +/-.008` |
+| `cls64_r8/sigreg` | `+.062 +/-.013` | `+.033 +/-.012` | `+.453 +/-.027` | `+.047 +/-.076` | `-.056 +/-.029` | `+.002 +/-.022` |
+
+There is no v4 winner. SIGReg gives the clearest balanced static-count gains;
+EMA gives much stronger train-selected fixed-head attention and r8/EMA retains
+the best invalid-state surprise gain (`+.141 +/-.070`). Rollout-count transfer
+improves strongly, but absolute r8/EMA balanced accuracy is only about
+`.40-.44`, and this primarily shows that trained predicted latents enter the
+decoder's state manifold. Every row loses one-step process-provenance decoding, inside
+relation decoding declines and small-MLP count does not improve. The old NN
+column is canonical spatial-slot agreement across unrelated scenes, not a
+semantic object match, so it cannot support either a positive or negative
+semantic claim. The completed width/length calibration does not confirm v3's
+`r8/EMA` compromise as a general object abstraction winner.
+
+Completed EMA length results (`mean +/-` population std, trained minus matched
+initialization) are:
+
+| Model/steps | dCount bal. | dRollout count bal. | dAttention >=4 | dProcess provenance | dInside bal. | dNN canonical slot |
+|---|---:|---:|---:|---:|---:|---:|
+| `cls64/5k` | `+.004 +/-.009` | `+.409 +/-.012` | `+.327 +/-.040` | `-.059 +/-.064` | `-.025 +/-.055` | `-.015 +/-.020` |
+| `cls64/15k` | `+.058 +/-.034` | `+.437 +/-.036` | `+.449 +/-.098` | `-.079 +/-.014` | `-.050 +/-.027` | `-.037 +/-.023` |
+| `cls64/50k` | `+.106 +/-.019` | `+.470 +/-.024` | `+.501 +/-.084` | `-.130 +/-.042` | `+.003 +/-.039` | `-.048 +/-.012` |
+| `cls128/5k` | `+.043 +/-.028` | `+.469 +/-.038` | `+.496 +/-.075` | `-.065 +/-.013` | `-.045 +/-.035` | `-.033 +/-.023` |
+| `cls128/15k` | `+.056 +/-.023` | `+.465 +/-.036` | `+.458 +/-.063` | `-.107 +/-.022` | `+.049 +/-.067` | `-.024 +/-.021` |
+| `cls128/50k` | `+.091 +/-.025` | `+.482 +/-.031` | `+.505 +/-.062` | `-.152 +/-.048` | `+.085 +/-.091` | `-.021 +/-.025` |
+
+This is a tradeoff, not a passed emergence gate. Fifty thousand steps gives
+the strongest count/rollout/attention signal and the CLS128 rows recover some
+inside/MLP-count information, but hidden process provenance gets less linearly
+decodable with length. That label distinguishes `build`, `complete`, and
+`repair_fill` using hidden trajectory kind even when the observed paint
+transition is equivalent; it is not an identifiable primitive-action label.
+The full 486-job phase is therefore not justified by these results.
+
+Probe evaluation now adds a raw grid+action provenance baseline and true
+current-object shape/color/completion nearest-neighbor metrics. Refresh jobs
+`3832957`-`3832981` completed `0:0` over all length and seed-1707 HWM rows:
+
+| Model/steps | Process balanced latent/raw/majority | dProcess balanced | dNN shape | dNN color | dNN completion MAE |
+|---|---:|---:|---:|---:|---:|
+| `cls64/5k` | `.408/.181/.167` | `-.036` | `-.025` | `-.144` | `+.025` |
+| `cls64/15k` | `.367/.181/.167` | `-.076` | `+.010` | `-.010` | `+.032` |
+| `cls64/50k` | `.305/.181/.167` | `-.139` | `-.039` | `-.030` | `+.058` |
+| `cls128/5k` | `.412/.184/.167` | `-.040` | `-.039` | `-.170` | `+.008` |
+| `cls128/15k` | `.346/.184/.167` | `-.106` | `-.021` | `-.023` | `+.025` |
+| `cls128/50k` | `.326/.184/.167` | `-.126` | `-.029` | `-.080` | `+.046` |
+
+Lower completion MAE is better. Latent balanced process accuracy exceeds raw
+and majority controls, but every trained-minus-initial delta is negative and
+worsens with length; this is a random-feature advantage, not learned process
+emergence. Shape has one tiny positive row, color never improves, and
+completion-neighbor error always worsens. There is no learned semantic-neighbor
+emergence signal.
+
+The seed-1707 HWM sweep also completed. Joint macro-d4 had the best combined
+retrieval/subgoal row: macro retrieval `.258`, low-level retrieval `.203`,
+retrieval execution success `.203`, subgoal L1 `.101`, and endpoint MSE
+`.00124`. Staged d4 had subgoal L1 `.099` but only `.133` retrieval success.
+Every d4/d8/d16 joint or staged row had zero CEM exact executions and about
+`.060` executed-goal Hamming fraction. Macro dimension 4 is being confirmed at
+two additional seeds; no hierarchy winner is selected yet.
+
 All phase models use a common `semantic_mix` probe distribution, and
 `random_off_manifold` is now a pure-random-edit training control. This avoids
 confounding trajectory-regime comparisons with different probe datasets.
@@ -115,7 +199,7 @@ Verification:
 
 - All objective, trajectory, probe, hierarchy, baseline, and launcher contracts
   pass, including the eight former strict research-gap specifications.
-- The complete repository run is `329 passed` with no xfails.
+- The complete repository run is `332 passed` with no xfails.
 - Slurm verification `3830903` completed `0:0` on `a0123` in 20s; its log is
   `logs/jepa-obj-verify-3830903.out`. Preflight `3830803` failed `127:0`
   before collection because the repo-local interpreter was unavailable on the

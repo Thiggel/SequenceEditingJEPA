@@ -260,6 +260,11 @@ def _run_object_dynamics_probes(
     train_raw = _raw_grid_features(train.states, generator.spec.num_colors)
     eval_raw = _raw_grid_features(eval_data.states, generator.spec.num_colors)
     train_raw, eval_raw = _standardize(train_raw, eval_raw)
+    train_action = _raw_action_features(train.action, generator.spec.grid_size, generator.spec.num_colors)
+    eval_action = _raw_action_features(eval_data.action, generator.spec.grid_size, generator.spec.num_colors)
+    train_action, eval_action = _standardize(train_action, eval_action)
+    train_process_raw = torch.cat([train_raw, train_action], dim=-1)
+    eval_process_raw = torch.cat([eval_raw, eval_action], dim=-1)
     rollout_x = _standardize_with_train(train.features, eval_data.predicted_features)
     if model.latent_representation == "grid":
         train_grid_x, eval_grid_x = _standardize_spatial(train.spatial_features, eval_data.spatial_features)
@@ -600,7 +605,7 @@ def _run_object_dynamics_probes(
         ("action_continues", train.continues_object.long(), eval_data.continues_object.long(), 2),
     )
     for name, train_y, eval_y, num_classes in delta_targets:
-        metrics[f"probe_delta_{name}_acc"] = _fit_linear_classifier(
+        accuracy, balanced = _fit_classifier_with_balanced_accuracy(
             train_delta,
             train_y,
             eval_delta,
@@ -609,6 +614,28 @@ def _run_object_dynamics_probes(
             steps=steps,
             learning_rate=learning_rate,
         )
+        metrics[f"probe_delta_{name}_acc"] = accuracy
+        metrics[f"probe_delta_{name}_balanced_acc"] = balanced
+    raw_process_accuracy, raw_process_balanced = _fit_classifier_with_balanced_accuracy(
+        train_process_raw,
+        train.action_process_type,
+        eval_process_raw,
+        eval_data.action_process_type,
+        num_classes=len(PROCESS_NAMES),
+        steps=steps,
+        learning_rate=learning_rate,
+    )
+    metrics["raw_probe_action_process_provenance_acc"] = raw_process_accuracy
+    metrics["raw_probe_action_process_provenance_balanced_acc"] = raw_process_balanced
+    metrics["probe_action_process_provenance_majority_acc"] = _majority_accuracy(
+        train.action_process_type,
+        eval_data.action_process_type,
+    )
+    majority_label = int(train.action_process_type.long().bincount().argmax())
+    metrics["probe_action_process_provenance_majority_balanced_acc"] = _balanced_accuracy(
+        torch.full_like(eval_data.action_process_type, majority_label),
+        eval_data.action_process_type,
+    )
 
     chunk_targets = (
         ("object", train.chunk_object_id, eval_data.chunk_object_id, max_objects + 1),
@@ -703,6 +730,18 @@ def _standardize_spatial_with_train(train_x: torch.Tensor, eval_x: torch.Tensor)
 
 def _raw_grid_features(states: torch.Tensor, num_colors: int) -> torch.Tensor:
     return F.one_hot(states.clamp(0, num_colors - 1), num_classes=num_colors).flatten(1).float()
+
+
+def _raw_action_features(actions: torch.Tensor, grid_size: int, num_colors: int) -> torch.Tensor:
+    return torch.cat(
+        [
+            F.one_hot(actions[:, 0].clamp(0, 2), num_classes=3),
+            F.one_hot(actions[:, 1].clamp(0, grid_size - 1), num_classes=grid_size),
+            F.one_hot(actions[:, 2].clamp(0, grid_size - 1), num_classes=grid_size),
+            F.one_hot(actions[:, 3].clamp(0, num_colors - 1), num_classes=num_colors),
+        ],
+        dim=-1,
+    ).float()
 
 
 def _fit_linear_classifier(
@@ -1024,6 +1063,14 @@ def _majority_accuracy(train_y: torch.Tensor, eval_y: torch.Tensor) -> float:
     return float((eval_y == majority).float().mean().item())
 
 
+def _balanced_accuracy(pred: torch.Tensor, target: torch.Tensor) -> float:
+    recalls = [
+        (pred[target == label] == label).float().mean()
+        for label in torch.unique(target)
+    ]
+    return float(torch.stack(recalls).mean().item()) if recalls else 0.0
+
+
 def _nearest_neighbor_metrics(data: ProbeDataset) -> dict[str, float]:
     if data.features.shape[0] < 2:
         return {
@@ -1031,6 +1078,12 @@ def _nearest_neighbor_metrics(data: ProbeDataset) -> dict[str, float]:
             "pixel_nn_current_object_acc": float("nan"),
             "latent_nn_next_object_acc": float("nan"),
             "pixel_nn_next_object_acc": float("nan"),
+            "latent_nn_current_shape_acc": float("nan"),
+            "pixel_nn_current_shape_acc": float("nan"),
+            "latent_nn_current_color_acc": float("nan"),
+            "pixel_nn_current_color_acc": float("nan"),
+            "latent_nn_current_completion_mae": float("nan"),
+            "pixel_nn_current_completion_mae": float("nan"),
         }
     latent = F.normalize(data.features.float(), dim=-1)
     latent_distance = 1.0 - latent @ latent.T
@@ -1042,6 +1095,11 @@ def _nearest_neighbor_metrics(data: ProbeDataset) -> dict[str, float]:
     pixel_neighbor = pixel_distance.argmin(dim=1)
     current_present = data.current_object_id > 0
     next_present = data.next_object_id > 0
+    current_shape = _current_slot_values(data.object_shapes, data.current_object_id)
+    current_color = _current_slot_values(data.object_colors, data.current_object_id)
+    current_completion = _current_slot_values(data.completion, data.current_object_id)
+    latent_current_mask = current_present & current_present[latent_neighbor]
+    pixel_current_mask = current_present & current_present[pixel_neighbor]
     return {
         "latent_nn_current_object_acc": float(
             (data.current_object_id[latent_neighbor] == data.current_object_id).float().mean().item()
@@ -1073,6 +1131,24 @@ def _nearest_neighbor_metrics(data: ProbeDataset) -> dict[str, float]:
         "pixel_nn_category_acc": float(
             (data.trajectory_category[pixel_neighbor] == data.trajectory_category).float().mean().item()
         ),
+        "latent_nn_current_shape_acc": _masked_match_accuracy(
+            current_shape[latent_neighbor], current_shape, latent_current_mask
+        ),
+        "pixel_nn_current_shape_acc": _masked_match_accuracy(
+            current_shape[pixel_neighbor], current_shape, pixel_current_mask
+        ),
+        "latent_nn_current_color_acc": _masked_match_accuracy(
+            current_color[latent_neighbor], current_color, latent_current_mask
+        ),
+        "pixel_nn_current_color_acc": _masked_match_accuracy(
+            current_color[pixel_neighbor], current_color, pixel_current_mask
+        ),
+        "latent_nn_current_completion_mae": _masked_mae(
+            current_completion[latent_neighbor], current_completion, latent_current_mask
+        ),
+        "pixel_nn_current_completion_mae": _masked_mae(
+            current_completion[pixel_neighbor], current_completion, pixel_current_mask
+        ),
     }
 
 
@@ -1084,10 +1160,21 @@ def _foreground_pixel_distance(states: torch.Tensor) -> torch.Tensor:
     return mismatch.flatten(2).float().sum(dim=-1) / union.flatten(2).sum(dim=-1).clamp_min(1)
 
 
+def _current_slot_values(values: torch.Tensor, current_object_id: torch.Tensor) -> torch.Tensor:
+    slot = (current_object_id.long() - 1).clamp(min=0, max=values.shape[1] - 1)
+    return values[torch.arange(values.shape[0], device=values.device), slot]
+
+
 def _masked_match_accuracy(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> float:
     if not bool(torch.any(mask)):
         return float("nan")
     return float((pred[mask] == target[mask]).float().mean().item())
+
+
+def _masked_mae(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> float:
+    if not bool(torch.any(mask)):
+        return float("nan")
+    return float((pred[mask].float() - target[mask].float()).abs().mean().item())
 
 
 def _off_manifold_metrics(data: ProbeDataset) -> dict[str, float]:

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-10 19:30 CEST
+Last updated: 2026-07-11 01:03 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -37,18 +37,30 @@ and latent-variance behavior conflicts with map/surprise metrics. Base
 5000-step jobs `3831210`-`3831215`, stability jobs `3831216`-`3831227`, and
 replication trainers `3831379/81/83/85/87/89/91/93` completed. Stable-slot v3
 re-probes `3831509`-`3831534` also completed. All former strict fidelity
-specifications now pass. The `486`-job phase remains held until probe-v4 GPU
-validation and the prepared length/HWM calibration grids select train length,
-macro dimension, and joint-versus-staged hierarchy.
+specifications now pass. The `486`-job phase remains held: the completed length
+grid improves count/rollout/attention with training length, while the old
+process target uses hidden trajectory provenance and the old nearest-neighbor
+score compares canonical slots rather than semantic object factors.
 
 Calibration trainers disable inline full probes and use one dependent v4 probe
 at the final checkpoint. This avoids repeating MLP, attention, and CEM work.
-The complete repository verification is `329 passed`; the maximum H16 data
+The complete repository verification is `332 passed`; the maximum H16 data
 contract is 32 edits and is tested for every trajectory config.
 
 Batch-64 v4 GPU gates `3832316`-`3832318` completed `0:0` on A40. They cover
 H16 completion plus executed-grid CEM probes, full-grid H8+LDAD, and the
 reconstruction control; peak allocation was 8376/5372/2798 MiB.
+
+All 26 legacy probes, 36 length jobs `3832365`-`3832400`, and 14 seed-1707 HWM
+jobs `3832401`-`3832414` completed `0:0`. Joint macro-d4 is the best one-seed
+retrieval/subgoal compromise, but every HWM CEM row has zero exact executions.
+Confirmation train/probe jobs `3832932`-`3832943` add seeds `2707/3707` for
+low-level, joint-d4, and staged-d4. At 00:48 the four independent trainers were
+running on A40; staged rows and probes were dependency-held. The 486-run phase
+is still not submitted. Corrected semantic probe refresh jobs
+`3832957`-`3832981` and balanced refresh `3832984`-`3833008` completed `0:0`:
+balanced process accuracy beats raw controls but declines from initialization,
+and shape/color/completion nearest-neighbor metrics do not improve reliably.
 
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
 `semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.
@@ -68,7 +80,7 @@ python -m puzzle_jepa.train.object_dynamics \
 
 The wrappers do not submit by default. The phase wrapper also refuses real
 submission unless `PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and
-`MAX_STEPS` are explicit. No prestage selection is currently confirmed.
+`MAX_STEPS` are explicit. No phase selection is currently confirmed.
 
 Regenerate the object result summary:
 

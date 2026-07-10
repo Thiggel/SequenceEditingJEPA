@@ -192,7 +192,22 @@ def test_probe_suite_includes_nonlinear_upper_bound_and_correction_chunks() -> N
     metrics = _small_hierarchy_probe_run()
     assert np.isfinite(metrics["probe_mlp_object_count_acc"])
     assert np.isfinite(metrics["probe_delta_action_process_acc"])
+    assert np.isfinite(metrics["probe_delta_action_process_balanced_acc"])
+    assert np.isfinite(metrics["raw_probe_action_process_provenance_acc"])
+    assert np.isfinite(metrics["raw_probe_action_process_provenance_balanced_acc"])
+    assert np.isfinite(metrics["probe_action_process_provenance_majority_acc"])
+    assert np.isfinite(metrics["probe_action_process_provenance_majority_balanced_acc"])
     assert np.isfinite(metrics["probe_chunk_correction_acc"])
+
+
+def test_nearest_neighbor_probe_reports_semantic_object_factors() -> None:
+    metrics = _small_hierarchy_probe_run()
+    assert "latent_nn_current_shape_acc" in metrics
+    assert "pixel_nn_current_shape_acc" in metrics
+    assert "latent_nn_current_color_acc" in metrics
+    assert "pixel_nn_current_color_acc" in metrics
+    assert "latent_nn_current_completion_mae" in metrics
+    assert "pixel_nn_current_completion_mae" in metrics
 
 
 def test_probe_suite_decodes_object_count_after_rollout() -> None:
