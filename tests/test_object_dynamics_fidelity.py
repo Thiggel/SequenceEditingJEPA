@@ -343,6 +343,19 @@ def test_balanced_reprobe_is_paired_to_every_stability_training_job() -> None:
     assert "run_object_dynamics_probe_eval.slurm" in script
 
 
+def test_stability_replication_is_multiseed_and_excludes_delta() -> None:
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "experiments"
+        / "submit_object_dynamics_stability_replication.sh"
+    ).read_text()
+    assert "OBJECTIVES=(ema sigreg)" in script
+    assert "SEEDS=(2707 3707)" in script
+    assert "ldad" not in script
+    assert 'sbatch --parsable --dependency="afterok:${train_job}"' in script
+
+
 def _has_touching_pair(scene: SceneSpec) -> bool:
     masks = [obj.mask for obj in scene.objects]
     for left_index, left in enumerate(masks):
