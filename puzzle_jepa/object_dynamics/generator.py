@@ -42,6 +42,7 @@ class ObjectDynamicsSpec:
     wrong_ratio: float = 0.05
     duplicate_shape_ratio: float = 0.25
     same_color_ratio: float = 0.25
+    inside_ratio: float = 0.20
     max_scene_retries: int = 128
 
 
@@ -53,7 +54,11 @@ class ObjectDynamicsGenerator:
             raise ValueError("counterfactual_ratio and wrong_ratio must lie in [0, 1].")
         if spec.counterfactual_ratio + spec.wrong_ratio > 1.0:
             raise ValueError("counterfactual_ratio + wrong_ratio must not exceed 1.")
-        if not (0.0 <= spec.duplicate_shape_ratio <= 1.0 and 0.0 <= spec.same_color_ratio <= 1.0):
+        if not (
+            0.0 <= spec.duplicate_shape_ratio <= 1.0
+            and 0.0 <= spec.same_color_ratio <= 1.0
+            and 0.0 <= spec.inside_ratio <= 1.0
+        ):
             raise ValueError("Scene relation ratios must lie in [0, 1].")
         if not (1 <= spec.min_objects <= spec.max_objects):
             raise ValueError("Object count bounds must satisfy 1 <= min_objects <= max_objects.")
@@ -68,24 +73,49 @@ class ObjectDynamicsGenerator:
             grid = np.zeros(shape, dtype=np.int64)
             objects: list[ObjectSpec] = []
             object_count = int(rng.integers(self.spec.min_objects, self.spec.max_objects + 1))
+            make_inside_pair = object_count >= 2 and rng.random() < self.spec.inside_ratio
 
             for object_id in range(object_count):
                 placed = False
                 for _ in range(max(16, self.spec.max_scene_retries)):
                     duplicate_source = None
-                    if objects and rng.random() < self.spec.duplicate_shape_ratio:
+                    fixed_mask: np.ndarray | None = None
+                    if make_inside_pair and object_id == 0:
+                        shape_type = "hollow_rectangle"
+                        fixed_mask = _sample_hollow_container_mask(
+                            rng,
+                            grid_shape=shape,
+                            max_extent=self.spec.max_shape_extent,
+                        )
+                        if fixed_mask is None:
+                            continue
+                    elif make_inside_pair and object_id == 1:
+                        contained = _sample_contained_object_mask(
+                            rng,
+                            container=objects[0],
+                            occupied=occupied,
+                            grid_shape=shape,
+                            max_extent=self.spec.max_shape_extent,
+                        )
+                        if contained is None:
+                            continue
+                        shape_type, fixed_mask = contained
+                    elif objects and rng.random() < self.spec.duplicate_shape_ratio:
                         duplicate_source = objects[int(rng.integers(0, len(objects)))]
-                    if duplicate_source is None:
+                    if fixed_mask is not None:
+                        mask = fixed_mask
+                    elif duplicate_source is None:
                         shape_type = str(rng.choice(SHAPE_TYPES))
                         local_mask = sample_shape_mask(rng, shape_type, max_extent=self.spec.max_shape_extent)
                     else:
                         shape_type = duplicate_source.shape_type
                         local_mask = _crop_mask(duplicate_source.mask)
-                    if local_mask.shape[0] > shape[0] or local_mask.shape[1] > shape[1]:
-                        continue
-                    row = int(rng.integers(0, shape[0] - local_mask.shape[0] + 1))
-                    col = int(rng.integers(0, shape[1] - local_mask.shape[1] + 1))
-                    mask = place_mask(local_mask, row, col, shape)
+                    if fixed_mask is None:
+                        if local_mask.shape[0] > shape[0] or local_mask.shape[1] > shape[1]:
+                            continue
+                        row = int(rng.integers(0, shape[0] - local_mask.shape[0] + 1))
+                        col = int(rng.integers(0, shape[1] - local_mask.shape[1] + 1))
+                        mask = place_mask(local_mask, row, col, shape)
                     if bool(np.any(occupied & mask)):
                         continue
                     if objects and rng.random() < self.spec.same_color_ratio:
@@ -124,7 +154,7 @@ class ObjectDynamicsGenerator:
                 if trajectory.sample_start_indices(min_actions).size:
                     return trajectory
                 continue
-            base = self._sample_semantic_trajectory(scene, rng, kind=kind)
+            base = self._sample_semantic_trajectory(scene, rng, kind=kind, min_actions=min_actions)
             if len(base.actions) < min_actions:
                 continue
             category_draw = float(rng.random())
@@ -144,6 +174,7 @@ class ObjectDynamicsGenerator:
         rng: np.random.Generator,
         *,
         kind: str,
+        min_actions: int = 1,
     ) -> ObjectTrajectory:
         if kind == "frontier_build":
             return self._frontier_build(scene, rng)
@@ -154,7 +185,7 @@ class ObjectDynamicsGenerator:
         if kind == "interleaved_build":
             return self._interleaved_build(scene, rng)
         if kind == "completion":
-            return self._completion(scene, rng)
+            return self._completion(scene, rng, min_actions=min_actions)
         if kind == "transform_identity":
             return self._transform_identity(scene, rng)
         if kind == "noisy_repair":
@@ -274,14 +305,41 @@ class ObjectDynamicsGenerator:
             initial_object_map=np.full(initial.shape, -1, dtype=np.int64),
         )
 
-    def _completion(self, scene: SceneSpec, rng: np.random.Generator) -> ObjectTrajectory:
+    def _completion(
+        self,
+        scene: SceneSpec,
+        rng: np.random.Generator,
+        *,
+        min_actions: int = 1,
+    ) -> ObjectTrajectory:
         start = scene.grid.copy()
         actions: list[LowLevelAction] = []
         object_ids: list[int] = []
+        object_cells = []
+        remove_counts = []
         for obj in scene.objects:
             cells = [tuple(int(x) for x in cell) for cell in np.argwhere(obj.mask)]
             rng.shuffle(cells)
-            remove_count = max(1, int(round(0.35 * len(cells))))
+            object_cells.append((obj, cells))
+            removable = max(0, len(cells) - 1)
+            remove_counts.append(min(removable, max(1, int(round(0.35 * len(cells))))))
+
+        target_removals = min(
+            sum(max(0, len(cells) - 1) for _, cells in object_cells),
+            max(int(min_actions), sum(remove_counts)),
+        )
+        while sum(remove_counts) < target_removals:
+            candidates = [
+                index
+                for index, (_, cells) in enumerate(object_cells)
+                if remove_counts[index] < len(cells) - 1
+            ]
+            if not candidates:
+                break
+            chosen = candidates[int(rng.integers(0, len(candidates)))]
+            remove_counts[chosen] += 1
+
+        for (obj, cells), remove_count in zip(object_cells, remove_counts, strict=True):
             for row, col in cells[:remove_count]:
                 start[row, col] = 0
                 actions.append(LowLevelAction(ActionOp.PAINT, row, col, obj.color))
@@ -298,7 +356,7 @@ class ObjectDynamicsGenerator:
         target[target_mask] = target_color
         transformed_scene = SceneSpec(
             grid=target,
-            objects=(ObjectSpec(object_id=0, shape_type=f"transformed_{obj.shape_type}", color=target_color, mask=target_mask),),
+            objects=(ObjectSpec(object_id=0, shape_type=obj.shape_type, color=target_color, mask=target_mask),),
         )
         actions, object_ids = _repair_actions(source, target, object_id=0, rng=rng)
         source_object_map = np.full(source.shape, -1, dtype=np.int64)
@@ -602,6 +660,52 @@ def _canonicalize_objects(objects: list[ObjectSpec]) -> tuple[ObjectSpec, ...]:
         ObjectSpec(object_id=object_id, shape_type=obj.shape_type, color=obj.color, mask=obj.mask)
         for object_id, obj in enumerate(ordered)
     )
+
+
+def _sample_hollow_container_mask(
+    rng: np.random.Generator,
+    *,
+    grid_shape: tuple[int, int],
+    max_extent: int,
+) -> np.ndarray | None:
+    largest = min(max_extent, *grid_shape)
+    if largest < 5:
+        return None
+    height = int(rng.integers(5, largest + 1))
+    width = int(rng.integers(5, largest + 1))
+    local = np.zeros((height, width), dtype=bool)
+    local[[0, -1], :] = True
+    local[:, [0, -1]] = True
+    row = int(rng.integers(0, grid_shape[0] - height + 1))
+    col = int(rng.integers(0, grid_shape[1] - width + 1))
+    return place_mask(local, row, col, grid_shape)
+
+
+def _sample_contained_object_mask(
+    rng: np.random.Generator,
+    *,
+    container: ObjectSpec,
+    occupied: np.ndarray,
+    grid_shape: tuple[int, int],
+    max_extent: int,
+) -> tuple[str, np.ndarray] | None:
+    row0, col0, row1, col1 = container.bbox
+    interior_height = row1 - row0 - 2
+    interior_width = col1 - col0 - 2
+    if interior_height < 2 or interior_width < 2:
+        return None
+    candidate_extent = max(3, min(max_extent, max(interior_height, interior_width)))
+    for _ in range(64):
+        shape_type = str(rng.choice(SHAPE_TYPES))
+        local = sample_shape_mask(rng, shape_type, max_extent=candidate_extent)
+        if local.shape[0] > interior_height or local.shape[1] > interior_width:
+            continue
+        row = int(rng.integers(row0 + 1, row1 - local.shape[0]))
+        col = int(rng.integers(col0 + 1, col1 - local.shape[1]))
+        mask = place_mask(local, row, col, grid_shape)
+        if not bool(np.any(mask & occupied)):
+            return shape_type, mask
+    return None
 
 
 def _masks_touch(left: np.ndarray, right: np.ndarray) -> bool:

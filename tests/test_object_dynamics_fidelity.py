@@ -18,6 +18,12 @@ from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator, Objec
 from puzzle_jepa.object_dynamics.losses import covariance_loss, sigreg_regularizer, vicreg_regularizer
 from puzzle_jepa.object_dynamics.model import ObjectDynamicsJEPA
 from puzzle_jepa.object_dynamics.probes import _class_balanced_weights, run_object_dynamics_probes
+from puzzle_jepa.object_dynamics.shapes import SHAPE_TYPES
+from puzzle_jepa.train.object_dynamics import (
+    _fork_rng_devices,
+    _initialize_from_checkpoint,
+    _set_trainable_components,
+)
 
 
 def test_object_dynamics_ldad_uses_encoded_future_displacement() -> None:
@@ -324,6 +330,23 @@ def test_hidden_object_maps_track_only_objects_present_in_each_state() -> None:
     torch.testing.assert_close(batch.future_object_present[:, -1].sum(dim=1), future_counts)
 
 
+def test_transform_identity_preserves_hidden_shape_class() -> None:
+    generator = ObjectDynamicsGenerator(
+        ObjectDynamicsSpec(
+            grid_size=10,
+            max_objects=3,
+            max_shape_extent=4,
+            trajectory_kind="transform_identity",
+            counterfactual_ratio=0.0,
+            wrong_ratio=0.0,
+        )
+    )
+    trajectory = generator.sample_trajectory(np.random.default_rng(42))
+
+    assert len(trajectory.scene.objects) == 1
+    assert trajectory.scene.objects[0].shape_type in SHAPE_TYPES
+
+
 def test_probe_object_slots_remain_stable_as_partial_bboxes_grow() -> None:
     shape = (6, 6)
     first_mask = np.zeros(shape, dtype=bool)
@@ -440,6 +463,7 @@ def test_phase_sweep_requires_explicit_prestage_selection() -> None:
     assert "PRESTAGE_SELECTION_CONFIRMED" in text
     assert 'LEARNING_RATE="${LEARNING_RATE}"' in text
     assert 'MAX_STEPS="${MAX_STEPS}"' in text
+    assert 'EVAL_EVERY_STEPS="${EVAL_EVERY_STEPS:-1000}"' in text
     assert "phase3_h8_ldad" in text
     assert "phase3_h4_ldad" not in text
 
@@ -470,7 +494,7 @@ def test_balanced_reprobe_is_paired_to_every_stability_training_job() -> None:
         assert f":{train_job}\"" in script
     assert 'dependency_args=(--dependency="afterok:${train_job}")' in script
     assert 'sbatch --parsable "${dependency_args[@]}"' in script
-    assert "probe_eval_balanced_v3.json" in script
+    assert "probe_eval_balanced_v4.json" in script
     assert "run_object_dynamics_probe_eval.slurm" in script
 
 
@@ -485,6 +509,69 @@ def test_stability_replication_is_multiseed_and_excludes_delta() -> None:
     assert "SEEDS=(2707 3707)" in script
     assert "ldad" not in script
     assert 'sbatch --parsable --dependency="afterok:${train_job}"' in script
+
+
+def test_length_calibration_covers_dimensions_seeds_and_saturation_scale() -> None:
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "experiments"
+        / "submit_object_dynamics_length_calibration.sh"
+    ).read_text()
+    assert "MODELS=(cls64_r8 cls128_r8)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "STEP_COUNTS=(5000 15000 50000)" in script
+    assert "probe_eval_balanced_v4.json" in script
+    assert 'SAVE_EVERY_STEPS="${steps}"' in script
+
+
+def test_staged_hwm_loads_and_freezes_only_low_level_components(tmp_path: Path) -> None:
+    low = ObjectDynamicsJEPA(grid_size=8, d_model=16, encoder_layers=1, encoder_heads=4)
+    with torch.no_grad():
+        low.encoder.color.weight.fill_(0.75)
+    checkpoint = tmp_path / "low.pt"
+    torch.save({"model": low.state_dict()}, checkpoint)
+
+    high = ObjectDynamicsJEPA(
+        grid_size=8,
+        d_model=16,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=1,
+        hierarchy_horizon=4,
+        hierarchy_planning=True,
+        hierarchy_rollout_steps=2,
+        macro_action_dim=4,
+    )
+    loaded = _initialize_from_checkpoint(high, checkpoint, device=torch.device("cpu"))
+    _set_trainable_components(high, "hierarchy_only")
+
+    assert "encoder.color.weight" in loaded
+    torch.testing.assert_close(high.encoder.color.weight, torch.full_like(high.encoder.color.weight, 0.75))
+    assert all(not parameter.requires_grad for parameter in high.encoder.parameters())
+    assert all(parameter.requires_grad for parameter in high.chunk_encoder.parameters())
+    assert all(parameter.requires_grad for parameter in high.hierarchy_predictor.parameters())
+    assert high.rollout_weight == 0.0
+
+
+def test_probe_rng_forks_the_active_cuda_device() -> None:
+    assert _fork_rng_devices(torch.device("cpu")) == []
+    assert _fork_rng_devices(torch.device("cuda:3")) == [3]
+
+
+def test_hwm_calibration_crosses_macro_dimension_and_training_schedule() -> None:
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "experiments"
+        / "submit_object_dynamics_hwm_calibration.sh"
+    ).read_text()
+    assert "MACRO_DIMS=(4 8 16)" in script
+    assert "for schedule in joint staged" in script
+    assert "TRAINABLE_COMPONENTS=\"${trainable_components}\"" in script
+    assert "model.macro_action_dim=${macro_dim}" in script
+    assert "eval.run_probes_during_training=false" in script
+    assert "probe_eval_balanced_v4.json" in script
 
 
 def _has_touching_pair(scene: SceneSpec) -> bool:

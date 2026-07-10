@@ -40,6 +40,33 @@ BALANCED_FIELDS = (
     "delta_probe_object_map_foreground_miou",
     "delta_probe_grid_foreground_miou",
     "delta_rollout_error_invalid_auroc",
+    "delta_probe_mlp_object_count_acc",
+    "delta_probe_mlp_current_object_balanced_acc",
+    "delta_probe_rollout_object_count_acc",
+    "delta_probe_rollout_object_count_balanced_acc",
+    "delta_probe_delta_action_process_acc",
+    "delta_probe_rollout_bbox_mse",
+    "delta_probe_rollout_completion_mse",
+    "delta_probe_object_part_count_acc",
+    "delta_probe_relation_inside_acc",
+    "delta_probe_relation_inside_balanced_acc",
+    "delta_probe_chunk_correction_acc",
+    "delta_probe_attention_current_object_iou",
+    "delta_probe_attention_current_object_iou_ge4",
+    "delta_probe_attention_current_object_future_iou",
+    "delta_probe_attention_incomplete_object_iou",
+    "delta_probe_hierarchy_endpoint_mse",
+    "delta_probe_hierarchy_macro_retrieval_acc",
+    "delta_probe_hierarchy_low_level_retrieval_acc",
+    "delta_probe_hierarchy_optimized_goal_l1",
+    "delta_probe_hierarchy_subgoal_reachability_l1",
+    "delta_probe_hierarchy_cem_subgoal_l1",
+    "delta_probe_hierarchy_cem_goal_l1",
+    "delta_probe_hierarchy_retrieval_goal_hamming",
+    "delta_probe_hierarchy_retrieval_goal_success",
+    "delta_probe_hierarchy_cem_executed_goal_hamming",
+    "delta_probe_hierarchy_cem_executed_goal_success",
+    "delta_probe_hierarchy_cem_model_bias_l1",
 )
 
 
@@ -103,6 +130,7 @@ def _load_run(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]] | No
         "seed": int(config["seed"]),
         "learning_rate": float(config["training"]["learning_rate"]),
         "max_steps": max_steps,
+        "probe_trajectory_kind": _probe_trajectory_kind(config, baseline),
     }
     rows = []
     for record in records:
@@ -116,7 +144,12 @@ def _load_run(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]] | No
             "probe_fit_version": int(record.get("probe_fit_version", 1)),
             "train_loss": _number(record.get("train_loss")),
         }
-        for metric in CORE_METRICS:
+        metric_names = sorted(
+            set(CORE_METRICS)
+            | {name for name in baseline if _is_probe_metric(name)}
+            | {name for name in record if _is_probe_metric(name)}
+        )
+        for metric in metric_names:
             value = _number(record.get(metric))
             initial = _number(baseline.get(metric))
             row[metric] = value
@@ -141,9 +174,26 @@ def _load_run(run_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]] | No
 
 def _aggregate_endpoints(endpoints: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-    keys = ("probe_fit_version", "data", "model", "objective", "learning_rate", "max_steps")
+    keys = (
+        "probe_fit_version",
+        "probe_trajectory_kind",
+        "data",
+        "model",
+        "objective",
+        "learning_rate",
+        "max_steps",
+    )
     for row in endpoints:
         groups.setdefault(tuple(row[key] for key in keys), []).append(row)
+    aggregate_fields = sorted(
+        set(ENDPOINT_FIELDS)
+        | {
+            key
+            for row in endpoints
+            for key in row
+            if key.startswith("delta_") and _number(row.get(key)) is not None
+        }
+    )
     aggregates = []
     for group_key, rows in sorted(groups.items(), key=lambda item: tuple(str(value) for value in item[0])):
         aggregate: dict[str, Any] = dict(zip(keys, group_key, strict=True))
@@ -151,7 +201,7 @@ def _aggregate_endpoints(endpoints: list[dict[str, Any]]) -> list[dict[str, Any]
         aggregate["n"] = len(rows)
         aggregate["complete_n"] = sum(bool(row["complete"]) for row in rows)
         aggregate["endpoint_steps"] = sorted({int(row["step"]) for row in rows})
-        for field in ENDPOINT_FIELDS:
+        for field in aggregate_fields:
             values = [float(row[field]) for row in rows if _number(row.get(field)) is not None]
             aggregate[f"{field}_mean"] = statistics.fmean(values) if values else None
             aggregate[f"{field}_std"] = statistics.pstdev(values) if len(values) > 1 else (0.0 if values else None)
@@ -165,7 +215,7 @@ def _load_balanced_reprobe(run_dir: Path) -> dict[str, Any] | None:
         return None
     result = None
     probe_fit_version = None
-    for version in (3, 2):
+    for version in (4, 3, 2):
         result_path = run_dir / f"probe_eval_balanced_v{version}.json"
         if not result_path.exists():
             continue
@@ -188,10 +238,13 @@ def _load_balanced_reprobe(run_dir: Path) -> dict[str, Any] | None:
         "learning_rate": float(config["training"]["learning_rate"]),
         "max_steps": max_steps,
         "probe_fit_version": probe_fit_version,
+        "probe_trajectory_kind": str(
+            result.get("probe_trajectory_kind", _probe_trajectory_kind(config, result))
+        ),
         "checkpoint_step": int(result["checkpoint_step"]),
         "complete": int(result["checkpoint_step"]) >= max_steps,
     }
-    for field in BALANCED_FIELDS:
+    for field in sorted(set(BALANCED_FIELDS) | {key for key in result if key.startswith("delta_")}):
         row[field] = _number(result.get(field))
     initial_std = _number(result.get("initial_latent_std_mean"))
     trained_std = _number(result.get("latent_std_mean"))
@@ -201,16 +254,33 @@ def _load_balanced_reprobe(run_dir: Path) -> dict[str, Any] | None:
 
 def _aggregate_balanced_reprobes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
-    keys = ("probe_fit_version", "data", "model", "objective", "learning_rate", "max_steps")
+    keys = (
+        "probe_fit_version",
+        "probe_trajectory_kind",
+        "data",
+        "model",
+        "objective",
+        "learning_rate",
+        "max_steps",
+    )
     for row in rows:
         groups.setdefault(tuple(row[key] for key in keys), []).append(row)
+    aggregate_fields = sorted(
+        {"latent_std_ratio", *BALANCED_FIELDS}
+        | {
+            key
+            for row in rows
+            for key in row
+            if key.startswith("delta_") and _number(row.get(key)) is not None
+        }
+    )
     aggregates = []
     for group_key, group_rows in sorted(groups.items(), key=lambda item: tuple(str(value) for value in item[0])):
         aggregate: dict[str, Any] = dict(zip(keys, group_key, strict=True))
         aggregate["seeds"] = sorted(int(row["seed"]) for row in group_rows)
         aggregate["n"] = len(group_rows)
         aggregate["complete_n"] = sum(bool(row["complete"]) for row in group_rows)
-        for field in ("latent_std_ratio", *BALANCED_FIELDS):
+        for field in aggregate_fields:
             values = [float(row[field]) for row in group_rows if _number(row.get(field)) is not None]
             aggregate[f"{field}_mean"] = statistics.fmean(values) if values else None
             aggregate[f"{field}_std"] = statistics.pstdev(values) if len(values) > 1 else (0.0 if values else None)
@@ -281,8 +351,36 @@ def _render_markdown(summary: dict[str, Any]) -> str:
 def _number(value: Any) -> float | None:
     if value is None:
         return None
-    result = float(value)
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
     return result if math.isfinite(result) else None
+
+
+def _probe_trajectory_kind(config: dict[str, Any], metrics: dict[str, Any]) -> str:
+    if "probe_trajectory_kind" in metrics:
+        return str(metrics["probe_trajectory_kind"])
+    eval_config = dict(config.get("eval", {}))
+    data_config = dict(config["data"])
+    return str(eval_config.get("probe_trajectory_kind", data_config.get("trajectory_kind", data_config["name"])))
+
+
+def _is_probe_metric(name: str) -> bool:
+    return name.startswith(
+        (
+            "latent_",
+            "pixel_nn_",
+            "probe_",
+            "raw_probe_",
+            "rollout_error_",
+        )
+    ) and name not in {
+        "probe_fit_version",
+        "probe_seed",
+        "probe_class_balanced_objectives",
+        "probe_trajectory_kind",
+    }
 
 
 def _format(value: Any) -> str:

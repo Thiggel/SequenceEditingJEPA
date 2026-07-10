@@ -10,7 +10,8 @@ from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator
 from puzzle_jepa.object_dynamics.shapes import SHAPE_TYPES
 
 
-RELATION_NAMES = ("same_color", "same_shape", "touching", "left_of")
+RELATION_NAMES = ("same_color", "same_shape", "touching", "left_of", "inside")
+PROCESS_NAMES = ("unknown", "build", "complete", "transform", "repair_fill", "trim", "recolor", "random")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,7 @@ class ObjectDynamicsBatch:
     object_centroids: torch.Tensor
     object_areas: torch.Tensor
     object_shapes: torch.Tensor
+    object_part_counts: torch.Tensor
     object_missing: torch.Tensor
     future_object_missing: torch.Tensor
     object_overgrowth: torch.Tensor
@@ -45,6 +47,7 @@ class ObjectDynamicsBatch:
     future_object_map: torch.Tensor
     action_object_ids: torch.Tensor
     action_object_shapes: torch.Tensor
+    action_process_types: torch.Tensor
     continues_object: torch.Tensor
     relation_present: torch.Tensor
     relations: torch.Tensor
@@ -78,6 +81,7 @@ def sample_object_dynamics_batch(
     object_centroids = []
     object_areas = []
     object_shapes = []
+    object_part_counts = []
     object_missing = []
     future_object_missing = []
     object_overgrowth = []
@@ -88,6 +92,7 @@ def sample_object_dynamics_batch(
     future_object_maps = []
     action_object_ids = []
     action_object_shapes = []
+    action_process_types = []
     continues_object = []
     relation_present = []
     relations = []
@@ -129,6 +134,7 @@ def sample_object_dynamics_batch(
         object_centroids.append(metadata[3])
         object_areas.append(metadata[4])
         object_shapes.append(metadata[5])
+        object_part_counts.append(metadata[9])
         object_missing.append(metadata[6])
         future_object_missing.append(np.stack([item[6] for item in future_metadata]))
         object_overgrowth.append(metadata[7])
@@ -163,6 +169,12 @@ def sample_object_dynamics_batch(
                 dtype=np.int64,
             )
         )
+        action_process_types.append(
+            np.asarray(
+                [_process_index(trajectory, start + step) for step in range(horizon)],
+                dtype=np.int64,
+            )
+        )
         continues_object.append(float(previous_id >= 0 and previous_id == trajectory.action_object_ids[start]))
         pair_present, pair_relations = _object_relations(trajectory, start, max_objects=max_objects)
         relation_present.append(pair_present)
@@ -189,6 +201,7 @@ def sample_object_dynamics_batch(
         object_centroids=torch.as_tensor(np.stack(object_centroids), dtype=torch.float32, device=device),
         object_areas=torch.as_tensor(np.stack(object_areas), dtype=torch.float32, device=device),
         object_shapes=torch.as_tensor(np.stack(object_shapes), dtype=torch.long, device=device),
+        object_part_counts=torch.as_tensor(np.stack(object_part_counts), dtype=torch.long, device=device),
         object_missing=torch.as_tensor(np.stack(object_missing), dtype=torch.float32, device=device),
         future_object_missing=torch.as_tensor(np.stack(future_object_missing), dtype=torch.float32, device=device),
         object_overgrowth=torch.as_tensor(np.stack(object_overgrowth), dtype=torch.float32, device=device),
@@ -201,6 +214,7 @@ def sample_object_dynamics_batch(
         future_object_map=torch.as_tensor(np.stack(future_object_maps), dtype=torch.long, device=device),
         action_object_ids=torch.as_tensor(np.stack(action_object_ids), dtype=torch.long, device=device),
         action_object_shapes=torch.as_tensor(np.stack(action_object_shapes), dtype=torch.long, device=device),
+        action_process_types=torch.as_tensor(np.stack(action_process_types), dtype=torch.long, device=device),
         continues_object=torch.as_tensor(continues_object, dtype=torch.float32, device=device),
         relation_present=torch.as_tensor(np.stack(relation_present), dtype=torch.bool, device=device),
         relations=torch.as_tensor(np.stack(relations), dtype=torch.float32, device=device),
@@ -234,6 +248,7 @@ def _object_metadata(
     np.ndarray,
     np.ndarray,
     np.ndarray,
+    np.ndarray,
 ]:
     present = np.zeros((max_objects,), dtype=bool)
     colors = np.zeros((max_objects,), dtype=np.int64)
@@ -244,6 +259,7 @@ def _object_metadata(
     missing = np.zeros((max_objects,), dtype=np.float32)
     overgrowth = np.zeros((max_objects,), dtype=np.float32)
     wrong_color = np.zeros((max_objects,), dtype=np.float32)
+    part_counts = np.zeros((max_objects,), dtype=np.int64)
     grid_size = trajectory.scene.grid.shape[0]
     state = trajectory.states[state_index]
     for object_id, visible_mask in _visible_objects(trajectory, state_index, max_objects=max_objects):
@@ -262,7 +278,8 @@ def _object_metadata(
         missing[slot] = np.count_nonzero(obj.mask & (state != obj.color)) / target_area
         overgrowth[slot] = np.count_nonzero(visible_mask & ~obj.mask) / target_area
         wrong_color[slot] = np.count_nonzero(visible_mask & obj.mask & (state != obj.color)) / target_area
-    return present, colors, bboxes, centroids, areas, shapes, missing, overgrowth, wrong_color
+        part_counts[slot] = len(obj.parts)
+    return present, colors, bboxes, centroids, areas, shapes, missing, overgrowth, wrong_color, part_counts
 
 
 def _object_relations(
@@ -295,6 +312,7 @@ def _object_relations(
                         left.shape_type == right.shape_type,
                         _masks_touch(left_mask, right_mask),
                         left_centroid[1] < right_centroid[1],
+                        _mask_inside(left.mask, right.mask) or _mask_inside(right.mask, left.mask),
                     ],
                     dtype=np.float32,
                 )
@@ -356,6 +374,50 @@ def _shape_index(trajectory: ObjectTrajectory, object_id: int) -> int:
         return 0
     shape = trajectory.scene.objects[object_id].shape_type.removeprefix("transformed_")
     return SHAPE_TYPES.index(shape) + 1 if shape in SHAPE_TYPES else 0
+
+
+def _process_index(trajectory: ObjectTrajectory, action_index: int) -> int:
+    action = trajectory.actions[action_index]
+    object_id = trajectory.action_object_ids[action_index]
+    kind = trajectory.kind.removeprefix("counterfactual_").removeprefix("wrong_")
+    if object_id < 0 or kind == "random_off_manifold":
+        return PROCESS_NAMES.index("random")
+    if action.op.name == "ERASE":
+        return PROCESS_NAMES.index("trim")
+    if action.op.name == "RECOLOR":
+        return PROCESS_NAMES.index("recolor")
+    if kind == "completion":
+        return PROCESS_NAMES.index("complete")
+    if kind == "transform_identity":
+        return PROCESS_NAMES.index("transform")
+    if kind == "noisy_repair":
+        return PROCESS_NAMES.index("repair_fill")
+    return PROCESS_NAMES.index("build")
+
+
+def _mask_inside(inner: np.ndarray, container: np.ndarray) -> bool:
+    if bool(np.any(inner & container)):
+        return False
+    exterior = np.zeros_like(container, dtype=bool)
+    stack = [
+        (row, col)
+        for row in range(container.shape[0])
+        for col in range(container.shape[1])
+        if (row in {0, container.shape[0] - 1} or col in {0, container.shape[1] - 1}) and not container[row, col]
+    ]
+    for cell in stack:
+        exterior[cell] = True
+    while stack:
+        row, col = stack.pop()
+        for row_offset, col_offset in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            neighbor = (row + row_offset, col + col_offset)
+            if not (0 <= neighbor[0] < container.shape[0] and 0 <= neighbor[1] < container.shape[1]):
+                continue
+            if not container[neighbor] and not exterior[neighbor]:
+                exterior[neighbor] = True
+                stack.append(neighbor)
+    enclosed = ~container & ~exterior
+    return bool(np.any(inner)) and bool(np.all(enclosed[inner]))
 
 
 def _masks_touch(left: np.ndarray, right: np.ndarray) -> bool:

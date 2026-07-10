@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-10 18:10 CEST
+Last updated: 2026-07-10 19:21 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -25,6 +25,9 @@ by the generator and probes only; training sees grids plus
   `scripts/experiments/submit_object_dynamics_balanced_reprobe.sh`
 - Phase sweep dry-run wrapper:
   `scripts/experiments/submit_object_dynamics_phase1.sh`
+- Length and HWM calibration wrappers:
+  `scripts/experiments/submit_object_dynamics_length_calibration.sh` and
+  `scripts/experiments/submit_object_dynamics_hwm_calibration.sh`
 
 The Slurm template can use `a40,rtxpro6k,a100`. The 12-job prestage completed
 as jobs `3831078`, `3831080`, ..., `3831100`; outputs are under
@@ -33,8 +36,15 @@ select a default: current-object and delta-object probes declined in every row,
 and latent-variance behavior conflicts with map/surprise metrics. Base
 5000-step jobs `3831210`-`3831215`, stability jobs `3831216`-`3831227`, and
 replication trainers `3831379/81/83/85/87/89/91/93` completed. Stable-slot v3
-re-probes `3831509`-`3831534` also completed. The phase sweep remains gated by the strict xfails in
-`tests/test_object_dynamics_remaining_fidelity.py`.
+re-probes `3831509`-`3831534` also completed. All former strict fidelity
+specifications now pass. The `486`-job phase remains held until probe-v4 GPU
+validation and the prepared length/HWM calibration grids select train length,
+macro dimension, and joint-versus-staged hierarchy.
+
+Calibration trainers disable inline full probes and use one dependent v4 probe
+at the final checkpoint. This avoids repeating MLP, attention, and CEM work.
+The complete repository verification is `329 passed`; the maximum H16 data
+contract is 32 edits and is tested for every trajectory config.
 
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
 `semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.
@@ -80,7 +90,7 @@ Structured-slot planner mask repair jobs:
 squeue -j 3831076,3831077,3831079,3831081,3831083,3831085,3831087,3831089,3831091,3831093,3831095,3831097,3831099,3831101
 ```
 
-These 14 jobs are running on A40. All emitted one `8/8` depth-4 oracle
+These 14 jobs were running on A40 at 19:21 CEST. All emitted one `8/8` depth-4 oracle
 latent-rollout row, validating the mask repair. They skip existing diagnostics and write to
 `planner_eval_structured_mask_repair_20260710` below each structured-wave run.
 Do not cancel them. Aggregate planner rows only after jobs finish; empty files

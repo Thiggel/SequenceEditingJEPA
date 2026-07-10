@@ -13,6 +13,7 @@ dependencies = [
   "hydra-core",
   "omegaconf",
   "datasets",
+  "matplotlib",
 ]
 
 [tool.setuptools.packages.find]

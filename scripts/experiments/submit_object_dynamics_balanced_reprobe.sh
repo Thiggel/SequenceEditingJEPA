@@ -32,7 +32,7 @@ RUNS=(
   "semantic_mix_cls64_r8_sigreg_stability_lr3.0e-4_steps5000_seed2707:3831391"
   "semantic_mix_cls64_r8_sigreg_stability_lr3.0e-4_steps5000_seed3707:3831393"
 )
-PROBE_OUTPUT_NAME_OVERRIDE="${PROBE_OUTPUT_NAME_OVERRIDE:-probe_eval_balanced_v3.json}"
+PROBE_OUTPUT_NAME_OVERRIDE="${PROBE_OUTPUT_NAME_OVERRIDE:-probe_eval_balanced_v4.json}"
 
 IDS=()
 for entry in "${RUNS[@]}"; do

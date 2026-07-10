@@ -5,3 +5,7 @@ encoder_heads: 4
 rollout_horizon: 1
 hierarchy_horizon: 8
 latent_representation: grid
+hierarchy_planning: true
+hierarchy_rollout_steps: 2
+macro_encoder_layers: 1
+macro_action_dim: 16

@@ -50,8 +50,9 @@ def test_object_dynamics_summary_aggregates_seeds_and_writes_outputs(tmp_path: P
     assert aggregate["complete_n"] == 2
     assert aggregate["delta_probe_current_object_acc_mean"] == pytest.approx(0.2)
     assert aggregate["delta_probe_current_object_acc_std"] == pytest.approx(0.1)
+    assert aggregate["delta_probe_attention_entropy_mean"] == pytest.approx(0.1)
     balanced = summary["balanced_reprobe_aggregates"][0]
-    assert balanced["probe_fit_version"] == 3
+    assert balanced["probe_fit_version"] == 4
     assert balanced["seeds"] == [7, 11]
     assert balanced["delta_probe_current_object_acc_mean"] == pytest.approx(0.2)
 
@@ -68,9 +69,9 @@ def test_object_dynamics_summary_rejects_mislabeled_probe_schema(tmp_path: Path)
     _write_metrics(run, [_record(0, std=0.5, current=0.4, object_map=0.1)])
     (run / "checkpoint.pt").touch()
     _write_balanced_reprobe(run, current_delta=0.1)
-    result = json.loads((run / "probe_eval_balanced_v3.json").read_text())
+    result = json.loads((run / "probe_eval_balanced_v4.json").read_text())
     (run / "probe_eval_balanced_v2.json").write_text(json.dumps(result))
-    (run / "probe_eval_balanced_v3.json").unlink()
+    (run / "probe_eval_balanced_v4.json").unlink()
 
     summary = summarize_object_dynamics_runs(tmp_path)
 
@@ -94,7 +95,7 @@ def _write_metrics(run: Path, records: list[dict[str, float | int]]) -> None:
 
 def _write_balanced_reprobe(run: Path, *, current_delta: float) -> None:
     result = {
-        "probe_fit_version": 3,
+        "probe_fit_version": 4,
         "checkpoint_step": 10,
         "initial_latent_std_mean": 0.5,
         "latent_std_mean": 0.5,
@@ -108,7 +109,7 @@ def _write_balanced_reprobe(run: Path, *, current_delta: float) -> None:
         "delta_probe_grid_foreground_miou": 0.1,
         "delta_rollout_error_invalid_auroc": 0.1,
     }
-    (run / "probe_eval_balanced_v3.json").write_text(json.dumps(result))
+    (run / "probe_eval_balanced_v4.json").write_text(json.dumps(result))
 
 
 def _record(
@@ -128,6 +129,7 @@ def _record(
         "probe_delta_action_object_acc": 0.5,
         "probe_object_map_foreground_miou": object_map,
         "probe_grid_foreground_miou": 0.2,
+        "probe_attention_entropy": 0.4 + 0.01 * step,
         "rollout_error_invalid_auroc": 0.6,
     }
     if loss is not None:

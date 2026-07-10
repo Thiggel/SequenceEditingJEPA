@@ -35,6 +35,9 @@ python -m puzzle_jepa.train.object_dynamics \
   "training.batch_size=${BATCH_SIZE:-64}" \
   "training.learning_rate=${LEARNING_RATE:-3.0e-4}" \
   "training.eval_every_steps=${EVAL_EVERY_STEPS:-250}" \
+  "training.save_every_steps=${SAVE_EVERY_STEPS:-${MAX_STEPS:-2000}}" \
+  "training.initial_checkpoint=${INITIAL_CHECKPOINT:-null}" \
+  "training.trainable_components=${TRAINABLE_COMPONENTS:-all}" \
   "eval.probe_train_samples=${PROBE_TRAIN_SAMPLES:-512}" \
   "eval.probe_eval_samples=${PROBE_EVAL_SAMPLES:-256}" \
   "${USER_OVERRIDES[@]}"

@@ -50,6 +50,32 @@ class ObjectSpec:
         rows, cols = np.where(self.mask)
         return float(rows.mean()), float(cols.mean())
 
+    @property
+    def parts(self) -> tuple[np.ndarray, ...]:
+        """Return stable 8-connected components without exposing them to training."""
+        remaining = np.asarray(self.mask, dtype=bool).copy()
+        parts: list[np.ndarray] = []
+        while bool(np.any(remaining)):
+            seed = tuple(int(value) for value in np.argwhere(remaining)[0])
+            stack = [seed]
+            part = np.zeros_like(remaining)
+            remaining[seed] = False
+            while stack:
+                row, col = stack.pop()
+                part[row, col] = True
+                for row_offset in (-1, 0, 1):
+                    for col_offset in (-1, 0, 1):
+                        if row_offset == 0 and col_offset == 0:
+                            continue
+                        neighbor = (row + row_offset, col + col_offset)
+                        if not (0 <= neighbor[0] < remaining.shape[0] and 0 <= neighbor[1] < remaining.shape[1]):
+                            continue
+                        if remaining[neighbor]:
+                            remaining[neighbor] = False
+                            stack.append(neighbor)
+            parts.append(part)
+        return tuple(parts)
+
 
 @dataclass(frozen=True, slots=True)
 class SceneSpec:

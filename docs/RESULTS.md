@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-10 18:10 CEST
+Last updated: 2026-07-10 19:21 CEST
 
 ## Object Dynamics Prestage Result
 
@@ -54,12 +54,13 @@ Implementation verification:
 
 | Check | Result |
 |---|---|
-| JEPA fidelity contract tests | objective/trajectory/probe/launcher contracts pass; 8 strict research-gap xfails |
-| Complete repository suite | 314 passed, 8 strict research-gap xfails |
-| Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/H16 and full-grid/H8-LDAD pass on CPU |
+| JEPA fidelity contract tests | all objective/trajectory/probe/HWM/baseline/launcher contracts pass |
+| Complete repository suite | 329 passed, no xfails |
+| Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/reconstruction/joint+staged HWM/full-grid pass on CPU |
 | Prestage jobs | 12 completed `0:0` |
 | Full-grid A40 smoke | job `3831536`, batch 64, `0:0`, about 3.1 GiB peak GPU allocation |
-| Phase wrapper | 144 dry-run commands; real submission guarded |
+| Calibration wrappers | 18 length rows and 7 HWM rows, each with dependent probe-v4 eval |
+| Phase wrapper | 486 dry-run commands; real submission guarded |
 
 The audit corrected material semantics before submission: LDAD uses encoded
 adjacent endpoints with shared end-to-end gradients; SIGReg is the projected
@@ -73,6 +74,19 @@ The Delta-JEPA source defines LDAD on adjacent encoded endpoints and one
 executed action. The previous long-horizon sequence-decoder requirement was
 incorrect. Flat and H8 LDAD rows now have paired CLS/full-grid configs, but no
 phase jobs have been submitted.
+
+Probe v4 is implemented but has not yet been run over all checkpoints. It adds
+parts/inside, nonlinear controls, rollout count, process labels, train-selected
+attention metrics, foreground-aware neighbors, and executed-grid HWM planning
+diagnostics. Fixed-batch qualitative exports on seed-1707 `cls64_r8`
+checkpoints are descriptive only. After excluding one-cell examples, per-example
+oracle-best-head current-object IoU over eight multi-cell cases is `.195` at
+initialization, `.282` for EMA, and `.337` for SIGReg. Four-query current-object
+neighbor match is `.25` for initial, trained, and foreground-aware pixel
+neighbors for both objectives: this panel provides no nearest-neighbor evidence
+of learned semantics. Selected-sample latent rollout MSE is `.11457` for EMA
+and `.02150` for SIGReg. Aggregate v4 fixed-head probes, not these selected
+panels, are the decision source.
 
 ## ARC First-Pass Training Results
 

@@ -68,28 +68,43 @@ single-CLS rollout horizons, stability objectives, and hierarchy:
 |---|---|
 | Phase 1 | five CLS rows plus `grid128_r8` with `base` |
 | Phase 2 | `cls128_r8` with `ldad/vicreg/sigreg/ema`, plus paired `grid128_r8/ldad` |
-| Phase 3 | three CLS hierarchy rows, plus paired CLS/grid H8 LDAD rows |
+| Phase 3 | three joint HWM rows, paired CLS/grid H8 LDAD, and staged/frozen H8 |
+| Control | `cls128_r8` reconstruction-only encoder baseline |
 
 Frozen evaluation now covers visible object count/current/next object, color,
-shape, bbox, centroid, area, completion, missing/overgrowth/wrong-color
+shape, connected-part count, bbox, centroid, area, completion, missing/overgrowth/wrong-color
 severity, pair relations, spatially canonical visible object maps, foreground-
 balanced grid decoding, actual latent-delta action fields, rollout transfer,
 hierarchy chunks, nearest-neighbor semantics, latent rank, and off-manifold
 rollout-error/manifold-distance AUROC. The same state/object probes run on
 one-hot raw grids, and a fixed held-out set plus step-0 encoder baseline makes
 checkpoint curves comparable. Hidden labels never train the JEPA.
+Probe v4 additionally measures linear-versus-small-MLP gaps, rollout object
+count, balanced `inside` relations, correction-process chunks, CLS attention
+with train-selected heads plus multi-cell/future-extent targets,
+foreground-aware nearest neighbors, high-level rollout error, macro retrieval,
+continuous macro CEM, state-valid categorical primitive CEM, exact symbolic execution,
+model bias, and subgoal reachability.
 All phase rows use the same `semantic_mix` probe distribution so trajectory
 comparisons do not also change the evaluation data. The phase matrix includes
 `random_off_manifold` as a pure-random-edit training control.
 
-Before the phase sweep, resolve the remaining strict gates in
-`tests/test_object_dynamics_remaining_fidelity.py`: at least three seeds in
-the phase launcher; actual HWM planning and high-level prediction evaluation;
-rollout object-count decoding; explicit part/inside metadata; attention maps;
-nonlinear probe upper bounds and correction-chunk labels; and a
-reconstruction-trained encoder baseline. Full-grid and paired Delta rows are
-implemented. Delta-JEPA itself decodes adjacent displacement, not a
-long-horizon action sequence.
+The former strict implementation gates all pass. HWM now has a Transformer
+macro encoder with a low-dimensional bottleneck, two coarse transitions,
+continuous macro CEM, low-level categorical CEM, and top-down latent subgoal
+matching. The matrix includes both joint representation learning and a
+paper-style staged row initialized from and freezing the low-level model. The
+remaining pre-phase gate is empirical: run probe-v4 compatibility, choose
+train length from `{5k,15k,50k}` across three seeds and CLS widths, and choose
+macro dimension `{4,8,16}` plus joint/staged schedule. Delta-JEPA itself
+decodes adjacent displacement, not a long-horizon action sequence.
+
+HWM is deliberately a local fully observed adaptation: its coarse predictor is
+Markov and chunks have configured fixed lengths. The source paper uses a causal
+interleaved high-level model and permits variable-length waypoint segments.
+Results must be labeled accordingly unless those axes are implemented and
+ablated. The calibration also compares exact executed-grid outcomes, not only
+latent self-consistency.
 
 The first 12-job base prestage completed on 2026-07-10 but did not select a default.
 Every endpoint reduced current-object and latent-delta object probe accuracy
@@ -97,8 +112,8 @@ relative to its fixed step-0 encoder, while latent variance, map decoding, and
 invalid-state AUROC gave conflicting rankings. The 5000-step extension and
 EMA/VICReg/SIGReg triage completed, followed by three-seed EMA/SIGReg
 replication. Stable-slot v3 probes select `cls64_r8 + EMA`, LR `3e-4`, as the
-best compromise, but the phase launcher still requires an explicit confirmed
-decision and remains blocked on the attribution/evaluation controls above.
+best compromise. The full guarded phase now contains nine datasets x 18 rows x
+three seeds (`486` jobs); it remains held until the new calibration jobs finish.
 
 ## ARC Concrete Plan
 

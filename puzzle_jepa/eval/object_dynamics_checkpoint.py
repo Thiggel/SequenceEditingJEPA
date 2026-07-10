@@ -9,6 +9,7 @@ import numpy as np
 import torch
 
 from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator, ObjectDynamicsSpec
+from puzzle_jepa.object_dynamics.initialization import initialize_low_level_from_checkpoint
 from puzzle_jepa.object_dynamics.model import ObjectDynamicsJEPA
 from puzzle_jepa.object_dynamics.probes import run_object_dynamics_probes
 
@@ -47,9 +48,14 @@ def evaluate_object_dynamics_checkpoint(
         **model_config,
         **objective_config,
     ).to(resolved_device)
+    initialize_low_level_from_checkpoint(
+        model,
+        dict(config.get("training", {})).get("initial_checkpoint"),
+        device=resolved_device,
+    )
     probe_seed = int(config["seed"]) + 100_003
     torch.manual_seed(probe_seed)
-    horizon = max(int(model_config.get("rollout_horizon", 1)), int(model_config.get("hierarchy_horizon", 0)), 1)
+    horizon = model.training_horizon
     probe_kwargs = {
         "train_samples": int(train_samples or eval_config.get("probe_train_samples", 512)),
         "eval_samples": int(eval_samples or eval_config.get("probe_eval_samples", 256)),

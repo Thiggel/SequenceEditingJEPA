@@ -2,13 +2,14 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-10 18:10 CEST
+Last updated: 2026-07-10 19:21 CEST
 
 ## Object Dynamics JEPA Scaffold
 
-Status: fidelity-audited and repaired. Calibration and three-seed winner
-replication are complete; `cls64_r8 + EMA`, LR `3e-4`, is the best current
-compromise. The trajectory phase remains blocked and has not been submitted.
+Status: all audited implementation gates now pass. Calibration and three-seed
+winner replication are complete; `cls64_r8 + EMA`, LR `3e-4`, is the best
+current compromise. Probe-v4, train-length, and HWM calibration launchers are
+prepared but not submitted. The trajectory phase remains held for those gates.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -39,7 +40,10 @@ Experiment grids:
 | EMA/SIGReg winner replications | 8 train + 8 original probes | trains complete; four original r1 probes failed compatibility and were superseded |
 | Stable-slot v3 re-probes | 26 | completed `0:0`, jobs `3831509`-`3831534` |
 | Full-grid batch-64 smoke | 1 | completed `0:0`, job `3831536` |
-| Phase trajectory/model/objective sweep | 144 dry-run commands | blocked/not submitted |
+| Probe-v4 legacy re-probe | 26 | prepared/not submitted |
+| CLS64/128 EMA length calibration | 18 train + 18 dependent probes | prepared/not submitted |
+| HWM macro/schedule calibration | 7 train + 7 dependent probes | prepared/not submitted |
+| Phase trajectory/model/objective sweep | 486 dry-run commands | held/not submitted |
 
 Original replication probes `3831380/82/84/86` failed because an unfinished
 grid-only `delta_pool` was temporarily required when loading older CLS
@@ -102,20 +106,22 @@ Prepared scripts:
 - `scripts/experiments/submit_object_dynamics_stability_prestage.sh`
 - `scripts/experiments/submit_object_dynamics_stability_replication.sh`
 - `scripts/experiments/submit_object_dynamics_balanced_reprobe.sh`
+- `scripts/experiments/submit_object_dynamics_length_calibration.sh`
+- `scripts/experiments/submit_object_dynamics_hwm_calibration.sh`
 - `scripts/experiments/submit_object_dynamics_phase1.sh`
 
 Verification:
 
-- Targeted objective, trajectory, probe, and launcher contracts pass; eight
-  remaining object research gaps are strict xfails in
-  `tests/test_object_dynamics_remaining_fidelity.py`.
-- The complete repository run is `314 passed, 8 xfailed` (`322` collected).
+- All objective, trajectory, probe, hierarchy, baseline, and launcher contracts
+  pass, including the eight former strict research-gap specifications.
+- The complete repository run is `329 passed` with no xfails.
 - Slurm verification `3830903` completed `0:0` on `a0123` in 20s; its log is
   `logs/jepa-obj-verify-3830903.out`. Preflight `3830803` failed `127:0`
   before collection because the repo-local interpreter was unavailable on the
   compute node; `logs/jepa-audit-verify-3830803.err` records the failure.
 - One-step Hydra CPU runs pass for base, LDAD, VICReg, SIGReg, EMA, H16,
-  full-grid, and full-grid H8+LDAD configurations. Batch-64 A40 smoke
+  full-grid, full-grid H8+LDAD, reconstruction, joint HWM, and staged/frozen
+  HWM configurations. Batch-64 A40 smoke
   `3831536` completed `0:0` with about 3.1 GiB peak GPU allocation.
 - LDAD now decodes encoded adjacent-state displacement with a shared
   end-to-end encoder; SIGReg now uses projected Epps-Pulley Gaussian testing.
@@ -128,6 +134,26 @@ Verification:
   decoding, latent-delta actions, rollout transfer, hierarchy chunks, latent
   rank/nearest neighbors, geometry-based off-manifold surprise, and matched
   raw-grid baselines on a fixed held-out set plus a step-0 baseline.
+- Probe v4 adds connected parts and an explicitly sampled `inside` relation,
+  linear-versus-small-MLP controls, rollout object-count transfer, correction
+  and one-step process labels, train-selected fixed-head/multi-cell/future-extent
+  CLS attention, foreground-aware nearest neighbors, autoregressive high-level
+  prediction, macro retrieval, CEM goal/subgoal reachability, exact symbolic
+  plan execution, and dynamic aggregation of every numeric probe metric.
+- HWM rows now use a Transformer action-chunk encoder projected to a
+  low-dimensional macro space, two coarse teacher-forced transitions, CEM over
+  latent macro-actions, state-valid categorical low-level CEM, and top-down
+  latent subgoal matching. Joint and paper-style staged/frozen H8 rows are both
+  represented.
+- A reconstruction-only encoder control and fixed-batch qualitative exports
+  for attention and latent-versus-pixel nearest neighbors are implemented.
+- Staged HWM checkpoint reprobes now reconstruct the actual pretrained
+  low-level initialization rather than a fresh random baseline. Probe calls
+  restore the active CUDA RNG, so evaluation cadence cannot perturb later
+  SIGReg directions. The macro encoder uses the paper's CLS bottleneck.
+- `transform_identity` retains the original hidden shape class across pixel
+  transforms. Length-aware completion trajectories preserve a visible seed in
+  every object and support the two-step H16 training horizon of 32 edits.
 - Grid-Goal SIGReg now uses the same projected Epps-Pulley test, and Grid-Goal
   LDAD now decodes encoded endpoint displacement. Historical checkpoints were
   trained before these repairs and retain the old objective semantics.
@@ -135,10 +161,10 @@ Verification:
   flat and H8 configs. Delta-JEPA defines adjacent-state action decoding; the
   prior long-horizon action-sequence requirement was erroneous.
 
-Phase submission remains gated on actual HWM planning/high-level evaluation,
-rollout object-count evaluation, multi-seed phase launch support, and explicit
-part/inside, attention, nonlinear/correction-chunk, and reconstruction
-baselines. Full-grid and paired Delta rows are implemented.
+Phase submission is now gated on GPU validation and selecting train length,
+macro dimension, and joint-versus-staged HWM from the prepared calibrations.
+The full phase is nine datasets x 18 rows x three seeds (`486` jobs), with
+common `semantic_mix` probes and paired CLS/full-grid Delta rows.
 
 ## Structured JEPA Audit Update
 
@@ -165,7 +191,7 @@ mask expansion is fixed. Repair jobs are running on A40 with output suffix
 | `PR0_state_pair` | `3831095` | `GW1_waypoint_only` | `3831097` |
 | `C0_full_ldad_sd` | `3831099` | `C2_full_sd_pr` | `3831101` |
 
-All 14 were still running on A40 at 18:10 CEST. Every checkpoint has emitted its
+All 14 were still running on A40 at 19:21 CEST (elapsed about 2h52m). Every checkpoint has emitted its
 first row: `8/8`, remaining Hamming `0.0`, for depth-4 oracle latent rollout
 (oracle waypoint for `GW1`, oracle goal otherwise). This validates the mask
 repair and oracle geometry only; remaining score/transition/depth rows are

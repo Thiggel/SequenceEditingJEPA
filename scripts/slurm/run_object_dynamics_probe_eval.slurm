@@ -27,7 +27,7 @@ fi
 
 python -m puzzle_jepa.eval.object_dynamics_checkpoint \
   --checkpoint "${CHECKPOINT}" \
-  --output "${RUN_DIR}/${PROBE_OUTPUT_NAME:-probe_eval_balanced_v3.json}" \
+  --output "${RUN_DIR}/${PROBE_OUTPUT_NAME:-probe_eval_balanced_v4.json}" \
   --device auto \
   --train-samples "${PROBE_TRAIN_SAMPLES:-512}" \
   --eval-samples "${PROBE_EVAL_SAMPLES:-256}" \

@@ -1,4 +1,8 @@
 description: Initial object-dynamics emergence sweep across trajectory regimes and JEPA variants.
+seeds:
+  - 1707
+  - 2707
+  - 3707
 data:
   - object_blocked
   - frontier_build
@@ -31,3 +35,7 @@ hierarchy_models:
 hierarchy_delta_models:
   - h_cls128_h8
   - h_grid128_h8
+staged_hierarchy_models:
+  - h_cls128_h8
+control_objectives:
+  - reconstruction

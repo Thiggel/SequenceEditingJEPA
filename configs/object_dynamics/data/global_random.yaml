@@ -9,4 +9,5 @@ counterfactual_ratio: 0.15
 wrong_ratio: 0.05
 duplicate_shape_ratio: 0.25
 same_color_ratio: 0.25
+inside_ratio: 0.20
 max_scene_retries: 128

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 
 from puzzle_jepa.eval.object_dynamics_checkpoint import evaluate_object_dynamics_checkpoint
@@ -200,24 +201,24 @@ def test_trainer_smoke_run(tmp_path) -> None:
     }
     metrics = run_object_dynamics_training(config)
     assert metrics["step"] == 2
-    assert metrics["probe_fit_version"] == 3
+    assert metrics["probe_fit_version"] == 4
     assert metrics["probe_trajectory_kind"] == "global_random"
     assert (tmp_path / "run" / "checkpoint.pt").exists()
 
     reprobe = evaluate_object_dynamics_checkpoint(
         tmp_path / "run" / "checkpoint.pt",
-        output_path=tmp_path / "run" / "probe_eval_balanced_v3.json",
+        output_path=tmp_path / "run" / "probe_eval_balanced_v4.json",
         device="cpu",
         train_samples=8,
         eval_samples=6,
         batch_size=3,
         steps=2,
     )
-    assert reprobe["probe_fit_version"] == 3
+    assert reprobe["probe_fit_version"] == 4
     assert reprobe["probe_trajectory_kind"] == "global_random"
     assert "initial_probe_current_object_acc" in reprobe
     assert "delta_probe_current_object_acc" in reprobe
-    assert (tmp_path / "run" / "probe_eval_balanced_v3.json").exists()
+    assert (tmp_path / "run" / "probe_eval_balanced_v4.json").exists()
     assert "probe_object_count_acc" in metrics
     assert "probe_bbox_mse" in metrics
     assert "probe_delta_action_row_acc" in metrics
@@ -229,3 +230,87 @@ def test_trainer_smoke_run(tmp_path) -> None:
     assert "raw_probe_object_map_foreground_miou" in metrics
     assert "rollout_error_wrong_mean" in metrics
     assert "latent_semantic_distance_invalid_auroc" in metrics
+
+
+def test_staged_checkpoint_reprobe_uses_pretrained_initial_baseline(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import puzzle_jepa.eval.object_dynamics_checkpoint as checkpoint_eval
+
+    model_config = {
+        "name": "staged_test",
+        "d_model": 16,
+        "encoder_layers": 1,
+        "encoder_heads": 4,
+        "rollout_horizon": 1,
+        "hierarchy_horizon": 4,
+        "hierarchy_planning": True,
+        "hierarchy_rollout_steps": 2,
+        "macro_action_dim": 4,
+    }
+    objective_config = {
+        "name": "base",
+        "target_ema": False,
+        "target_mode": "stop_gradient",
+        "ema_decay": 0.99,
+        "ldad_weight": 0.0,
+        "regularizer": "none",
+        "regularizer_weight": 0.0,
+    }
+    low = ObjectDynamicsJEPA(grid_size=8, d_model=16, encoder_layers=1, encoder_heads=4)
+    with torch.no_grad():
+        low.encoder.color.weight.fill_(0.75)
+    initial_checkpoint = tmp_path / "low.pt"
+    torch.save({"model": low.state_dict()}, initial_checkpoint)
+
+    staged = ObjectDynamicsJEPA(
+        grid_size=8,
+        **{key: value for key, value in model_config.items() if key != "name"},
+        **{key: value for key, value in objective_config.items() if key != "name"},
+    )
+    with torch.no_grad():
+        staged.encoder.color.weight.fill_(0.75)
+    checkpoint = tmp_path / "staged.pt"
+    torch.save(
+        {
+            "step": 5,
+            "model": staged.state_dict(),
+            "config": {
+                "seed": 11,
+                "data": {
+                    "name": "test",
+                    "grid_size": 8,
+                    "num_colors": 10,
+                    "min_objects": 1,
+                    "max_objects": 2,
+                    "max_shape_extent": 4,
+                    "trajectory_kind": "semantic_mix",
+                    "counterfactual_ratio": 0.15,
+                    "wrong_ratio": 0.05,
+                },
+                "model": model_config,
+                "objective": objective_config,
+                "training": {"initial_checkpoint": str(initial_checkpoint)},
+                "eval": {},
+            },
+        },
+        checkpoint,
+    )
+
+    def fake_probes(model, *_args, **_kwargs):
+        return {
+            "probe_fit_version": 4,
+            "probe_trajectory_kind": "semantic_mix",
+            "encoder_color_mean": float(model.encoder.color.weight.detach().mean()),
+        }
+
+    monkeypatch.setattr(checkpoint_eval, "run_object_dynamics_probes", fake_probes)
+    result = checkpoint_eval.evaluate_object_dynamics_checkpoint(
+        checkpoint,
+        output_path=tmp_path / "probe.json",
+        device="cpu",
+    )
+
+    assert result["initial_encoder_color_mean"] == pytest.approx(0.75)
+    assert result["delta_encoder_color_mean"] == pytest.approx(0.0)
