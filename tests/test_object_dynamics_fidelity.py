@@ -10,7 +10,7 @@ from puzzle_jepa.object_dynamics.domain import ObjectSpec, SceneSpec
 from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator, ObjectDynamicsSpec
 from puzzle_jepa.object_dynamics.losses import sigreg_regularizer
 from puzzle_jepa.object_dynamics.model import ObjectDynamicsJEPA
-from puzzle_jepa.object_dynamics.probes import run_object_dynamics_probes
+from puzzle_jepa.object_dynamics.probes import _class_balanced_weights, run_object_dynamics_probes
 
 
 def test_object_dynamics_ldad_uses_encoded_future_displacement() -> None:
@@ -298,6 +298,14 @@ def test_phase_sweep_includes_non_empty_start_trajectory_regimes() -> None:
     assert "transform_identity" in text
 
 
+def test_probe_class_weights_equalize_observed_class_mass() -> None:
+    target = torch.tensor([0, 0, 0, 1, 2, 2])
+    weights = _class_balanced_weights(target, num_classes=4)
+    weighted_mass = torch.bincount(target, minlength=4).float() * weights
+    torch.testing.assert_close(weighted_mass[:3], torch.full((3,), 2.0))
+    assert float(weights[3]) == 0.0
+
+
 def test_phase_sweep_requires_explicit_prestage_selection() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "experiments" / "submit_object_dynamics_phase1.sh"
     text = script.read_text()
@@ -319,6 +327,19 @@ def test_stability_prestage_excludes_unpaired_delta_objective() -> None:
     assert "OBJECTIVES=(ema vicreg sigreg)" in text
     assert "ldad" not in text
     assert "SEEDS_OVERRIDE" in text
+
+
+def test_balanced_reprobe_is_paired_to_every_stability_training_job() -> None:
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "experiments"
+        / "submit_object_dynamics_balanced_reprobe.sh"
+    ).read_text()
+    for train_job in range(3831210, 3831228):
+        assert f":{train_job}\"" in script
+    assert 'sbatch --parsable --dependency="afterok:${train_job}"' in script
+    assert "run_object_dynamics_probe_eval.slurm" in script
 
 
 def _has_touching_pair(scene: SceneSpec) -> bool:

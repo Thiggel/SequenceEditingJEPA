@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from puzzle_jepa.eval.object_dynamics_checkpoint import evaluate_object_dynamics_checkpoint
 from puzzle_jepa.object_dynamics.batching import sample_object_dynamics_batch
 from puzzle_jepa.object_dynamics.domain import TrajectoryCategory, apply_low_level_action
 from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator, ObjectDynamicsSpec, TRAJECTORY_KINDS
@@ -147,7 +148,20 @@ def test_trainer_smoke_run(tmp_path) -> None:
     }
     metrics = run_object_dynamics_training(config)
     assert metrics["step"] == 2
+    assert metrics["probe_fit_version"] == 2
     assert (tmp_path / "run" / "checkpoint.pt").exists()
+
+    reprobe = evaluate_object_dynamics_checkpoint(
+        tmp_path / "run" / "checkpoint.pt",
+        output_path=tmp_path / "run" / "probe_eval_balanced_v2.json",
+        device="cpu",
+        train_samples=8,
+        eval_samples=6,
+        batch_size=3,
+        steps=2,
+    )
+    assert reprobe["probe_fit_version"] == 2
+    assert (tmp_path / "run" / "probe_eval_balanced_v2.json").exists()
     assert "probe_object_count_acc" in metrics
     assert "probe_bbox_mse" in metrics
     assert "probe_delta_action_row_acc" in metrics

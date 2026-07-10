@@ -214,7 +214,10 @@ def _run_object_dynamics_probes(
     max_objects = int(generator.spec.max_objects)
     grid_size = int(generator.spec.grid_size)
     num_colors = int(generator.spec.num_colors)
-    metrics: dict[str, Any] = {}
+    metrics: dict[str, Any] = {
+        "probe_fit_version": 2,
+        "probe_class_balanced_objectives": 1.0,
+    }
 
     metrics.update(
         _state_classifier_metrics(
@@ -615,9 +618,11 @@ def _fit_classifier_with_balanced_accuracy(
 ) -> tuple[float, float]:
     probe = nn.Linear(train_x.shape[-1], num_classes)
     optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate, weight_decay=1.0e-4)
+    target = train_y.clamp(0, num_classes - 1)
+    class_weights = _class_balanced_weights(target, num_classes=num_classes)
     for _ in range(steps):
         logits = probe(train_x)
-        loss = F.cross_entropy(logits, train_y.clamp(0, num_classes - 1))
+        loss = F.cross_entropy(logits, target, weight=class_weights)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
@@ -651,9 +656,11 @@ def _fit_slot_classifier(
     slots = train_y.shape[1]
     probe = nn.Linear(train_x.shape[-1], slots * num_classes)
     optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate, weight_decay=1.0e-4)
+    target = train_y[train_mask].clamp(0, num_classes - 1)
+    class_weights = _class_balanced_weights(target, num_classes=num_classes)
     for _ in range(steps):
         logits = probe(train_x).reshape(-1, slots, num_classes)
-        loss = F.cross_entropy(logits[train_mask], train_y[train_mask].clamp(0, num_classes - 1))
+        loss = F.cross_entropy(logits[train_mask], target, weight=class_weights)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
@@ -718,10 +725,17 @@ def _fit_relation_classifier(
         return {name: float("nan") for name in RELATION_NAMES}
     probe = nn.Linear(train_x.shape[-1], pairs * relation_count)
     optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate, weight_decay=1.0e-4)
-    train_mask_expanded = train_mask.unsqueeze(-1).expand_as(train_y)
+    valid_targets = train_y[train_mask]
+    positives = valid_targets.sum(dim=0)
+    negatives = valid_targets.shape[0] - positives
+    pos_weight = torch.where(
+        (positives > 0) & (negatives > 0),
+        negatives / positives,
+        torch.ones_like(positives),
+    )
     for _ in range(steps):
         logits = probe(train_x).reshape(-1, pairs, relation_count)
-        loss = F.binary_cross_entropy_with_logits(logits[train_mask_expanded], train_y[train_mask_expanded])
+        loss = F.binary_cross_entropy_with_logits(logits[train_mask], valid_targets, pos_weight=pos_weight)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
@@ -753,9 +767,11 @@ def _fit_grid_decoder(
     height, width = train_y.shape[1:]
     probe = nn.Linear(train_x.shape[-1], height * width * num_classes)
     optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate, weight_decay=1.0e-4)
+    target = train_y.clamp(0, num_classes - 1)
+    class_weights = _class_balanced_weights(target, num_classes=num_classes)
     for _ in range(steps):
         logits = probe(train_x).reshape(-1, num_classes, height, width)
-        loss = F.cross_entropy(logits, train_y.clamp(0, num_classes - 1))
+        loss = F.cross_entropy(logits, target, weight=class_weights)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
@@ -772,6 +788,16 @@ def _fit_grid_decoder(
             transfer_pred = probe(transfer_x).reshape(-1, num_classes, height, width).argmax(dim=1)
             transfer_metrics = _segmentation_metrics(transfer_pred, transfer_y, num_classes=num_classes)
     return eval_metrics, transfer_metrics
+
+
+def _class_balanced_weights(target: torch.Tensor, *, num_classes: int) -> torch.Tensor:
+    counts = torch.bincount(target.long().reshape(-1), minlength=num_classes).float()
+    present = counts > 0
+    weights = torch.zeros(num_classes, dtype=torch.float32, device=target.device)
+    if bool(torch.any(present)):
+        total = counts[present].sum()
+        weights[present] = total / (present.sum() * counts[present])
+    return weights
 
 
 def _segmentation_metrics(pred: torch.Tensor, target: torch.Tensor, *, num_classes: int) -> dict[str, float]:
