@@ -30,9 +30,19 @@ for entry in "${RUNS[@]}"; do
   run_name="${entry%%:*}"
   train_job="${entry##*:}"
   if [[ "${SUBMIT:-0}" == "1" ]]; then
+    train_state="$(sacct -j "${train_job}" -X -n -o State | awk 'NF {print $1; exit}')"
+    dependency_args=()
+    case "${train_state}" in
+      COMPLETED*) ;;
+      RUNNING*|PENDING*|CONFIGURING*|COMPLETING*) dependency_args=(--dependency="afterok:${train_job}") ;;
+      *)
+        printf 'Refusing re-probe for training job %s in state %s.\n' "${train_job}" "${train_state:-UNKNOWN}" >&2
+        exit 2
+        ;;
+    esac
     job_id="$(
       RUN_NAME="${run_name}" \
-        sbatch --parsable --dependency="afterok:${train_job}" scripts/slurm/run_object_dynamics_probe_eval.slurm
+        sbatch --parsable "${dependency_args[@]}" scripts/slurm/run_object_dynamics_probe_eval.slurm
     )"
     IDS+=("${run_name}:${job_id}")
   else

@@ -338,7 +338,8 @@ def test_balanced_reprobe_is_paired_to_every_stability_training_job() -> None:
     ).read_text()
     for train_job in range(3831210, 3831228):
         assert f":{train_job}\"" in script
-    assert 'sbatch --parsable --dependency="afterok:${train_job}"' in script
+    assert 'dependency_args=(--dependency="afterok:${train_job}")' in script
+    assert 'sbatch --parsable "${dependency_args[@]}"' in script
     assert "run_object_dynamics_probe_eval.slurm" in script
 
 
