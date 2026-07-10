@@ -24,6 +24,7 @@ def evaluate_object_dynamics_checkpoint(
     batch_size: int | None = None,
     steps: int | None = None,
     learning_rate: float | None = None,
+    probe_trajectory_kind: str | None = None,
 ) -> dict[str, Any]:
     resolved_device = (
         torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -38,7 +39,10 @@ def evaluate_object_dynamics_checkpoint(
     eval_config = dict(config["eval"])
     probe_data_config = {
         **data_config,
-        "trajectory_kind": str(eval_config.get("probe_trajectory_kind", data_config["trajectory_kind"])),
+        "trajectory_kind": str(
+            probe_trajectory_kind
+            or eval_config.get("probe_trajectory_kind", data_config["trajectory_kind"])
+        ),
     }
     generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(**probe_data_config))
     torch.manual_seed(int(config["seed"]))
@@ -119,6 +123,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--steps", type=int)
     parser.add_argument("--learning-rate", type=float)
+    parser.add_argument("--probe-trajectory-kind")
     args = parser.parse_args()
     result = evaluate_object_dynamics_checkpoint(
         args.checkpoint,
@@ -129,6 +134,7 @@ def main() -> None:
         batch_size=args.batch_size,
         steps=args.steps,
         learning_rate=args.learning_rate,
+        probe_trajectory_kind=args.probe_trajectory_kind,
     )
     print(json.dumps({"checkpoint_step": result["checkpoint_step"], "output": str(args.output)}, sort_keys=True))
 

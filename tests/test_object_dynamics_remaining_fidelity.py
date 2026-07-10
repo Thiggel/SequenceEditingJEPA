@@ -239,6 +239,16 @@ def test_phase_sweep_runs_multiple_seeds() -> None:
     assert 'SEED="${seed}"' in script
 
 
+def test_trajectory_gate_pairs_common_and_in_domain_probes() -> None:
+    script = (ROOT / "scripts/experiments/submit_object_dynamics_trajectory_gate.sh").read_text()
+    assert "object_blocked frontier_build interleaved_build global_random random_off_manifold" in script
+    assert "cls128_r8:ema cls128_r8:reconstruction grid128_r8:ema" in script
+    assert "PROBE_TRAJECTORY_KIND=semantic_mix" in script
+    assert 'PROBE_TRAJECTORY_KIND="${data}"' in script
+    assert "probe_eval_common_v4.json" in script
+    assert "probe_eval_in_domain_v4.json" in script
+
+
 def _small_hierarchy_probe_run() -> dict[str, float]:
     generator = ObjectDynamicsGenerator(
         ObjectDynamicsSpec(

@@ -88,9 +88,7 @@ def summarize_object_dynamics_runs(root: Path) -> dict[str, Any]:
     checkpoints = []
     balanced_reprobes = []
     for metrics_path in sorted(root.glob("*/metrics.jsonl")):
-        balanced = _load_balanced_reprobe(metrics_path.parent)
-        if balanced is not None:
-            balanced_reprobes.append(balanced)
+        balanced_reprobes.extend(_load_balanced_reprobes(metrics_path.parent))
         run = _load_run(metrics_path.parent)
         if run is None:
             continue
@@ -225,48 +223,54 @@ def _aggregate_endpoints(endpoints: list[dict[str, Any]]) -> list[dict[str, Any]
     return aggregates
 
 
-def _load_balanced_reprobe(run_dir: Path) -> dict[str, Any] | None:
+def _load_balanced_reprobes(run_dir: Path) -> list[dict[str, Any]]:
     config_path = run_dir / "config.json"
     if not config_path.exists():
-        return None
-    result = None
-    probe_fit_version = None
-    for version in (4, 3, 2):
-        result_path = run_dir / f"probe_eval_balanced_v{version}.json"
-        if not result_path.exists():
-            continue
-        candidate = json.loads(result_path.read_text(encoding="utf-8"))
-        if int(candidate.get("probe_fit_version", -1)) != version:
-            continue
-        result = candidate
-        probe_fit_version = version
-        break
-    if result is None or probe_fit_version is None or "initial_probe_current_object_acc" not in result:
-        return None
+        return []
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    max_steps = int(config["training"]["max_steps"])
-    row: dict[str, Any] = {
-        "run_name": run_dir.name,
-        "run_family": _run_family(run_dir.name),
-        "data": str(config["data"]["name"]),
-        "model": str(config["model"]["name"]),
-        "objective": str(config["objective"]["name"]),
-        "seed": int(config["seed"]),
-        "learning_rate": float(config["training"]["learning_rate"]),
-        "max_steps": max_steps,
-        "probe_fit_version": probe_fit_version,
-        "probe_trajectory_kind": str(
-            result.get("probe_trajectory_kind", _probe_trajectory_kind(config, result))
-        ),
-        "checkpoint_step": int(result["checkpoint_step"]),
-        "complete": int(result["checkpoint_step"]) >= max_steps,
-    }
-    for field in sorted(set(BALANCED_FIELDS) | {key for key in result if key.startswith("delta_")}):
-        row[field] = _number(result.get(field))
-    initial_std = _number(result.get("initial_latent_std_mean"))
-    trained_std = _number(result.get("latent_std_mean"))
-    row["latent_std_ratio"] = trained_std / initial_std if trained_std is not None and initial_std else None
-    return row
+    for version in (4, 3, 2):
+        rows_by_trajectory: dict[str, dict[str, Any]] = {}
+        paths = sorted(
+            run_dir.glob(f"probe_eval_*v{version}.json"),
+            key=lambda path: (path.name == f"probe_eval_balanced_v{version}.json", path.name),
+        )
+        for result_path in paths:
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            if (
+                int(result.get("probe_fit_version", -1)) != version
+                or "initial_probe_current_object_acc" not in result
+            ):
+                continue
+            max_steps = int(config["training"]["max_steps"])
+            trajectory_kind = str(
+                result.get("probe_trajectory_kind", _probe_trajectory_kind(config, result))
+            )
+            row: dict[str, Any] = {
+                "run_name": run_dir.name,
+                "run_family": _run_family(run_dir.name),
+                "probe_file": result_path.name,
+                "data": str(config["data"]["name"]),
+                "model": str(config["model"]["name"]),
+                "objective": str(config["objective"]["name"]),
+                "seed": int(config["seed"]),
+                "learning_rate": float(config["training"]["learning_rate"]),
+                "max_steps": max_steps,
+                "probe_fit_version": version,
+                "probe_trajectory_kind": trajectory_kind,
+                "checkpoint_step": int(result["checkpoint_step"]),
+                "complete": int(result["checkpoint_step"]) >= max_steps,
+            }
+            for field in sorted(set(BALANCED_FIELDS) | {key for key in result if key.startswith("delta_")}):
+                row[field] = _number(result.get(field))
+            initial_std = _number(result.get("initial_latent_std_mean"))
+            trained_std = _number(result.get("latent_std_mean"))
+            row["latent_std_ratio"] = (
+                trained_std / initial_std if trained_std is not None and initial_std else None
+            )
+            rows_by_trajectory[trajectory_kind] = row
+        if rows_by_trajectory:
+            return [rows_by_trajectory[key] for key in sorted(rows_by_trajectory)]
+    return []
 
 
 def _aggregate_balanced_reprobes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

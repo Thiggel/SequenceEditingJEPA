@@ -25,6 +25,11 @@ if [[ ! -f "${CHECKPOINT}" ]]; then
   exit 1
 fi
 
+probe_args=()
+if [[ -n "${PROBE_TRAJECTORY_KIND:-}" ]]; then
+  probe_args+=(--probe-trajectory-kind "${PROBE_TRAJECTORY_KIND}")
+fi
+
 python -m puzzle_jepa.eval.object_dynamics_checkpoint \
   --checkpoint "${CHECKPOINT}" \
   --output "${RUN_DIR}/${PROBE_OUTPUT_NAME:-probe_eval_balanced_v4.json}" \
@@ -33,4 +38,5 @@ python -m puzzle_jepa.eval.object_dynamics_checkpoint \
   --eval-samples "${PROBE_EVAL_SAMPLES:-256}" \
   --batch-size "${PROBE_BATCH_SIZE:-64}" \
   --steps "${PROBE_STEPS:-150}" \
-  --learning-rate "${PROBE_LEARNING_RATE:-1.0e-2}"
+  --learning-rate "${PROBE_LEARNING_RATE:-1.0e-2}" \
+  "${probe_args[@]}"

@@ -100,6 +100,27 @@ def test_summary_does_not_pool_distinct_run_families(tmp_path: Path) -> None:
     assert [row["n"] for row in aggregates] == [1, 1]
 
 
+def test_summary_keeps_common_and_in_domain_probe_distributions(tmp_path: Path) -> None:
+    run = tmp_path / "campaign_seed7"
+    run.mkdir()
+    _write_config(run, seed=7, max_steps=10)
+    _write_metrics(run, [_record(10, std=0.6, current=0.5, object_map=0.2, loss=0.1)])
+    (run / "checkpoint.pt").touch()
+    _write_balanced_reprobe(run, current_delta=0.2)
+    in_domain = json.loads((run / "probe_eval_balanced_v4.json").read_text())
+    in_domain["probe_trajectory_kind"] = "object_blocked"
+    (run / "probe_eval_in_domain_v4.json").write_text(json.dumps(in_domain))
+
+    summary = summarize_object_dynamics_runs(tmp_path)
+
+    assert summary["balanced_reprobe_count"] == 2
+    assert {row["probe_trajectory_kind"] for row in summary["balanced_reprobes"]} == {
+        "T0_semantic_mix",
+        "object_blocked",
+    }
+    assert len(summary["balanced_reprobe_aggregates"]) == 2
+
+
 def test_summary_keeps_dependent_probe_when_inline_baseline_is_disabled(tmp_path: Path) -> None:
     run = tmp_path / "calibration"
     run.mkdir()

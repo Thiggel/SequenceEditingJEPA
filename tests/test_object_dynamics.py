@@ -213,9 +213,10 @@ def test_trainer_smoke_run(tmp_path) -> None:
         eval_samples=6,
         batch_size=3,
         steps=2,
+        probe_trajectory_kind="object_blocked",
     )
     assert reprobe["probe_fit_version"] == 4
-    assert reprobe["probe_trajectory_kind"] == "global_random"
+    assert reprobe["probe_trajectory_kind"] == "object_blocked"
     assert "initial_probe_current_object_acc" in reprobe
     assert "delta_probe_current_object_acc" in reprobe
     assert (tmp_path / "run" / "probe_eval_balanced_v4.json").exists()
