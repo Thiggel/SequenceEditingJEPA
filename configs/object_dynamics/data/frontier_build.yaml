@@ -7,4 +7,6 @@ max_shape_extent: 6
 trajectory_kind: frontier_build
 counterfactual_ratio: 0.15
 wrong_ratio: 0.05
+duplicate_shape_ratio: 0.25
+same_color_ratio: 0.25
 max_scene_retries: 128

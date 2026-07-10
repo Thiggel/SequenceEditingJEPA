@@ -96,6 +96,7 @@ class ObjectDynamicsJEPA(nn.Module):
         rollout_horizon: int = 4,
         hierarchy_horizon: int = 0,
         target_ema: bool = False,
+        target_mode: str | None = None,
         ema_decay: float = 0.99,
         ldad_weight: float = 0.0,
         regularizer: str = "none",
@@ -104,7 +105,12 @@ class ObjectDynamicsJEPA(nn.Module):
         super().__init__()
         self.rollout_horizon = int(rollout_horizon)
         self.hierarchy_horizon = int(hierarchy_horizon)
-        self.target_ema = bool(target_ema)
+        self.target_mode = target_mode or ("ema" if target_ema else "stop_gradient")
+        if self.target_mode not in {"stop_gradient", "shared", "ema"}:
+            raise ValueError(f"Unknown target_mode {self.target_mode!r}.")
+        if target_ema and self.target_mode != "ema":
+            raise ValueError("target_ema=True requires target_mode='ema'.")
+        self.target_ema = self.target_mode == "ema"
         self.ema_decay = float(ema_decay)
         self.ldad_weight = float(ldad_weight)
         self.regularizer = str(regularizer)
@@ -147,15 +153,28 @@ class ObjectDynamicsJEPA(nn.Module):
 
     @torch.no_grad()
     def update_target_encoder(self) -> None:
-        if not self.target_ema:
-            self.target_encoder.load_state_dict(self.encoder.state_dict())
+        if self.target_mode != "ema":
             return
         for target, online in zip(self.target_encoder.parameters(), self.encoder.parameters(), strict=True):
             target.mul_(self.ema_decay).add_(online, alpha=1.0 - self.ema_decay)
 
     def encode(self, states: torch.Tensor, *, target: bool = False) -> torch.Tensor:
-        encoder = self.target_encoder if target else self.encoder
+        encoder = self.target_encoder if target and self.target_mode == "ema" else self.encoder
         return encoder(states)
+
+    def predict_latents(self, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        state = self.encoder(states)
+        action_embeddings = self.actions(actions)
+        predictions = []
+        for step in range(action_embeddings.shape[1]):
+            state = self.predictor(torch.cat([state, action_embeddings[:, step]], dim=-1))
+            predictions.append(state)
+        return torch.stack(predictions, dim=1)
+
+    def encode_action_chunk(self, actions: torch.Tensor) -> torch.Tensor:
+        action_embeddings = self.actions(actions)
+        _, hidden = self.chunk_encoder(action_embeddings)
+        return hidden[-1]
 
     def forward(self, batch: ObjectDynamicsBatch) -> ObjectDynamicsOutput:
         horizon = min(max(1, self.rollout_horizon), batch.actions.shape[1], batch.futures.shape[1])
@@ -171,18 +190,20 @@ class ObjectDynamicsJEPA(nn.Module):
         rollout_losses = []
         ldad_losses = []
         state = current
+        encoded_previous = current
         for step in range(horizon):
             next_state = self.predictor(torch.cat([state, action_embeddings[:, step]], dim=-1))
             predicted.append(next_state)
             rollout_losses.append(F.mse_loss(next_state, targets[:, step]))
             if self.ldad_weight > 0.0:
-                ldad_losses.append(self._ldad_loss(next_state - state, batch.actions[:, step]))
+                ldad_losses.append(self._ldad_loss(targets[:, step] - encoded_previous, batch.actions[:, step]))
+            encoded_previous = targets[:, step]
             state = next_state
         predicted_tensor = torch.stack(predicted, dim=1)
         rollout_loss = torch.stack(rollout_losses).mean()
         ldad_loss = torch.stack(ldad_losses).mean() if ldad_losses else rollout_loss.detach() * 0.0
         hierarchy_loss = self._hierarchy_loss(current, action_embeddings, targets)
-        regularizer_loss = self._regularizer_loss(torch.cat([current, targets.reshape(-1, targets.shape[-1])], dim=0))
+        regularizer_loss = self._regularizer_loss(torch.cat([current.unsqueeze(1), targets], dim=1))
         loss = rollout_loss + hierarchy_loss + self.ldad_weight * ldad_loss + self.regularizer_weight * regularizer_loss
         return ObjectDynamicsOutput(
             loss=loss,
@@ -197,18 +218,23 @@ class ObjectDynamicsJEPA(nn.Module):
     def _encode_targets(self, futures: torch.Tensor) -> torch.Tensor:
         batch, horizon, height, width = futures.shape
         flat = futures.reshape(batch * horizon, height, width)
-        with torch.no_grad():
-            encoded = self.target_encoder(flat).reshape(batch, horizon, -1)
-        return encoded.detach()
+        if self.target_mode == "ema":
+            with torch.no_grad():
+                return self.target_encoder(flat).reshape(batch, horizon, -1).detach()
+        encoded = self.encoder(flat).reshape(batch, horizon, -1)
+        return encoded.detach() if self.target_mode == "stop_gradient" else encoded
 
     def _hierarchy_loss(self, current: torch.Tensor, action_embeddings: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         if self.hierarchy_horizon <= 1 or self.hierarchy_horizon > action_embeddings.shape[1]:
             return current.sum() * 0.0
         horizon = min(self.hierarchy_horizon, targets.shape[1], action_embeddings.shape[1])
-        _, hidden = self.chunk_encoder(action_embeddings[:, :horizon])
-        chunk = hidden[-1]
+        chunk = self._encode_action_embeddings(action_embeddings[:, :horizon])
         predicted = self.hierarchy_predictor(torch.cat([current, chunk], dim=-1))
         return F.mse_loss(predicted, targets[:, horizon - 1])
+
+    def _encode_action_embeddings(self, action_embeddings: torch.Tensor) -> torch.Tensor:
+        _, hidden = self.chunk_encoder(action_embeddings)
+        return hidden[-1]
 
     def _ldad_loss(self, delta: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         return (
@@ -221,8 +247,10 @@ class ObjectDynamicsJEPA(nn.Module):
     def _regularizer_loss(self, z: torch.Tensor) -> torch.Tensor:
         if self.regularizer == "none" or self.regularizer_weight <= 0.0:
             return z.sum() * 0.0
+        if z.ndim == 2:
+            z = z.unsqueeze(1)
         if self.regularizer == "vicreg":
-            return vicreg_regularizer(z)
+            return torch.stack([vicreg_regularizer(z[:, step]) for step in range(z.shape[1])]).mean()
         if self.regularizer == "sigreg":
-            return sigreg_regularizer(z)
+            return torch.stack([sigreg_regularizer(z[:, step]) for step in range(z.shape[1])]).mean()
         raise ValueError(f"Unknown regularizer {self.regularizer!r}.")

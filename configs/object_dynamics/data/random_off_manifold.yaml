@@ -1,12 +1,12 @@
-name: T1_object_blocked
+name: T9_random_off_manifold
 grid_size: 16
 num_colors: 10
 min_objects: 1
 max_objects: 4
 max_shape_extent: 6
-trajectory_kind: object_blocked
-counterfactual_ratio: 0.15
-wrong_ratio: 0.05
+trajectory_kind: random_off_manifold
+counterfactual_ratio: 0.0
+wrong_ratio: 1.0
 duplicate_shape_ratio: 0.25
 same_color_ratio: 0.25
 max_scene_retries: 128

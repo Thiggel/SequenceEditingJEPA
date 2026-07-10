@@ -56,6 +56,9 @@ and probes. The first trajectory regimes are:
 | `interleaved_build` | persistent objects with interleaved edits |
 | `global_random` | weak temporal object signal negative control |
 | `noisy_repair` | structured repair/editability condition |
+| `completion` | non-empty partial-object completion |
+| `transform_identity` | transformation/recolor identity preservation |
+| `random_off_manifold` | pure random-edit negative control |
 
 Prestage is before T1/T2/etc.: it sweeps LR and train length on
 `semantic_mix`. The first full sweep then crosses trajectory regimes with
@@ -67,10 +70,22 @@ single-CLS rollout horizons, stability objectives, and hierarchy:
 | Phase 2 | `cls128_r8` with `ldad`, `vicreg`, `sigreg`, `ema` |
 | Phase 3 | `h_cls128_h4`, `h_cls128_h8`, `h_cls128_h16` with `base`, plus `h_cls128_h8` with `ldad` |
 
-Primary probes are frozen linear probes on the CLS latent: object count, next
-hidden object id, semantic/off-manifold status, per-object completion MSE,
-latent norm, and latent feature std. These probes do not train the JEPA; they
-measure what the latent retained.
+Frozen evaluation now covers visible object count/current/next object, color,
+shape, bbox, centroid, area, completion, missing/overgrowth/wrong-color
+severity, pair relations, spatially canonical visible object maps, foreground-
+balanced grid decoding, actual latent-delta action fields, rollout transfer,
+hierarchy chunks, nearest-neighbor semantics, latent rank, and off-manifold
+rollout-error/manifold-distance AUROC. The same state/object probes run on
+one-hot raw grids, and a fixed held-out set plus step-0 encoder baseline makes
+checkpoint curves comparable. Hidden labels never train the JEPA.
+
+Before the phase sweep, resolve the strict gates in
+`tests/test_object_dynamics_remaining_fidelity.py`: a Phase-1 full-grid
+compression baseline; paired full-grid/single-CLS Delta rows; long-horizon
+sequence LDAD; at least three seeds; actual HWM planning; explicit part/inside
+metadata, attention maps, nonlinear probe upper bounds, correction-chunk
+labels, and a reconstruction-trained encoder baseline. Base-only prestage
+calibration can run first because it makes none of those comparative claims.
 
 ## ARC Concrete Plan
 

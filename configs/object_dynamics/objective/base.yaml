@@ -1,5 +1,6 @@
 name: base
 target_ema: false
+target_mode: stop_gradient
 ema_decay: 0.99
 ldad_weight: 0.0
 regularizer: none

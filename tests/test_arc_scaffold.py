@@ -255,6 +255,31 @@ def test_arc_candidate_scorer_variants_forward():
         assert output.logits.shape == (4,)
 
 
+def test_arc_jepa_dynamics_ignores_direct_target_injection_records():
+    task = _task_from_pairs(
+        [
+            ([[1, 0], [0, 1]], [[1, 1], [1, 1]]),
+            ([[2, 0], [0, 2]], [[2, 2], [2, 2]]),
+        ]
+    )
+    episodes = episodes_from_tasks([task])
+    records = [
+        sample_arc_candidate_record(
+            episodes,
+            np.random.default_rng(seed),
+            positive_probability=1.0,
+        )
+        for seed in range(3)
+    ]
+    batch = collate_arc_records(records)
+    model = ARCCandidateScorer(d_model=32, use_action_features=True, use_jepa=True)
+
+    output = model(batch)
+
+    assert not bool(batch.dynamics_valid.any())
+    assert float(output.dynamics_loss.detach()) == 0.0
+
+
 def test_arc_training_smoke_runs_all_variants(tmp_path):
     data_root = tmp_path / "arc"
     train_dir = data_root / "data" / "training"

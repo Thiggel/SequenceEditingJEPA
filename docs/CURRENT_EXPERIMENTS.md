@@ -2,11 +2,11 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-08 16:19 CEST
+Last updated: 2026-07-10 16:15 CEST
 
 ## Object Dynamics JEPA Scaffold
 
-Status: implemented, verified, and not submitted.
+Status: fidelity-audited and repaired; prestage is ready but not yet submitted.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -23,13 +23,16 @@ Trajectory configs:
 | `interleaved_build` | T4: persistent object processes are interleaved. |
 | `global_random` | T5: final target has objects but edit order weakens temporal object signal. |
 | `noisy_repair` | T6: objects are damaged/overgrown/recolored and repaired. |
+| `completion` | Non-empty partial objects are completed. |
+| `transform_identity` | Objects are transformed/recolored while identity is preserved. |
+| `random_off_manifold` | Pure random-board/random-edit negative control. |
 
 Prepared grids:
 
 | Grid | Jobs | Submitted |
 |---|---:|---|
 | Prestage LR/steps | 12 dry-run commands | no |
-| Phase trajectory/model/objective sweep | 78 dry-run commands | no |
+| Phase trajectory/model/objective sweep | 104 dry-run commands | no |
 
 Prepared scripts:
 
@@ -39,10 +42,51 @@ Prepared scripts:
 
 Verification:
 
-- `source scripts/env.sh && python -m pytest -q tests/test_object_dynamics.py`
-- `source scripts/env.sh && python -m pytest -q tests`
-- Hydra smoke run with `data=object_blocked`, `model=cls64_r1`,
-  `objective=base`, one train step, and tiny probes completed on CPU.
+- Twenty targeted object/Grid-Goal fidelity checks pass; nine remaining object
+  research gaps are strict xfails in
+  `tests/test_object_dynamics_remaining_fidelity.py`.
+- The complete repository run is `297 passed, 9 xfailed` (`306` collected).
+- Slurm verification `3830903` completed `0:0` on `a0123` in 20s; its log is
+  `logs/jepa-obj-verify-3830903.out`. Preflight `3830803` failed `127:0`
+  before collection because the repo-local interpreter was unavailable on the
+  compute node; `logs/jepa-audit-verify-3830803.err` records the failure.
+- One-step Hydra CPU runs pass for base, LDAD, VICReg, SIGReg, EMA, and H16
+  hierarchy/noisy-repair configurations.
+- LDAD now decodes encoded adjacent-state displacement with a shared
+  end-to-end encoder; SIGReg now uses projected Epps-Pulley Gaussian testing.
+- Effective semantic/counterfactual/wrong sampling is tested at `80/15/5`.
+  Counterfactuals are local wrong-color/outgrowth/erase alternatives rather
+  than shuffled gold actions; hidden per-state ownership keeps probes aligned
+  to only the objects visible at each state.
+- Frozen evaluation now includes visible object geometry/color/shape/relations,
+  missing/overgrowth/wrong-color severity, balanced foreground grid/object-map
+  decoding, latent-delta actions, rollout transfer, hierarchy chunks, latent
+  rank/nearest neighbors, geometry-based off-manifold surprise, and matched
+  raw-grid baselines on a fixed held-out set plus a step-0 baseline.
+- Grid-Goal SIGReg now uses the same projected Epps-Pulley test, and Grid-Goal
+  LDAD now decodes encoded endpoint displacement. Historical checkpoints were
+  trained before these repairs and retain the old objective semantics.
+
+Phase submission remains gated on a Phase-1 full-grid compression baseline,
+paired full-grid/single-CLS Delta rows, long-horizon sequence LDAD, multi-seed
+launch support, actual HWM planning, and explicit part/inside, attention,
+nonlinear-probe, correction-chunk, and reconstruction baselines. The base-only
+prestage does not violate those gates.
+
+## Structured JEPA Audit Update
+
+The 46-job structured wave is no longer running. Eighteen variants produced
+`144` planner rows. `S0_cell_baseline` and full-grid `DJ0`-`DJ3` each solve
+`8/8` with oracle-goal latent rollout; all evaluated single-CLS Delta and
+combination rows remain `0/8` near random. Diagnostics expose a key caveat:
+Historical Grid-Goal LDAD trained on predictor-produced displacement, so
+perfect predicted-delta decoding can coexist with near-random encoded-target
+delta decoding. The training path is repaired for future checkpoints only.
+
+Fourteen final step-5000 checkpoints had zero planner rows because structured
+slot latents had 82/108/110 tokens but the planner passed an 81-cell mask. The
+mask expansion is fixed and a 12-hour dry-run repair launcher is available at
+`scripts/experiments/submit_grid_goal_structured_eval_repair.sh`.
 
 ## ARC First-Pass Candidate Scorers
 
@@ -90,7 +134,7 @@ real ARC traces and one synthetic checkerboard copy-then-recolor trajectory.
 
 ## Structured JEPA Wave
 
-Status: submitted and running.
+Status: training/evaluation wave ended; results are partial and repair evals are prepared.
 
 Purpose: test the next architectural hypothesis one component at a time after
 single-CLS, predicted-goal, waypoint, Delta-JEPA, and verifier-free W/R waves
@@ -120,7 +164,7 @@ Submitted variants:
 Submitted 46 training jobs and 46 dependency-held individual eval jobs. Initial
 submission `3819274`-`3819365` failed at Hydra startup because newly added
 model keys were missing from `configs/puzzle/grid_goal_sudoku.yaml`; those
-eval placeholders were canceled. The corrected submission is active:
+eval placeholders were canceled. The corrected submission used:
 
 - Non-unit/full-slot train jobs: `3819405`, `3819409`, `3819411`,
   `3819415`, `3819417`, `3819419`, `3819421`, `3819427`, `3819429`,
@@ -146,26 +190,24 @@ Eval runs diagnostics first, including LDAD action-delta probes,
 delta-locality probes, and SD-progress ordering probes; goal/waypoint rows
 include the combined `predicted_waypoint_goal_raw_euclidean_distance` score.
 
-Current state at 17:17 CEST:
+Final observed state on 2026-07-10:
 
-- All 46 train jobs have started and emitted metrics.
-- 13 train jobs have completed: the six `DJ*_single` rows and seven
-  combination `_single` rows (`C0`, `C1`, `C3`, `C4`, `C5`, `C6`, `C7`).
-- 33 train jobs are still running. The last 18 previously pending rows have
-  now started; four are on A100 nodes and the rest are on RTX Pro 6000.
-- 13 eval jobs have started for the completed `_single` checkpoints; the rest
-  are still dependency-held.
+- 32 final step-5000 checkpoints exist; later high-cost rows timed out before
+  producing final checkpoints.
+- 18 variants produced 144 planner rows. `S0_cell_baseline` and full-grid
+  `DJ0`-`DJ3` solve `8/8` under oracle-goal raw-L2 latent rollout.
+- Evaluated single-CLS Delta rows and single-CLS combination rows remain
+  `0/8`, generally at remaining Hamming `54-56`.
+- Fourteen completed checkpoints produced no planner rows because structured
+  slot masks were not expanded beyond 81 cell tokens. That bug is fixed;
+  repair submission is pending.
+- Several old dependency-held eval jobs remain in `DependencyNeverSatisfied`;
+  they were not canceled during this audit.
 
-Early eval rows are very partial. The only planner rows written so far are
-single-latent `mpc_beam`, latent rollout, depth 4, oracle raw-L2 rows:
-
-| Variant group | Rows | Current result |
-|---|---:|---|
-| `DJ*_single` | 6 | all `0/8`, h `54.375` |
-| `C0_single`, `C1_single` | 2 | `0/8`, h `55.125` and `55.25` |
-
-No full-grid structured result exists yet. These shallow single-latent rows
-match the previous one-vector failure mode and are not enough to judge the wave.
+The full-grid solve result is not evidence that LDAD itself caused the solve:
+`S0_cell_baseline` also solves `8/8`. In `DJ2`/`DJ3`, predicted displacement
+decodes actions at `1.0` accuracy while encoded target displacement action
+accuracy is approximately `0.0`, exposing the predictor-displacement shortcut.
 
 ## Wide Single-CLS Oracle Probe
 

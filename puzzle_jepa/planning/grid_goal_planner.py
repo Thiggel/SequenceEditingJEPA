@@ -2130,7 +2130,14 @@ def _prepare_token_mask(mask: torch.Tensor, *, token_count: int) -> torch.Tensor
         return mask
     if int(token_count) == 1:
         return torch.ones((*mask.shape[:-1], 1), dtype=torch.bool, device=mask.device)
-    return mask
+    if int(token_count) > int(mask.shape[-1]):
+        extra = torch.ones(
+            (*mask.shape[:-1], int(token_count) - int(mask.shape[-1])),
+            dtype=torch.bool,
+            device=mask.device,
+        )
+        return torch.cat([mask, extra], dim=-1)
+    raise ValueError(f"Active mask with {mask.shape[-1]} tokens cannot mask latent sequence with {token_count} tokens.")
 
 
 def raw_tokenwise_euclidean_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:

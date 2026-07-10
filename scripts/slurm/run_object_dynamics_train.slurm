@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=object_dyn_train
-#SBATCH --partition=rtxpro6k,a100
+#SBATCH --partition=a40,rtxpro6k,a100
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=04:00:00

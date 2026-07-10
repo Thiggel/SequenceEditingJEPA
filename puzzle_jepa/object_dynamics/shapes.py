@@ -8,12 +8,17 @@ SHAPE_TYPES = (
     "hollow_rectangle",
     "line",
     "l_shape",
+    "t_shape",
     "cross",
     "checkerboard",
+    "stripes",
+    "multipart",
 )
 
 
 def sample_shape_mask(rng: np.random.Generator, shape_type: str, *, max_extent: int = 6) -> np.ndarray:
+    if max_extent < 3:
+        raise ValueError("max_extent must be at least 3.")
     if shape_type == "solid_rectangle":
         height = int(rng.integers(2, max_extent + 1))
         width = int(rng.integers(2, max_extent + 1))
@@ -44,20 +49,43 @@ def sample_shape_mask(rng: np.random.Generator, shape_type: str, *, max_extent: 
         return _maybe_rotate(mask, rng)
 
     if shape_type == "cross":
-        size = int(rng.integers(3, max_extent + 1))
-        if size % 2 == 0:
-            size += 1
+        sizes = [size for size in range(3, max_extent + 1) if size % 2 == 1]
+        size = int(sizes[int(rng.integers(0, len(sizes)))])
         mask = np.zeros((size, size), dtype=bool)
         mid = size // 2
         mask[mid, :] = True
         mask[:, mid] = True
         return mask
 
+    if shape_type == "t_shape":
+        height = int(rng.integers(3, max_extent + 1))
+        width = int(rng.integers(3, max_extent + 1))
+        mask = np.zeros((height, width), dtype=bool)
+        mask[0, :] = True
+        mask[:, width // 2] = True
+        return _maybe_rotate(mask, rng)
+
     if shape_type == "checkerboard":
         height = int(rng.integers(3, max_extent + 1))
         width = int(rng.integers(3, max_extent + 1))
         rows, cols = np.indices((height, width))
         return (rows + cols) % 2 == 0
+
+    if shape_type == "stripes":
+        height = int(rng.integers(3, max_extent + 1))
+        width = int(rng.integers(3, max_extent + 1))
+        rows, cols = np.indices((height, width))
+        return rows % 2 == 0 if bool(rng.integers(0, 2)) else cols % 2 == 0
+
+    if shape_type == "multipart":
+        height = int(rng.integers(3, max_extent + 1))
+        width = int(rng.integers(3, max_extent + 1))
+        mask = np.zeros((height, width), dtype=bool)
+        part_height = max(1, min(2, height // 2))
+        part_width = max(1, min(2, width // 2))
+        mask[:part_height, :part_width] = True
+        mask[-part_height:, -part_width:] = True
+        return _maybe_rotate(mask, rng)
 
     raise ValueError(f"Unknown shape_type {shape_type!r}.")
 

@@ -1,23 +1,31 @@
 # Results
 
-Last updated: 2026-07-08 16:19 CEST
+Last updated: 2026-07-10 16:15 CEST
 
 ## Object Dynamics Scaffold Verification
 
-No scientific sweep results exist yet; no Slurm jobs were submitted. The new
-object-dynamics surface was verified locally:
+No scientific sweep results exist yet; no object-dynamics training jobs were
+submitted. The new surface was verified locally and in a short Slurm check:
 
 | Check | Result |
 |---|---|
-| New object-dynamics tests | pass |
-| Full repo tests | pass |
-| Hydra smoke run | pass, CPU, one train step |
+| JEPA fidelity contract tests | 20 pass, 9 strict research-gap xfails |
+| Complete repository suite | 297 pass, 9 strict research-gap xfails |
+| Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/H16 pass on CPU |
 | Prestage wrapper | 12 dry-run commands |
-| Phase wrapper | 78 dry-run commands |
+| Phase wrapper | 104 dry-run commands |
 
 The smoke metrics are only a plumbing check, not an interpretation result. The
 first meaningful result will compare probe quality across trajectory regimes
 after the prestage LR/train-length calibration.
+
+The audit corrected material semantics before submission: LDAD uses encoded
+adjacent endpoints with shared end-to-end gradients; SIGReg is the projected
+Epps-Pulley Gaussian test; `80/15/5` is an effective sampled-window mix;
+counterfactuals are structured off-path edits; and hidden state-level ownership
+prevents probes from being trained against unseen/future object labels. Probe
+metrics now include corruption severity, foreground-balanced segmentation,
+raw-grid controls, and geometry-based surprise.
 
 ## ARC First-Pass Training Results
 
@@ -40,6 +48,33 @@ closer candidates on average but no exact targets; only the JEPA variant gets
 nonzero exact pass@1. Next work should improve candidate-set supervision/eval,
 especially same-episode listwise ranking, before launching broader ARC JEPA
 sweeps.
+
+Audit caveat: historical `jepa_energy` training included direct target-positive
+records with no generating action in its transition loss. That teleport target
+contaminates the dynamics interpretation. The code now masks such records from
+JEPA dynamics while retaining them for energy supervision; the three historical
+job metrics above have not been rerun after this fix.
+
+## Structured-Wave Audit Result
+
+The ended structured wave produced 144 planner rows from 18 variants.
+`S0_cell_baseline` and full-grid `DJ0`-`DJ3` each solve `8/8` with oracle-goal
+raw-L2 latent rollout, while all evaluated single-CLS Delta/combination rows
+remain `0/8`. This does not isolate an LDAD benefit because the non-LDAD cell
+baseline already solves.
+
+Diagnostics reveal a stronger historical fidelity problem: Grid-Goal training
+LDAD used predictor-produced displacement when context was present. `DJ2` and
+`DJ3` therefore reach `1.0` predicted-delta action accuracy while
+encoded-target delta action accuracy is approximately `0.0`. Historical
+Grid-Goal “SIGReg” rows likewise used covariance whitening. Future training is
+repaired to use encoded endpoint LDAD and projected Epps-Pulley SIGReg; the old
+checkpoints and results are not retroactively paper-faithful.
+
+Fourteen final step-5000 checkpoints had no planner result because structured
+slot latents carried more than 81 tokens while planner masks remained length
+81. Mask expansion is fixed and repair evals are prepared; no repaired result
+exists yet.
 
 ## ARC CPU Coverage Scaffold
 

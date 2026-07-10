@@ -75,6 +75,7 @@ class ARCBatch:
     current_active: torch.Tensor
     labels: torch.Tensor
     action_features: torch.Tensor
+    dynamics_valid: torch.Tensor
 
 
 def episodes_from_tasks(tasks) -> list[ARCEpisode]:
@@ -184,6 +185,7 @@ def collate_arc_records(
     current_active = []
     labels = []
     features = []
+    dynamics_valid = []
     for record in records:
         cin = np.zeros((max_context, 30, 30), dtype=np.int64)
         cout = np.zeros((max_context, 30, 30), dtype=np.int64)
@@ -214,6 +216,7 @@ def collate_arc_records(
         current_active.append(current_mask)
         labels.append(float(record.label))
         features.append(record.action_features.astype(np.float32))
+        dynamics_valid.append(record.action is not None and record.action.op != "initial")
     return ARCBatch(
         context_inputs=torch.as_tensor(np.stack(context_inputs), dtype=torch.long, device=device),
         context_outputs=torch.as_tensor(np.stack(context_outputs), dtype=torch.long, device=device),
@@ -228,6 +231,7 @@ def collate_arc_records(
         current_active=torch.as_tensor(np.stack(current_active), dtype=torch.bool, device=device),
         labels=torch.as_tensor(labels, dtype=torch.float32, device=device),
         action_features=torch.as_tensor(np.stack(features), dtype=torch.float32, device=device),
+        dynamics_valid=torch.as_tensor(dynamics_valid, dtype=torch.bool, device=device),
     )
 
 

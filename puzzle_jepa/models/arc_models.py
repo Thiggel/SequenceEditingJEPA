@@ -147,6 +147,10 @@ class ARCCandidateScorer(nn.Module):
             target_state = self.state_proj(torch.cat([context, query, candidate], dim=-1)).detach()
             action = self.action_proj(batch.action_features)
             predicted = self.predictor(torch.cat([current_state, action], dim=-1))
-            dynamics_loss = F.mse_loss(predicted, target_state)
+            per_record = (predicted - target_state).square().mean(dim=-1)
+            if bool(batch.dynamics_valid.any()):
+                dynamics_loss = per_record[batch.dynamics_valid].mean()
+            else:
+                dynamics_loss = predicted.sum() * 0.0
         loss = energy_loss + self.dynamics_weight * dynamics_loss
         return ARCModelOutput(loss=loss, energy_loss=energy_loss, dynamics_loss=dynamics_loss, logits=logits)

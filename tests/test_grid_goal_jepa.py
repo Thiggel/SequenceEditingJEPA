@@ -2792,6 +2792,17 @@ def test_structured_slots_extend_latent_sequence_and_active_mask():
     assert model.predict_goal(context, batch.active_mask).shape == (1, 110, 32)
 
 
+def test_structured_slot_planner_distances_extend_board_masks():
+    a = torch.randn(2, 110, 8)
+    b = torch.zeros_like(a)
+    board_mask = torch.ones((2, 9, 9), dtype=torch.bool)
+
+    distance = raw_tokenwise_euclidean_distance(a, b, board_mask)
+
+    expected = a.square().sum(dim=-1).sqrt().mean(dim=-1)
+    torch.testing.assert_close(distance, expected)
+
+
 def test_structured_slots_keep_cell_targets_aligned_to_extra_tokens():
     batch = _small_batch(batch_size=1)
     model = _small_model(

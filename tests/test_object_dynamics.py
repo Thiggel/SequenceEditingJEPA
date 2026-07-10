@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from puzzle_jepa.object_dynamics.batching import sample_object_dynamics_batch
-from puzzle_jepa.object_dynamics.domain import apply_low_level_action
+from puzzle_jepa.object_dynamics.domain import TrajectoryCategory, apply_low_level_action
 from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator, ObjectDynamicsSpec, TRAJECTORY_KINDS
 from puzzle_jepa.object_dynamics.model import ObjectDynamicsJEPA
 from puzzle_jepa.train.object_dynamics import run_object_dynamics_training
@@ -40,6 +40,30 @@ def test_batch_sampler_shapes() -> None:
     assert batch.actions.shape == (5, 4, 4)
     assert batch.futures.shape == (5, 4, 12, 12)
     assert batch.completion.shape == (5, 3)
+    assert batch.future_object_present.shape == (5, 4, 3)
+    assert batch.future_object_bboxes.shape == (5, 4, 3, 4)
+    assert batch.future_object_map.shape == (5, 4, 12, 12)
+    assert batch.future_object_overgrowth.shape == (5, 4, 3)
+
+
+def test_batch_sampler_preserves_effective_category_mix() -> None:
+    rng = np.random.default_rng(322)
+    generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(trajectory_kind="semantic_mix"))
+    batch = sample_object_dynamics_batch(generator, rng, batch_size=512, horizon=8)
+    rates = torch.bincount(batch.trajectory_category, minlength=3).float() / batch.trajectory_category.numel()
+
+    torch.testing.assert_close(rates, torch.tensor([0.80, 0.15, 0.05]), atol=0.06, rtol=0.0)
+    assert bool(torch.all(batch.valid_state[batch.trajectory_category == int(TrajectoryCategory.SEMANTIC)] == 1.0))
+    assert bool(torch.any(batch.valid_state[batch.trajectory_category == int(TrajectoryCategory.COUNTERFACTUAL)] == 0.0))
+    assert bool(torch.any(batch.valid_state[batch.trajectory_category == int(TrajectoryCategory.WRONG)] == 0.0))
+
+
+def test_noisy_repair_supports_sixteen_step_hierarchy_batches() -> None:
+    rng = np.random.default_rng(323)
+    generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(trajectory_kind="noisy_repair"))
+    batch = sample_object_dynamics_batch(generator, rng, batch_size=16, horizon=16)
+    assert batch.actions.shape == (16, 16, 4)
+    assert batch.future_completion.shape == (16, 16, generator.spec.max_objects)
 
 
 def test_model_forward_base_ldad_and_hierarchy() -> None:
@@ -125,3 +149,13 @@ def test_trainer_smoke_run(tmp_path) -> None:
     assert metrics["step"] == 2
     assert (tmp_path / "run" / "checkpoint.pt").exists()
     assert "probe_object_count_acc" in metrics
+    assert "probe_bbox_mse" in metrics
+    assert "probe_delta_action_row_acc" in metrics
+    assert "probe_rollout_completion_mse" in metrics
+    assert "probe_overgrowth_mse" in metrics
+    assert "probe_rollout_wrong_color_mse" in metrics
+    assert "probe_chunk_object_acc" in metrics
+    assert "raw_probe_object_count_acc" in metrics
+    assert "raw_probe_object_map_foreground_miou" in metrics
+    assert "rollout_error_wrong_mean" in metrics
+    assert "latent_semantic_distance_invalid_auroc" in metrics

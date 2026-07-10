@@ -11,6 +11,8 @@ DATASETS=(
   interleaved_build
   global_random
   noisy_repair
+  completion
+  transform_identity
 )
 
 PHASE1_MODELS=(cls64_r1 cls64_r4 cls64_r8 cls128_r4 cls128_r8)

@@ -12,6 +12,12 @@ class ActionOp(IntEnum):
     RECOLOR = 2
 
 
+class TrajectoryCategory(IntEnum):
+    SEMANTIC = 0
+    COUNTERFACTUAL = 1
+    WRONG = 2
+
+
 @dataclass(frozen=True, slots=True)
 class LowLevelAction:
     op: ActionOp
@@ -65,19 +71,42 @@ class SceneSpec:
 @dataclass(frozen=True, slots=True)
 class ObjectTrajectory:
     states: np.ndarray
+    object_maps: np.ndarray
     actions: tuple[LowLevelAction, ...]
     action_object_ids: tuple[int, ...]
     scene: SceneSpec
     kind: str
     semantic: bool
+    category: TrajectoryCategory
+    transition_categories: tuple[TrajectoryCategory, ...]
+    state_validity: np.ndarray
 
     def __post_init__(self) -> None:
         if self.states.ndim != 3:
             raise ValueError(f"states must be [T,H,W], got {self.states.shape}.")
+        if self.object_maps.shape != self.states.shape:
+            raise ValueError("object_maps must contain one hidden ownership map per state.")
         if len(self.actions) + 1 != self.states.shape[0]:
             raise ValueError("ObjectTrajectory requires one more state than action.")
         if len(self.action_object_ids) != len(self.actions):
             raise ValueError("action_object_ids must match actions.")
+        if len(self.transition_categories) != len(self.actions):
+            raise ValueError("transition_categories must match actions.")
+        if self.state_validity.shape != (self.states.shape[0],):
+            raise ValueError("state_validity must contain one label per state.")
+
+    def sample_start_indices(self, horizon: int) -> np.ndarray:
+        if horizon <= 0 or horizon > len(self.actions):
+            return np.empty((0,), dtype=np.int64)
+        categories = np.asarray(self.transition_categories, dtype=np.int64)
+        return np.asarray(
+            [
+                start
+                for start in range(len(self.actions) - horizon + 1)
+                if bool(np.all(categories[start : start + horizon] == int(self.category)))
+            ],
+            dtype=np.int64,
+        )
 
 
 def apply_low_level_action(grid: np.ndarray, action: LowLevelAction) -> np.ndarray:

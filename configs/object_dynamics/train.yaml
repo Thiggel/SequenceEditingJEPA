@@ -20,6 +20,7 @@ training:
   save_every_steps: 2000
 
 eval:
+  run_initial_probes: true
   probe_train_samples: 512
   probe_eval_samples: 256
   probe_batch_size: 64

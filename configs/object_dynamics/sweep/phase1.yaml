@@ -6,6 +6,8 @@ data:
   - interleaved_build
   - global_random
   - noisy_repair
+  - completion
+  - transform_identity
 phase1_models:
   - cls64_r1
   - cls64_r4

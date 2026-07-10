@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-08 16:19 CEST
+Last updated: 2026-07-10 16:15 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -21,6 +21,10 @@ by the generator and probes only; training sees grids plus
 - Phase sweep dry-run wrapper:
   `scripts/experiments/submit_object_dynamics_phase1.sh`
 
+The Slurm template can use `a40,rtxpro6k,a100`. Prestage is the only object
+grid currently cleared for submission. The phase sweep remains gated by the
+strict xfails in `tests/test_object_dynamics_remaining_fidelity.py`.
+
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
 `semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.
 
@@ -39,6 +43,25 @@ python -m puzzle_jepa.train.object_dynamics \
 
 The wrappers do not submit by default. Use `SUBMIT=1` only after reviewing the
 dry-run grid.
+
+Targeted verification:
+
+```bash
+source scripts/env.sh
+pytest -q tests/test_object_dynamics.py tests/test_object_dynamics_fidelity.py \
+  tests/test_object_dynamics_remaining_fidelity.py \
+  tests/test_grid_goal_remaining_fidelity.py tests/test_delta_jepa_fidelity.py -rx
+```
+
+Structured-slot planner mask repair dry run:
+
+```bash
+scripts/experiments/submit_grid_goal_structured_eval_repair.sh
+```
+
+It covers 14 final step-5000 checkpoints, skips existing diagnostics, writes
+to a separate repair output suffix, and requests 12 hours. Use `SUBMIT=1` only
+after the repair commit is available to compute nodes.
 
 ## Legacy Sudoku Surface
 

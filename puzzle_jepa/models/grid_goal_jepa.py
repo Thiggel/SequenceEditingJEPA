@@ -7,6 +7,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from puzzle_jepa.object_dynamics.losses import sigreg_regularizer as sliced_sigreg_regularizer
+
 
 ROLE_CONTEXT = 0
 ROLE_STATE = 1
@@ -60,18 +62,15 @@ def tokenwise_distance(a: torch.Tensor, b: torch.Tensor, mask: torch.Tensor, pro
     return (per_token * mask.float()).sum(dim=-1) / denom
 
 
-def covariance_sigreg(tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+def sigreg_regularizer(tokens: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     if tokens.shape[:-1] != mask.shape:
         raise ValueError(f"SIGReg mask must match token prefix shape, got {tuple(mask.shape)} for {tuple(tokens.shape)}.")
     valid = tokens[mask].float()
     if valid.shape[0] < 2:
         return tokens.sum() * 0.0
-    valid = valid - valid.mean(dim=0, keepdim=True)
-    cov = valid.T @ valid / max(1, valid.shape[0] - 1)
-    eye = torch.eye(cov.shape[0], dtype=cov.dtype, device=cov.device)
-    mean_loss = tokens[mask].float().mean(dim=0).square().mean()
-    cov_loss = (cov - eye).square().mean()
-    return mean_loss + cov_loss
+    if valid.shape[0] > 2048:
+        valid = valid[torch.randperm(valid.shape[0], device=valid.device)[:2048]]
+    return sliced_sigreg_regularizer(valid, num_slices=256)
 
 
 def vicreg_regularizer(tokens: torch.Tensor, mask: torch.Tensor, *, eps: float = 1.0e-4) -> torch.Tensor:
@@ -2954,15 +2953,7 @@ class GridTokenGoalJEPA(nn.Module):
                 valid = valid & masks[:, offset : offset + start_count]
             if not bool(valid.any()):
                 continue
-            if context_latents is None:
-                future_latents = state_latents[:, horizon : horizon + start_count]
-            else:
-                future_latents = self._delta_action_predicted_future(
-                    state_latents[:, :start_count],
-                    actions,
-                    context_latents,
-                    horizon=int(horizon),
-                )
+            future_latents = state_latents[:, horizon : horizon + start_count]
             delta = future_latents - state_latents[:, :start_count]
             action_sequence = torch.stack(
                 [actions[:, offset : offset + start_count] for offset in range(horizon)],
@@ -3371,11 +3362,11 @@ class GridTokenGoalJEPA(nn.Module):
 
     def _regularizer_loss(self, state_latents: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         if self.regularizer == "sigreg":
-            return covariance_sigreg(state_latents, mask)
+            return sigreg_regularizer(state_latents, mask)
         if self.regularizer == "vicreg":
             return vicreg_regularizer(state_latents, mask)
         if self.regularizer == "both":
-            return covariance_sigreg(state_latents, mask) + vicreg_regularizer(state_latents, mask)
+            return sigreg_regularizer(state_latents, mask) + vicreg_regularizer(state_latents, mask)
         return state_latents.sum() * 0.0
 
     def _reset_ema_target_encoder(self) -> None:

@@ -1,5 +1,6 @@
 name: vicreg
 target_ema: false
+target_mode: shared
 ema_decay: 0.99
 ldad_weight: 0.0
 regularizer: vicreg

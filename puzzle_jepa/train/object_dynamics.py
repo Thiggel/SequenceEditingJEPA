@@ -18,7 +18,8 @@ from puzzle_jepa.object_dynamics.probes import run_object_dynamics_probes
 
 def run_object_dynamics_training(config: dict[str, Any]) -> dict[str, Any]:
     seed = int(config.get("seed", 0))
-    rng = np.random.default_rng(seed)
+    train_rng = np.random.default_rng(seed)
+    probe_seed = seed + 100_003
     torch.manual_seed(seed)
     device = _resolve_device(str(config.get("device", "auto")))
     output_dir = Path(str(config["output_dir"]))
@@ -54,9 +55,39 @@ def run_object_dynamics_training(config: dict[str, Any]) -> dict[str, Any]:
     metrics_path = output_dir / "metrics.jsonl"
     latest: dict[str, Any] = {}
 
+    def evaluate_probes() -> dict[str, Any]:
+        with torch.random.fork_rng(devices=[]):
+            torch.manual_seed(probe_seed)
+            return run_object_dynamics_probes(
+                model,
+                generator,
+                np.random.default_rng(probe_seed),
+                train_samples=int(eval_cfg.get("probe_train_samples", 256)),
+                eval_samples=int(eval_cfg.get("probe_eval_samples", 128)),
+                batch_size=int(eval_cfg.get("probe_batch_size", min(batch_size, 64))),
+                horizon=horizon,
+                device=device,
+                steps=int(eval_cfg.get("probe_steps", 150)),
+                learning_rate=float(eval_cfg.get("probe_learning_rate", 1.0e-2)),
+            )
+
+    if bool(eval_cfg.get("run_initial_probes", True)):
+        initial = {
+            "step": 0,
+            "data": config["data"]["name"],
+            "model": config["model"]["name"],
+            "objective": config["objective"]["name"],
+            "device": device.type,
+            "param_count": _param_count(model),
+            "probe_seed": probe_seed,
+            **evaluate_probes(),
+        }
+        _append_metrics(metrics_path, initial)
+        print(json.dumps(initial, sort_keys=True), flush=True)
+
     for step in range(1, max_steps + 1):
         model.train()
-        batch = sample_object_dynamics_batch(generator, rng, batch_size=batch_size, horizon=horizon, device=device)
+        batch = sample_object_dynamics_batch(generator, train_rng, batch_size=batch_size, horizon=horizon, device=device)
         optimizer.zero_grad(set_to_none=True)
         with torch.amp.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
             output = model(batch)
@@ -79,25 +110,18 @@ def run_object_dynamics_training(config: dict[str, Any]) -> dict[str, Any]:
                 "train_ldad_loss": float(output.ldad_loss.detach().cpu()),
                 "train_regularizer_loss": float(output.regularizer_loss.detach().cpu()),
                 "grad_norm_pre_clip": float(grad_norm.detach().cpu()),
-                "batch_semantic_rate": float(batch.valid_state.mean().detach().cpu()),
+                "batch_semantic_rate": float((batch.trajectory_category == 0).float().mean().detach().cpu()),
+                "batch_counterfactual_rate": float((batch.trajectory_category == 1).float().mean().detach().cpu()),
+                "batch_wrong_rate": float((batch.trajectory_category == 2).float().mean().detach().cpu()),
+                "batch_valid_state_rate": float(batch.valid_state.mean().detach().cpu()),
                 "batch_mean_object_count": float(batch.object_count.float().mean().detach().cpu()),
+                "batch_mean_scene_object_count": float(batch.scene_object_count.float().mean().detach().cpu()),
                 "device": device.type,
                 "param_count": _param_count(model),
-                **run_object_dynamics_probes(
-                    model,
-                    generator,
-                    rng,
-                    train_samples=int(eval_cfg.get("probe_train_samples", 256)),
-                    eval_samples=int(eval_cfg.get("probe_eval_samples", 128)),
-                    batch_size=int(eval_cfg.get("probe_batch_size", min(batch_size, 64))),
-                    horizon=horizon,
-                    device=device,
-                    steps=int(eval_cfg.get("probe_steps", 150)),
-                    learning_rate=float(eval_cfg.get("probe_learning_rate", 1.0e-2)),
-                ),
+                "probe_seed": probe_seed,
+                **evaluate_probes(),
             }
-            with metrics_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(latest, sort_keys=True) + "\n")
+            _append_metrics(metrics_path, latest)
             print(json.dumps(latest, sort_keys=True), flush=True)
 
         if step % save_every == 0 or step == max_steps:
@@ -118,7 +142,12 @@ def _resolve_device(requested: str) -> torch.device:
 
 
 def _param_count(model: torch.nn.Module) -> int:
-    return sum(param.numel() for param in model.parameters())
+    return sum(param.numel() for param in model.parameters() if param.requires_grad)
+
+
+def _append_metrics(path: Path, metrics: dict[str, Any]) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(metrics, sort_keys=True) + "\n")
 
 
 def _save_checkpoint(
