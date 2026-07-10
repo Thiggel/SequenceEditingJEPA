@@ -308,6 +308,19 @@ def test_phase_sweep_requires_explicit_prestage_selection() -> None:
     assert "phase3_h4_ldad" not in text
 
 
+def test_stability_prestage_excludes_unpaired_delta_objective() -> None:
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "experiments"
+        / "submit_object_dynamics_stability_prestage.sh"
+    )
+    text = script.read_text()
+    assert "OBJECTIVES=(ema vicreg sigreg)" in text
+    assert "ldad" not in text
+    assert "SEEDS_OVERRIDE" in text
+
+
 def _has_touching_pair(scene: SceneSpec) -> bool:
     masks = [obj.mask for obj in scene.objects]
     for left_index, left in enumerate(masks):

@@ -14,10 +14,6 @@ from puzzle_jepa.object_dynamics.model import ObjectDynamicsJEPA
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Two train lengths cannot establish the small/medium/large probe-saturation curve required by the prestage plan.",
-)
 def test_prestage_has_three_well_separated_train_lengths() -> None:
     config = OmegaConf.load(ROOT / "configs/object_dynamics/sweep/prestage.yaml")
     train_lengths = list(config.max_steps)

@@ -6,6 +6,7 @@ learning_rates:
 max_steps:
   - 500
   - 1500
+  - 5000
 default_data: semantic_mix
 default_models:
   - cls64_r1
