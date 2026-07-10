@@ -1,23 +1,53 @@
 # Results
 
-Last updated: 2026-07-10 16:15 CEST
+Last updated: 2026-07-10 16:46 CEST
 
-## Object Dynamics Scaffold Verification
+## Object Dynamics Prestage Result
 
-No scientific sweep results exist yet; no object-dynamics training jobs were
-submitted. The new surface was verified locally and in a short Slurm check:
+The 12-job `semantic_mix` base-objective prestage completed successfully on
+A40 (`3831078`-`3831100`, interleaved with structured repair jobs). It crossed
+`cls64_r1/cls64_r8`, LR `{1e-4,3e-4,1e-3}`, and `{500,1500}` steps at seed
+`1707`. Checkpoints and `metrics.jsonl` are under
+`/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics`.
+
+Endpoint changes versus the fixed step-0 encoder are summarized below; latent
+std ratio is endpoint across-sample std divided by initialization std.
+
+| Model | LR | Steps | Std ratio | Object count delta | Current object delta | Object-map fg mIoU delta | Rollout-invalid AUROC delta |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `cls64_r1` | `1e-4` | 500 | `.325` | `-.004` | `-.012` | `-.007` | `+.113` |
+| `cls64_r1` | `1e-4` | 1500 | `.336` | `.000` | `-.023` | `-.009` | `+.145` |
+| `cls64_r1` | `3e-4` | 500 | `.576` | `-.012` | `-.004` | `-.002` | `+.103` |
+| `cls64_r1` | `3e-4` | 1500 | `1.266` | `+.012` | `-.055` | `+.000` | `-.063` |
+| `cls64_r1` | `1e-3` | 500 | `.225` | `-.031` | `-.035` | `-.011` | `+.160` |
+| `cls64_r1` | `1e-3` | 1500 | `.934` | `+.008` | `-.031` | `-.026` | `+.014` |
+| `cls64_r8` | `1e-4` | 500 | `.545` | `+.020` | `-.043` | `-.003` | `+.009` |
+| `cls64_r8` | `1e-4` | 1500 | `.542` | `+.020` | `-.043` | `+.011` | `-.074` |
+| `cls64_r8` | `3e-4` | 500 | `.365` | `+.035` | `-.043` | `+.004` | `+.039` |
+| `cls64_r8` | `3e-4` | 1500 | `.325` | `+.020` | `-.047` | `+.021` | `+.093` |
+| `cls64_r8` | `1e-3` | 500 | `.174` | `-.020` | `-.035` | `+.026` | `+.090` |
+| `cls64_r8` | `1e-3` | 1500 | `.102` | `-.016` | `-.016` | `+.048` | `+.073` |
+
+Interpretation: the prestage does not select a default. All endpoints lose
+current-object and latent-delta object probe accuracy relative to step 0,
+despite improvements in some map/grid and invalid-state metrics. The
+`cls64_r8/1e-3` rows reduce latent std to `.174/.102` of initialization while obtaining
+the lowest rollout loss and strongest object-map gain, demonstrating why loss
+alone is a misleading selection criterion. The random step-0 encoder also
+already beats the raw-grid linear control on several labels. A third,
+well-separated train length and independent seeds are still needed; the phase
+sweep remains blocked and its launcher now requires an explicit confirmed
+prestage selection.
+
+Implementation verification:
 
 | Check | Result |
 |---|---|
-| JEPA fidelity contract tests | 20 pass, 9 strict research-gap xfails |
-| Complete repository suite | 297 pass, 9 strict research-gap xfails |
+| JEPA fidelity contract tests | 30 pass, 10 strict research-gap xfails |
+| Complete repository suite | 298 passed, 10 strict research-gap xfails |
 | Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/H16 pass on CPU |
-| Prestage wrapper | 12 dry-run commands |
-| Phase wrapper | 104 dry-run commands |
-
-The smoke metrics are only a plumbing check, not an interpretation result. The
-first meaningful result will compare probe quality across trajectory regimes
-after the prestage LR/train-length calibration.
+| Prestage jobs | 12 completed `0:0` |
+| Phase wrapper | 104 dry-run commands; real submission guarded |
 
 The audit corrected material semantics before submission: LDAD uses encoded
 adjacent endpoints with shared end-to-end gradients; SIGReg is the projected
@@ -73,8 +103,10 @@ checkpoints and results are not retroactively paper-faithful.
 
 Fourteen final step-5000 checkpoints had no planner result because structured
 slot latents carried more than 81 tokens while planner masks remained length
-81. Mask expansion is fixed and repair evals are prepared; no repaired result
-exists yet.
+81. Mask expansion is fixed. Repair evals `3831076`, `3831077`, `3831079`,
+`3831081`, `3831083`, `3831085`, `3831087`, `3831089`, `3831091`,
+`3831093`, `3831095`, `3831097`, `3831099`, and `3831101` are running on
+A40; no repaired planner row exists yet.
 
 ## ARC CPU Coverage Scaffold
 

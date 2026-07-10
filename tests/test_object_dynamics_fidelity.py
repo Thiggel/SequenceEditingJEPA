@@ -298,6 +298,16 @@ def test_phase_sweep_includes_non_empty_start_trajectory_regimes() -> None:
     assert "transform_identity" in text
 
 
+def test_phase_sweep_requires_explicit_prestage_selection() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "experiments" / "submit_object_dynamics_phase1.sh"
+    text = script.read_text()
+    assert "PRESTAGE_SELECTION_CONFIRMED" in text
+    assert 'LEARNING_RATE="${LEARNING_RATE}"' in text
+    assert 'MAX_STEPS="${MAX_STEPS}"' in text
+    assert "phase3_h8_ldad" in text
+    assert "phase3_h4_ldad" not in text
+
+
 def _has_touching_pair(scene: SceneSpec) -> bool:
     masks = [obj.mask for obj in scene.objects]
     for left_index, left in enumerate(masks):

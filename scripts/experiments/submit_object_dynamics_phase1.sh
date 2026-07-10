@@ -4,6 +4,15 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/../..}"
 mkdir -p logs
 
+if [[ "${SUBMIT:-0}" == "1" ]]; then
+  if [[ "${PRESTAGE_SELECTION_CONFIRMED:-0}" != "1" ]]; then
+    printf 'Refusing phase submission: set PRESTAGE_SELECTION_CONFIRMED=1 after reviewing prestage probes.\n' >&2
+    exit 2
+  fi
+  : "${LEARNING_RATE:?Set LEARNING_RATE to the prestage-selected value}"
+  : "${MAX_STEPS:?Set MAX_STEPS to the prestage-selected value}"
+fi
+
 DATASETS=(
   object_blocked
   frontier_build
@@ -31,13 +40,16 @@ submit_or_print() {
       DATA_CONFIG="${data}" \
       MODEL_CONFIG="${model}" \
       OBJECTIVE_CONFIG="${objective}" \
+      LEARNING_RATE="${LEARNING_RATE}" \
+      MAX_STEPS="${MAX_STEPS}" \
       RUN_SUFFIX="${suffix}" \
         sbatch --parsable scripts/slurm/run_object_dynamics_train.slurm
     )"
     IDS+=("${data}/${model}/${objective}/${suffix}:${job_id}")
   else
-    printf 'DRY RUN: DATA_CONFIG=%s MODEL_CONFIG=%s OBJECTIVE_CONFIG=%s RUN_SUFFIX=%s sbatch scripts/slurm/run_object_dynamics_train.slurm\n' \
-      "${data}" "${model}" "${objective}" "${suffix}"
+    printf 'DRY RUN: DATA_CONFIG=%s MODEL_CONFIG=%s OBJECTIVE_CONFIG=%s LEARNING_RATE=%s MAX_STEPS=%s RUN_SUFFIX=%s sbatch scripts/slurm/run_object_dynamics_train.slurm\n' \
+      "${data}" "${model}" "${objective}" "${LEARNING_RATE:-PRESTAGE_REQUIRED}" \
+      "${MAX_STEPS:-PRESTAGE_REQUIRED}" "${suffix}"
   fi
 }
 
@@ -53,7 +65,7 @@ for data in "${DATASETS[@]}"; do
   for model in "${HIERARCHY_MODELS[@]}"; do
     submit_or_print "${data}" "${model}" base phase3
   done
-  submit_or_print "${data}" h_cls128_h8 ldad phase3_h4_ldad
+  submit_or_print "${data}" h_cls128_h8 ldad phase3_h8_ldad
 done
 
 if [[ "${SUBMIT:-0}" == "1" ]]; then

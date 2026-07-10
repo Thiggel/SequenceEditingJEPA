@@ -2,11 +2,12 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-10 16:15 CEST
+Last updated: 2026-07-10 16:46 CEST
 
 ## Object Dynamics JEPA Scaffold
 
-Status: fidelity-audited and repaired; prestage is ready but not yet submitted.
+Status: fidelity-audited and repaired; the 12-job base prestage completed, but
+it did not identify a defensible phase-sweep default.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -27,12 +28,46 @@ Trajectory configs:
 | `transform_identity` | Objects are transformed/recolored while identity is preserved. |
 | `random_off_manifold` | Pure random-board/random-edit negative control. |
 
-Prepared grids:
+Experiment grids:
 
-| Grid | Jobs | Submitted |
+| Grid | Jobs | State |
 |---|---:|---|
-| Prestage LR/steps | 12 dry-run commands | no |
-| Phase trajectory/model/objective sweep | 104 dry-run commands | no |
+| Prestage LR/steps | 12 | completed `0:0` |
+| Phase trajectory/model/objective sweep | 104 dry-run commands | blocked/not submitted |
+
+Prestage job map (`semantic_mix`, `base`, seed `1707`):
+
+| Model | LR | 500 steps | 1500 steps |
+|---|---:|---:|---:|
+| `cls64_r1` | `1e-4` | `3831078` | `3831080` |
+| `cls64_r1` | `3e-4` | `3831082` | `3831084` |
+| `cls64_r1` | `1e-3` | `3831086` | `3831088` |
+| `cls64_r8` | `1e-4` | `3831090` | `3831092` |
+| `cls64_r8` | `3e-4` | `3831094` | `3831096` |
+| `cls64_r8` | `1e-3` | `3831098` | `3831100` |
+
+All checkpoints and metrics are under
+`/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics`.
+
+Endpoint changes versus each run's fixed step-0 encoder (`500 / 1500`):
+
+| Model | LR | Latent std ratio | Object-count acc delta | Object-map fg mIoU delta | Grid fg mIoU delta | Rollout-invalid AUROC delta |
+|---|---:|---:|---:|---:|---:|---:|
+| `cls64_r1` | `1e-4` | `.325 / .336` | `-.004 / .000` | `-.007 / -.009` | `+.015 / +.020` | `+.113 / +.145` |
+| `cls64_r1` | `3e-4` | `.576 / 1.266` | `-.012 / +.012` | `-.002 / +.000` | `+.014 / +.016` | `+.103 / -.063` |
+| `cls64_r1` | `1e-3` | `.225 / .934` | `-.031 / +.008` | `-.011 / -.026` | `+.021 / -.009` | `+.160 / +.014` |
+| `cls64_r8` | `1e-4` | `.545 / .542` | `+.020 / +.020` | `-.003 / +.011` | `+.021 / +.029` | `+.009 / -.074` |
+| `cls64_r8` | `3e-4` | `.365 / .325` | `+.035 / +.020` | `+.004 / +.021` | `+.021 / +.029` | `+.039 / +.093` |
+| `cls64_r8` | `1e-3` | `.174 / .102` | `-.020 / -.016` | `+.026 / +.048` | `+.038 / +.035` | `+.090 / +.073` |
+
+No row passes the intended object-emergence gate. Current-object probe accuracy
+falls by `.004-.055` and latent-delta object accuracy falls by `.012-.063` at
+all 12 endpoints versus step 0. Absolute latent probe scores are not enough:
+the random step-0 Transformer already beats the raw-grid linear control on
+several labels. The two train lengths also cannot establish probe saturation;
+this is now a strict fidelity xfail. The phase launcher requires explicit
+`PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and `MAX_STEPS`, and no
+selection is currently confirmed.
 
 Prepared scripts:
 
@@ -42,10 +77,10 @@ Prepared scripts:
 
 Verification:
 
-- Twenty targeted object/Grid-Goal fidelity checks pass; nine remaining object
+- Thirty targeted object/Grid-Goal fidelity checks pass; ten remaining object
   research gaps are strict xfails in
   `tests/test_object_dynamics_remaining_fidelity.py`.
-- The complete repository run is `297 passed, 9 xfailed` (`306` collected).
+- The complete repository run is `298 passed, 10 xfailed` (`308` collected).
 - Slurm verification `3830903` completed `0:0` on `a0123` in 20s; its log is
   `logs/jepa-obj-verify-3830903.out`. Preflight `3830803` failed `127:0`
   before collection because the repo-local interpreter was unavailable on the
@@ -67,11 +102,12 @@ Verification:
   LDAD now decodes encoded endpoint displacement. Historical checkpoints were
   trained before these repairs and retain the old objective semantics.
 
-Phase submission remains gated on a Phase-1 full-grid compression baseline,
+Phase submission remains gated on a three-length saturation calibration, a
+Phase-1 full-grid compression baseline,
 paired full-grid/single-CLS Delta rows, long-horizon sequence LDAD, multi-seed
 launch support, actual HWM planning, and explicit part/inside, attention,
-nonlinear-probe, correction-chunk, and reconstruction baselines. The base-only
-prestage does not violate those gates.
+nonlinear-probe, correction-chunk, and reconstruction baselines. The completed
+base-only prestage also failed its own calibration gate.
 
 ## Structured JEPA Audit Update
 
@@ -85,10 +121,21 @@ delta decoding. The training path is repaired for future checkpoints only.
 
 Fourteen final step-5000 checkpoints had zero planner rows because structured
 slot latents had 82/108/110 tokens but the planner passed an 81-cell mask. The
-mask expansion is fixed and a 12-hour dry-run repair launcher is available at
-`scripts/experiments/submit_grid_goal_structured_eval_repair.sh`.
-The repair template admits `a40,rtxpro6k,a100`; A40 was the freest suitable
-partition at the pre-submission check.
+mask expansion is fixed. Repair jobs are running on A40 with output suffix
+`planner_eval_structured_mask_repair_20260710`:
+
+| Variant | Job | Variant | Job |
+|---|---:|---|---:|
+| `S1_unit_slots` | `3831076` | `S2_global_slot` | `3831077` |
+| `S3_progress_slot` | `3831079` | `S4_full_slots` | `3831081` |
+| `DJ4_marker_cell_units` | `3831083` | `DJ5_cross_cell_units` | `3831085` |
+| `SD0_projection_only` | `3831087` | `SD1_progress_rank` | `3831089` |
+| `SD2_action_subspace` | `3831091` | `SD3_progress_action` | `3831093` |
+| `PR0_state_pair` | `3831095` | `GW1_waypoint_only` | `3831097` |
+| `C0_full_ldad_sd` | `3831099` | `C2_full_sd_pr` | `3831101` |
+
+All 14 were running on A40 at 16:46 CEST; no planner row had been written yet.
+Eighteen stale `DependencyNeverSatisfied` evals were canceled as superseded.
 
 ## ARC First-Pass Candidate Scorers
 
@@ -136,7 +183,8 @@ real ARC traces and one synthetic checkerboard copy-then-recolor trajectory.
 
 ## Structured JEPA Wave
 
-Status: training/evaluation wave ended; results are partial and repair evals are prepared.
+Status: original training/evaluation wave ended; results are partial and 14
+structured-mask repair evals are running.
 
 Purpose: test the next architectural hypothesis one component at a time after
 single-CLS, predicted-goal, waypoint, Delta-JEPA, and verifier-free W/R waves
@@ -202,9 +250,8 @@ Final observed state on 2026-07-10:
   `0/8`, generally at remaining Hamming `54-56`.
 - Fourteen completed checkpoints produced no planner rows because structured
   slot masks were not expanded beyond 81 cell tokens. That bug is fixed;
-  repair submission is pending.
-- Several old dependency-held eval jobs remain in `DependencyNeverSatisfied`;
-  they were not canceled during this audit.
+  repair jobs `3831076`-`3831101` are running on A40.
+- Eighteen superseded `DependencyNeverSatisfied` evals were canceled.
 
 The full-grid solve result is not evidence that LDAD itself caused the solve:
 `S0_cell_baseline` also solves `8/8`. In `DJ2`/`DJ3`, predicted displacement

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-10 16:15 CEST
+Last updated: 2026-07-10 16:46 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -21,9 +21,13 @@ by the generator and probes only; training sees grids plus
 - Phase sweep dry-run wrapper:
   `scripts/experiments/submit_object_dynamics_phase1.sh`
 
-The Slurm template can use `a40,rtxpro6k,a100`. Prestage is the only object
-grid currently cleared for submission. The phase sweep remains gated by the
-strict xfails in `tests/test_object_dynamics_remaining_fidelity.py`.
+The Slurm template can use `a40,rtxpro6k,a100`. The 12-job prestage completed
+as jobs `3831078`, `3831080`, ..., `3831100`; outputs are under
+`/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics`. It did not
+select a default: current-object and delta-object probes declined in every row,
+and latent-variance behavior conflicts with map/surprise metrics. The phase
+sweep remains gated by the strict xfails in
+`tests/test_object_dynamics_remaining_fidelity.py`.
 
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
 `semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.
@@ -41,8 +45,9 @@ python -m puzzle_jepa.train.object_dynamics \
   eval.probe_train_samples=8 eval.probe_eval_samples=6 eval.probe_steps=2
 ```
 
-The wrappers do not submit by default. Use `SUBMIT=1` only after reviewing the
-dry-run grid.
+The wrappers do not submit by default. The phase wrapper also refuses real
+submission unless `PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and
+`MAX_STEPS` are explicit. No prestage selection is currently confirmed.
 
 Targeted verification:
 
@@ -53,16 +58,16 @@ pytest -q tests/test_object_dynamics.py tests/test_object_dynamics_fidelity.py \
   tests/test_grid_goal_remaining_fidelity.py tests/test_delta_jepa_fidelity.py -rx
 ```
 
-Structured-slot planner mask repair dry run:
+Structured-slot planner mask repair jobs:
 
 ```bash
-scripts/experiments/submit_grid_goal_structured_eval_repair.sh
+squeue -j 3831076,3831077,3831079,3831081,3831083,3831085,3831087,3831089,3831091,3831093,3831095,3831097,3831099,3831101
 ```
 
-It covers 14 final step-5000 checkpoints, skips existing diagnostics, writes
-to a separate repair output suffix, requests 12 hours, and admits
-`a40,rtxpro6k,a100`. Use `SUBMIT=1` only after the repair commit is available
-to compute nodes.
+These 14 jobs are running on A40. They skip existing diagnostics and write to
+`planner_eval_structured_mask_repair_20260710` below each structured-wave run.
+Do not cancel them. Aggregate planner rows only after jobs finish; empty files
+while a job is running are not results.
 
 ## Legacy Sudoku Surface
 

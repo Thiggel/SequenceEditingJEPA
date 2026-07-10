@@ -87,6 +87,13 @@ metadata, attention maps, nonlinear probe upper bounds, correction-chunk
 labels, and a reconstruction-trained encoder baseline. Base-only prestage
 calibration can run first because it makes none of those comparative claims.
 
+The 12-job base prestage completed on 2026-07-10 but did not select a default.
+Every endpoint reduced current-object and latent-delta object probe accuracy
+relative to its fixed step-0 encoder, while latent variance, map decoding, and
+invalid-state AUROC gave conflicting rankings. Two train lengths also do not
+measure saturation. A strict xfail now records the missing third length, and
+the phase launcher requires an explicit confirmed LR/train-length decision.
+
 ## ARC Concrete Plan
 
 Dataset:
@@ -205,7 +212,8 @@ Implementation status on 2026-07-07:
 
 ## Structured JEPA Wave
 
-Implemented and prepared, not submitted.
+Implemented; the original wave ended and 14 structured-mask repair evals are
+running as jobs `3831076`-`3831101` (non-contiguous odd/even IDs).
 
 Research questions:
 
@@ -229,9 +237,11 @@ Prepared scripts:
 - `scripts/slurm/run_grid_goal_structured_wave_eval.slurm`
 - `scripts/experiments/submit_grid_goal_structured_wave.sh`
 
-No jobs have been submitted.
-
-Current prepared size: 31 train jobs plus 31 dependency-held eval jobs.
+The original structured wave produced 32 final checkpoints and 144 planner
+rows from 18 variants. Fourteen structured-slot checkpoints had no rows due to
+an 81-token planner mask bug. The mask is repaired; the 14 active evals write
+to `planner_eval_structured_mask_repair_20260710`. Historical checkpoints still
+use the pre-audit predictor-displacement LDAD/covariance-SIGReg semantics.
 
 ## Verifier-Free Compatibility / Progress Energy Plan
 
