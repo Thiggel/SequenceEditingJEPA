@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 01:03 CEST
+Last updated: 2026-07-11 01:20 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -44,7 +44,7 @@ score compares canonical slots rather than semantic object factors.
 
 Calibration trainers disable inline full probes and use one dependent v4 probe
 at the final checkpoint. This avoids repeating MLP, attention, and CEM work.
-The complete repository verification is `332 passed`; the maximum H16 data
+The complete repository verification is `334 passed`; the maximum H16 data
 contract is 32 edits and is tested for every trajectory config.
 
 Batch-64 v4 GPU gates `3832316`-`3832318` completed `0:0` on A40. They cover
@@ -61,6 +61,12 @@ is still not submitted. Corrected semantic probe refresh jobs
 `3832957`-`3832981` and balanced refresh `3832984`-`3833008` completed `0:0`:
 balanced process accuracy beats raw controls but declines from initialization,
 and shape/color/completion nearest-neighbor metrics do not improve reliably.
+
+The bounded trajectory gate `3833013`-`3833147` has 45 trainings and 90
+dependent probes. It crosses five data regimes with CLS-EMA, CLS
+reconstruction, and full-grid EMA at three seeds. Every checkpoint receives
+both common `semantic_mix` and in-domain probes. At 01:20 all trainers were
+running on A40; do not submit the 486-job phase while this gate is active.
 
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
 `semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.

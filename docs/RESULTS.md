@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-11 01:03 CEST
+Last updated: 2026-07-11 01:20 CEST
 
 ## Object Dynamics Prestage Result
 
@@ -55,7 +55,7 @@ Implementation verification:
 | Check | Result |
 |---|---|
 | JEPA fidelity contract tests | all objective/trajectory/probe/HWM/baseline/launcher contracts pass |
-| Complete repository suite | 332 passed, no xfails |
+| Complete repository suite | 334 passed, no xfails |
 | Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/reconstruction/joint+staged HWM/full-grid pass on CPU |
 | Prestage jobs | 12 completed `0:0` |
 | Full-grid A40 smoke | job `3831536`, batch 64, `0:0`, about 3.1 GiB peak GPU allocation |
@@ -63,6 +63,7 @@ Implementation verification:
 | Completed calibrations | length `3832365`-`3832400`; seed-1707 HWM `3832401`-`3832414`, all `0:0` |
 | Active bounded wave | macro-d4 seed confirmation `3832932`-`3832943` |
 | Corrected probe refresh | length/HWM jobs `3832957`-`3832981`, all `0:0` |
+| Active trajectory gate | 45 train + 90 dual probes, `3833013`-`3833147` |
 | Phase wrapper | 486 dry-run commands; real submission guarded |
 
 The audit corrected material semantics before submission: LDAD uses encoded
@@ -136,6 +137,13 @@ dropped when inline step-0 probes were disabled, and campaigns with identical
 model/objective/length metadata could be pooled across run families. Both now
 have regression tests; generated Markdown also displays family and max steps,
 so length and HWM rows are auditable.
+
+The evaluator now accepts an explicit probe trajectory and the analyzer keeps
+one result per probe distribution rather than dropping or pooling them. The
+bounded 5k trajectory gate crosses five regimes with CLS-EMA, reconstruction,
+and full-grid EMA controls at three seeds. Each `3833013`-`3833147` unit is
+train/common-`semantic_mix`/in-domain. All 45 trainers started on A40; the
+broad 486-job phase remains unsubmitted.
 
 ## ARC First-Pass Training Results
 

@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 01:03 CEST
+Last updated: 2026-07-11 01:20 CEST
 
 ## Object Dynamics JEPA Scaffold
 
@@ -12,7 +12,8 @@ Longer training improves count, rollout transfer, and attention but degrades a
 hidden-provenance process probe; the prior nearest-neighbor score compared
 scene-local canonical slots, not semantics. The 486-job
 trajectory phase remains held. Macro-d4 confirmation jobs `3832932`-`3832943`
-are active at seeds `2707/3707`.
+are active at seeds `2707/3707`. A bounded dual-probe trajectory gate is also
+active as jobs `3833013`-`3833147`; all 45 trainers started on A40.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -49,6 +50,7 @@ Experiment grids:
 | HWM macro/schedule calibration | 7 train + 7 dependent probes | all completed `0:0`, `3832401`-`3832414` |
 | HWM macro-d4 confirmation | 6 train + 6 dependent probes | active `3832932`-`3832943` |
 | Corrected semantic probe refresh | 18 length + 7 seed-1707 HWM checkpoints | all completed `0:0`, `3832957`-`3832981` |
+| Dual-probe trajectory gate | 5 data regimes x 3 controls x 3 seeds, common + in-domain probes | 45 train + 90 probe, active `3833013`-`3833147` |
 | Phase trajectory/model/objective sweep | 486 dry-run commands | held/not submitted |
 
 Original replication probes `3831380/82/84/86` failed because an unfinished
@@ -172,6 +174,19 @@ emergence. Shape has one tiny positive row, color never improves, and
 completion-neighbor error always worsens. There is no learned semantic-neighbor
 emergence signal.
 
+The trajectory gate isolates the next causal question at 5k steps: data
+`{object_blocked,frontier_build,interleaved_build,global_random,random_off_manifold}`
+x `{cls128_r8/EMA,cls128_r8/reconstruction,grid128_r8/EMA}` x three seeds.
+Every checkpoint gets a common `semantic_mix` probe and a separate in-domain
+probe. Dataset job blocks are object-blocked `3833013`-`3833039`, frontier
+`3833040`-`3833066`, interleaved `3833067`-`3833093`, global-random
+`3833094`-`3833120`, and random-off-manifold `3833121`-`3833147`. Within each
+three-job unit the IDs are train/common/in-domain. Outputs are under
+`/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics` with run
+names `<data>_<model>_<objective>_trajectory_gate_steps5000_seed<seed>`.
+At 01:20 all 45 trainers were running on A40 and all 90 probes were held only
+by `afterok` dependencies.
+
 The seed-1707 HWM sweep also completed. Joint macro-d4 had the best combined
 retrieval/subgoal row: macro retrieval `.258`, low-level retrieval `.203`,
 retrieval execution success `.203`, subgoal L1 `.101`, and endpoint MSE
@@ -199,7 +214,7 @@ Verification:
 
 - All objective, trajectory, probe, hierarchy, baseline, and launcher contracts
   pass, including the eight former strict research-gap specifications.
-- The complete repository run is `332 passed` with no xfails.
+- The complete repository run is `334 passed` with no xfails.
 - Slurm verification `3830903` completed `0:0` on `a0123` in 20s; its log is
   `logs/jepa-obj-verify-3830903.out`. Preflight `3830803` failed `127:0`
   before collection because the repo-local interpreter was unavailable on the
