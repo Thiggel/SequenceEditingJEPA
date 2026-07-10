@@ -21,10 +21,6 @@ def test_prestage_has_three_well_separated_train_lengths() -> None:
     assert max(train_lengths) >= 10 * min(train_lengths)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="The project invariant requires full-grid partners for every single-CLS Delta-JEPA row.",
-)
 def test_delta_jepa_rows_have_full_grid_partners() -> None:
     assert (ROOT / "configs/object_dynamics/model/grid128_r8.yaml").exists()
     assert (ROOT / "configs/object_dynamics/model/h_grid128_h8.yaml").exists()
@@ -33,31 +29,10 @@ def test_delta_jepa_rows_have_full_grid_partners() -> None:
     assert "h_grid128_h8" in script
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="The compression claim needs a full-grid latent baseline in Phase 1, not only for Delta-JEPA rows.",
-)
 def test_phase1_includes_full_grid_latent_baseline() -> None:
     assert (ROOT / "configs/object_dynamics/model/grid128_r8.yaml").exists()
     script = (ROOT / "scripts/experiments/submit_object_dynamics_phase1.sh").read_text()
     assert "grid128_r8" in script
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="Object LDAD decodes adjacent edits only; Delta-JEPA also defines long-horizon displacement-to-action-sequence decoding.",
-)
-def test_object_ldad_supports_long_horizon_action_sequence_decoding() -> None:
-    model = ObjectDynamicsJEPA(
-        grid_size=8,
-        d_model=32,
-        encoder_layers=1,
-        encoder_heads=4,
-        rollout_horizon=4,
-        target_mode="shared",
-        ldad_weight=0.1,
-    )
-    assert callable(model.decode_action_sequence_from_displacement)
 
 
 def test_generator_has_pure_random_edit_control() -> None:
@@ -118,6 +93,24 @@ def test_probe_suite_includes_nonlinear_upper_bound_and_correction_chunks() -> N
     probe_source = (ROOT / "puzzle_jepa/object_dynamics/probes.py").read_text()
     assert "probe_mlp_" in probe_source
     assert "chunk_correction" in probe_source
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Rollout evaluation decodes spatial/object-slot factors but not the planned endpoint object-count probe.",
+)
+def test_probe_suite_decodes_object_count_after_rollout() -> None:
+    probe_source = (ROOT / "puzzle_jepa/object_dynamics/probes.py").read_text()
+    assert "probe_rollout_object_count_acc" in probe_source
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Hierarchy evaluation probes chunk embeddings but never evaluates predictions from the high-level world model.",
+)
+def test_probe_suite_evaluates_high_level_predictions() -> None:
+    probe_source = (ROOT / "puzzle_jepa/object_dynamics/probes.py").read_text()
+    assert "probe_hierarchy_endpoint_mse" in probe_source
 
 
 @pytest.mark.xfail(

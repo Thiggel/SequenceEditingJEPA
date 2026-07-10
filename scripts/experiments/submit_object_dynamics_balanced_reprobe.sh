@@ -23,7 +23,16 @@ RUNS=(
   "semantic_mix_cls64_r8_vicreg_stability_lr3.0e-4_steps5000_seed1707:3831225"
   "semantic_mix_cls64_r8_sigreg_stability_lr1.0e-4_steps5000_seed1707:3831226"
   "semantic_mix_cls64_r8_sigreg_stability_lr3.0e-4_steps5000_seed1707:3831227"
+  "semantic_mix_cls64_r1_ema_stability_lr3.0e-4_steps5000_seed2707:3831379"
+  "semantic_mix_cls64_r1_ema_stability_lr3.0e-4_steps5000_seed3707:3831381"
+  "semantic_mix_cls64_r1_sigreg_stability_lr3.0e-4_steps5000_seed2707:3831383"
+  "semantic_mix_cls64_r1_sigreg_stability_lr3.0e-4_steps5000_seed3707:3831385"
+  "semantic_mix_cls64_r8_ema_stability_lr3.0e-4_steps5000_seed2707:3831387"
+  "semantic_mix_cls64_r8_ema_stability_lr3.0e-4_steps5000_seed3707:3831389"
+  "semantic_mix_cls64_r8_sigreg_stability_lr3.0e-4_steps5000_seed2707:3831391"
+  "semantic_mix_cls64_r8_sigreg_stability_lr3.0e-4_steps5000_seed3707:3831393"
 )
+PROBE_OUTPUT_NAME_OVERRIDE="${PROBE_OUTPUT_NAME_OVERRIDE:-probe_eval_balanced_v3.json}"
 
 IDS=()
 for entry in "${RUNS[@]}"; do
@@ -42,12 +51,13 @@ for entry in "${RUNS[@]}"; do
     esac
     job_id="$(
       RUN_NAME="${run_name}" \
+      PROBE_OUTPUT_NAME="${PROBE_OUTPUT_NAME_OVERRIDE}" \
         sbatch --parsable "${dependency_args[@]}" scripts/slurm/run_object_dynamics_probe_eval.slurm
     )"
     IDS+=("${run_name}:${job_id}")
   else
-    printf 'DRY RUN: RUN_NAME=%s sbatch --dependency=afterok:%s scripts/slurm/run_object_dynamics_probe_eval.slurm\n' \
-      "${run_name}" "${train_job}"
+    printf 'DRY RUN: RUN_NAME=%s PROBE_OUTPUT_NAME=%s sbatch --dependency=afterok:%s scripts/slurm/run_object_dynamics_probe_eval.slurm\n' \
+      "${run_name}" "${PROBE_OUTPUT_NAME_OVERRIDE}" "${train_job}"
   fi
 done
 

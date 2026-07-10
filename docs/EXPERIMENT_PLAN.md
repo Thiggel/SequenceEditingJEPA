@@ -66,9 +66,9 @@ single-CLS rollout horizons, stability objectives, and hierarchy:
 
 | Block | Configs |
 |---|---|
-| Phase 1 | `cls64_r1`, `cls64_r4`, `cls64_r8`, `cls128_r4`, `cls128_r8` with `base` |
-| Phase 2 | `cls128_r8` with `ldad`, `vicreg`, `sigreg`, `ema` |
-| Phase 3 | `h_cls128_h4`, `h_cls128_h8`, `h_cls128_h16` with `base`, plus `h_cls128_h8` with `ldad` |
+| Phase 1 | five CLS rows plus `grid128_r8` with `base` |
+| Phase 2 | `cls128_r8` with `ldad/vicreg/sigreg/ema`, plus paired `grid128_r8/ldad` |
+| Phase 3 | three CLS hierarchy rows, plus paired CLS/grid H8 LDAD rows |
 
 Frozen evaluation now covers visible object count/current/next object, color,
 shape, bbox, centroid, area, completion, missing/overgrowth/wrong-color
@@ -78,21 +78,27 @@ hierarchy chunks, nearest-neighbor semantics, latent rank, and off-manifold
 rollout-error/manifold-distance AUROC. The same state/object probes run on
 one-hot raw grids, and a fixed held-out set plus step-0 encoder baseline makes
 checkpoint curves comparable. Hidden labels never train the JEPA.
+All phase rows use the same `semantic_mix` probe distribution so trajectory
+comparisons do not also change the evaluation data. The phase matrix includes
+`random_off_manifold` as a pure-random-edit training control.
 
-Before the phase sweep, resolve the strict gates in
-`tests/test_object_dynamics_remaining_fidelity.py`: a Phase-1 full-grid
-compression baseline; paired full-grid/single-CLS Delta rows; long-horizon
-sequence LDAD; at least three seeds; actual HWM planning; explicit part/inside
-metadata, attention maps, nonlinear probe upper bounds, correction-chunk
-labels, and a reconstruction-trained encoder baseline. Base-only prestage
-calibration can run first because it makes none of those comparative claims.
+Before the phase sweep, resolve the remaining strict gates in
+`tests/test_object_dynamics_remaining_fidelity.py`: at least three seeds in
+the phase launcher; actual HWM planning and high-level prediction evaluation;
+rollout object-count decoding; explicit part/inside metadata; attention maps;
+nonlinear probe upper bounds and correction-chunk labels; and a
+reconstruction-trained encoder baseline. Full-grid and paired Delta rows are
+implemented. Delta-JEPA itself decodes adjacent displacement, not a
+long-horizon action sequence.
 
-The 12-job base prestage completed on 2026-07-10 but did not select a default.
+The first 12-job base prestage completed on 2026-07-10 but did not select a default.
 Every endpoint reduced current-object and latent-delta object probe accuracy
 relative to its fixed step-0 encoder, while latent variance, map decoding, and
-invalid-state AUROC gave conflicting rankings. Two train lengths also do not
-measure saturation. A strict xfail now records the missing third length, and
-the phase launcher requires an explicit confirmed LR/train-length decision.
+invalid-state AUROC gave conflicting rankings. The 5000-step extension and
+EMA/VICReg/SIGReg triage completed, followed by three-seed EMA/SIGReg
+replication. Stable-slot v3 probes select `cls64_r8 + EMA`, LR `3e-4`, as the
+best compromise, but the phase launcher still requires an explicit confirmed
+decision and remains blocked on the attribution/evaluation controls above.
 
 ## ARC Concrete Plan
 
@@ -242,6 +248,8 @@ rows from 18 variants. Fourteen structured-slot checkpoints had no rows due to
 an 81-token planner mask bug. The mask is repaired; the 14 active evals write
 to `planner_eval_structured_mask_repair_20260710`. Historical checkpoints still
 use the pre-audit predictor-displacement LDAD/covariance-SIGReg semantics.
+All 14 repaired checkpoints emitted an initial `8/8`, hamming `0.0`, depth-4
+oracle latent-rollout row. Remaining conditions are still running.
 
 ## Verifier-Free Compatibility / Progress Energy Plan
 

@@ -8,6 +8,7 @@ from puzzle_jepa.object_dynamics.batching import sample_object_dynamics_batch
 from puzzle_jepa.object_dynamics.domain import TrajectoryCategory, apply_low_level_action
 from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator, ObjectDynamicsSpec, TRAJECTORY_KINDS
 from puzzle_jepa.object_dynamics.model import ObjectDynamicsJEPA
+from puzzle_jepa.object_dynamics.probes import run_object_dynamics_probes
 from puzzle_jepa.train.object_dynamics import run_object_dynamics_training
 
 
@@ -95,6 +96,56 @@ def test_model_forward_base_ldad_and_hierarchy() -> None:
     assert float(hierarchy_output.hierarchy_loss.detach()) > 0.0
 
 
+def test_full_grid_model_forward_backward_and_probes() -> None:
+    rng = np.random.default_rng(457)
+    generator = ObjectDynamicsGenerator(
+        ObjectDynamicsSpec(
+            grid_size=8,
+            max_objects=2,
+            max_shape_extent=4,
+            trajectory_kind="frontier_build",
+            counterfactual_ratio=0.0,
+            wrong_ratio=0.0,
+        )
+    )
+    batch = sample_object_dynamics_batch(generator, rng, batch_size=2, horizon=2)
+    model = ObjectDynamicsJEPA(
+        grid_size=8,
+        d_model=16,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=2,
+        latent_representation="grid",
+    )
+
+    output = model(batch)
+    assert output.predicted.shape == (2, 2, 64, 16)
+    assert output.targets.shape == output.predicted.shape
+    assert torch.isfinite(output.loss)
+    output.loss.backward()
+    assert model.encoder.color.weight.grad is not None
+
+    metrics = run_object_dynamics_probes(
+        model,
+        generator,
+        np.random.default_rng(458),
+        train_samples=16,
+        eval_samples=8,
+        batch_size=8,
+        horizon=2,
+        device=torch.device("cpu"),
+        steps=1,
+    )
+    for name in (
+        "probe_object_color_acc",
+        "probe_centroid_mse",
+        "probe_grid_foreground_miou",
+        "probe_object_map_foreground_miou",
+        "probe_rollout_grid_foreground_miou",
+    ):
+        assert np.isfinite(metrics[name]), name
+
+
 def test_trainer_smoke_run(tmp_path) -> None:
     config = {
         "seed": 7,
@@ -139,6 +190,7 @@ def test_trainer_smoke_run(tmp_path) -> None:
             "save_every_steps": 2,
         },
         "eval": {
+            "probe_trajectory_kind": "global_random",
             "probe_train_samples": 8,
             "probe_eval_samples": 6,
             "probe_batch_size": 3,
@@ -148,22 +200,24 @@ def test_trainer_smoke_run(tmp_path) -> None:
     }
     metrics = run_object_dynamics_training(config)
     assert metrics["step"] == 2
-    assert metrics["probe_fit_version"] == 2
+    assert metrics["probe_fit_version"] == 3
+    assert metrics["probe_trajectory_kind"] == "global_random"
     assert (tmp_path / "run" / "checkpoint.pt").exists()
 
     reprobe = evaluate_object_dynamics_checkpoint(
         tmp_path / "run" / "checkpoint.pt",
-        output_path=tmp_path / "run" / "probe_eval_balanced_v2.json",
+        output_path=tmp_path / "run" / "probe_eval_balanced_v3.json",
         device="cpu",
         train_samples=8,
         eval_samples=6,
         batch_size=3,
         steps=2,
     )
-    assert reprobe["probe_fit_version"] == 2
+    assert reprobe["probe_fit_version"] == 3
+    assert reprobe["probe_trajectory_kind"] == "global_random"
     assert "initial_probe_current_object_acc" in reprobe
     assert "delta_probe_current_object_acc" in reprobe
-    assert (tmp_path / "run" / "probe_eval_balanced_v2.json").exists()
+    assert (tmp_path / "run" / "probe_eval_balanced_v3.json").exists()
     assert "probe_object_count_acc" in metrics
     assert "probe_bbox_mse" in metrics
     assert "probe_delta_action_row_acc" in metrics

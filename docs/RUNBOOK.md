@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-10 16:46 CEST
+Last updated: 2026-07-10 18:10 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -18,6 +18,11 @@ by the generator and probes only; training sees grids plus
 - Slurm template: `scripts/slurm/run_object_dynamics_train.slurm`
 - Prestage dry-run wrapper:
   `scripts/experiments/submit_object_dynamics_prestage.sh`
+- Stability-prestage dry-run wrapper:
+  `scripts/experiments/submit_object_dynamics_stability_prestage.sh`
+- Replication/re-probe wrappers:
+  `scripts/experiments/submit_object_dynamics_stability_replication.sh` and
+  `scripts/experiments/submit_object_dynamics_balanced_reprobe.sh`
 - Phase sweep dry-run wrapper:
   `scripts/experiments/submit_object_dynamics_phase1.sh`
 
@@ -25,8 +30,10 @@ The Slurm template can use `a40,rtxpro6k,a100`. The 12-job prestage completed
 as jobs `3831078`, `3831080`, ..., `3831100`; outputs are under
 `/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics`. It did not
 select a default: current-object and delta-object probes declined in every row,
-and latent-variance behavior conflicts with map/surprise metrics. The phase
-sweep remains gated by the strict xfails in
+and latent-variance behavior conflicts with map/surprise metrics. Base
+5000-step jobs `3831210`-`3831215`, stability jobs `3831216`-`3831227`, and
+replication trainers `3831379/81/83/85/87/89/91/93` completed. Stable-slot v3
+re-probes `3831509`-`3831534` also completed. The phase sweep remains gated by the strict xfails in
 `tests/test_object_dynamics_remaining_fidelity.py`.
 
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
@@ -49,6 +56,15 @@ The wrappers do not submit by default. The phase wrapper also refuses real
 submission unless `PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and
 `MAX_STEPS` are explicit. No prestage selection is currently confirmed.
 
+Regenerate the object result summary:
+
+```bash
+source scripts/env.sh
+python -m puzzle_jepa.eval.object_dynamics_results \
+  --root "$PUZZLE_JEPA_WORK_ROOT/runs/object_dynamics" \
+  --output-dir /tmp/object_dynamics_summary
+```
+
 Targeted verification:
 
 ```bash
@@ -64,7 +80,8 @@ Structured-slot planner mask repair jobs:
 squeue -j 3831076,3831077,3831079,3831081,3831083,3831085,3831087,3831089,3831091,3831093,3831095,3831097,3831099,3831101
 ```
 
-These 14 jobs are running on A40. They skip existing diagnostics and write to
+These 14 jobs are running on A40. All emitted one `8/8` depth-4 oracle
+latent-rollout row, validating the mask repair. They skip existing diagnostics and write to
 `planner_eval_structured_mask_repair_20260710` below each structured-wave run.
 Do not cancel them. Aggregate planner rows only after jobs finish; empty files
 while a job is running are not results.

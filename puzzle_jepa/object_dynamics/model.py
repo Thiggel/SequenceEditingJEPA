@@ -21,7 +21,7 @@ class ObjectDynamicsOutput:
     targets: torch.Tensor
 
 
-class CLSGridEncoder(nn.Module):
+class GridStateEncoder(nn.Module):
     def __init__(
         self,
         *,
@@ -31,11 +31,15 @@ class CLSGridEncoder(nn.Module):
         num_layers: int = 3,
         num_heads: int = 4,
         dropout: float = 0.0,
+        latent_representation: str = "cls",
     ):
         super().__init__()
         self.grid_size = int(grid_size)
         self.num_colors = int(num_colors)
         self.d_model = int(d_model)
+        if latent_representation not in {"cls", "grid"}:
+            raise ValueError("latent_representation must be 'cls' or 'grid'.")
+        self.latent_representation = str(latent_representation)
         self.color = nn.Embedding(num_colors, d_model)
         self.row = nn.Embedding(grid_size, d_model)
         self.col = nn.Embedding(grid_size, d_model)
@@ -54,7 +58,7 @@ class CLSGridEncoder(nn.Module):
 
     def forward(self, values: torch.Tensor) -> torch.Tensor:
         if values.ndim != 3:
-            raise ValueError(f"CLSGridEncoder expects [B,H,W], got {tuple(values.shape)}.")
+            raise ValueError(f"GridStateEncoder expects [B,H,W], got {tuple(values.shape)}.")
         batch, height, width = values.shape
         if height != self.grid_size or width != self.grid_size:
             raise ValueError(f"Expected {self.grid_size}x{self.grid_size}, got {(height, width)}.")
@@ -64,7 +68,9 @@ class CLSGridEncoder(nn.Module):
         tokens = tokens.reshape(batch, height * width, self.d_model)
         cls = self.cls.expand(batch, -1, -1)
         encoded = self.encoder(torch.cat([cls, tokens], dim=1))
-        return self.norm(encoded[:, 0])
+        if self.latent_representation == "cls":
+            return self.norm(encoded[:, 0])
+        return self.norm(encoded[:, 1:])
 
 
 class ActionEncoder(nn.Module):
@@ -101,6 +107,7 @@ class ObjectDynamicsJEPA(nn.Module):
         ldad_weight: float = 0.0,
         regularizer: str = "none",
         regularizer_weight: float = 0.0,
+        latent_representation: str = "cls",
     ):
         super().__init__()
         self.rollout_horizon = int(rollout_horizon)
@@ -115,19 +122,24 @@ class ObjectDynamicsJEPA(nn.Module):
         self.ldad_weight = float(ldad_weight)
         self.regularizer = str(regularizer)
         self.regularizer_weight = float(regularizer_weight)
-        self.encoder = CLSGridEncoder(
+        if latent_representation not in {"cls", "grid"}:
+            raise ValueError("latent_representation must be 'cls' or 'grid'.")
+        self.latent_representation = str(latent_representation)
+        self.encoder = GridStateEncoder(
             grid_size=grid_size,
             num_colors=num_colors,
             d_model=d_model,
             num_layers=encoder_layers,
             num_heads=encoder_heads,
+            latent_representation=self.latent_representation,
         )
-        self.target_encoder = CLSGridEncoder(
+        self.target_encoder = GridStateEncoder(
             grid_size=grid_size,
             num_colors=num_colors,
             d_model=d_model,
             num_layers=encoder_layers,
             num_heads=encoder_heads,
+            latent_representation=self.latent_representation,
         )
         self.target_encoder.load_state_dict(self.encoder.state_dict())
         for param in self.target_encoder.parameters():
@@ -150,6 +162,8 @@ class ObjectDynamicsJEPA(nn.Module):
         self.delta_row = nn.Linear(d_model, grid_size)
         self.delta_col = nn.Linear(d_model, grid_size)
         self.delta_color = nn.Linear(d_model, num_colors)
+        if self.latent_representation == "grid":
+            self.delta_pool = nn.Linear(d_model, 1)
 
     @torch.no_grad()
     def update_target_encoder(self) -> None:
@@ -167,9 +181,15 @@ class ObjectDynamicsJEPA(nn.Module):
         action_embeddings = self.actions(actions)
         predictions = []
         for step in range(action_embeddings.shape[1]):
-            state = self.predictor(torch.cat([state, action_embeddings[:, step]], dim=-1))
+            state = self._predict_step(state, action_embeddings[:, step])
             predictions.append(state)
         return torch.stack(predictions, dim=1)
+
+    def pool_latents(self, latents: torch.Tensor) -> torch.Tensor:
+        return latents.mean(dim=-2) if self.latent_representation == "grid" else latents
+
+    def delta_probe_features(self, delta: torch.Tensor) -> torch.Tensor:
+        return delta.flatten(1) if self.latent_representation == "grid" else delta
 
     def encode_action_chunk(self, actions: torch.Tensor) -> torch.Tensor:
         action_embeddings = self.actions(actions)
@@ -192,11 +212,12 @@ class ObjectDynamicsJEPA(nn.Module):
         state = current
         encoded_previous = current
         for step in range(horizon):
-            next_state = self.predictor(torch.cat([state, action_embeddings[:, step]], dim=-1))
+            next_state = self._predict_step(state, action_embeddings[:, step])
             predicted.append(next_state)
             rollout_losses.append(F.mse_loss(next_state, targets[:, step]))
             if self.ldad_weight > 0.0:
-                ldad_losses.append(self._ldad_loss(targets[:, step] - encoded_previous, batch.actions[:, step]))
+                delta = self._pool_delta(targets[:, step] - encoded_previous)
+                ldad_losses.append(self._ldad_loss(delta, batch.actions[:, step]))
             encoded_previous = targets[:, step]
             state = next_state
         predicted_tensor = torch.stack(predicted, dim=1)
@@ -220,8 +241,10 @@ class ObjectDynamicsJEPA(nn.Module):
         flat = futures.reshape(batch * horizon, height, width)
         if self.target_mode == "ema":
             with torch.no_grad():
-                return self.target_encoder(flat).reshape(batch, horizon, -1).detach()
-        encoded = self.encoder(flat).reshape(batch, horizon, -1)
+                encoded_flat = self.target_encoder(flat)
+                return encoded_flat.reshape(batch, horizon, *encoded_flat.shape[1:]).detach()
+        encoded_flat = self.encoder(flat)
+        encoded = encoded_flat.reshape(batch, horizon, *encoded_flat.shape[1:])
         return encoded.detach() if self.target_mode == "stop_gradient" else encoded
 
     def _hierarchy_loss(self, current: torch.Tensor, action_embeddings: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -229,12 +252,32 @@ class ObjectDynamicsJEPA(nn.Module):
             return current.sum() * 0.0
         horizon = min(self.hierarchy_horizon, targets.shape[1], action_embeddings.shape[1])
         chunk = self._encode_action_embeddings(action_embeddings[:, :horizon])
-        predicted = self.hierarchy_predictor(torch.cat([current, chunk], dim=-1))
+        predicted = self._predict_hierarchy(current, chunk)
         return F.mse_loss(predicted, targets[:, horizon - 1])
 
     def _encode_action_embeddings(self, action_embeddings: torch.Tensor) -> torch.Tensor:
         _, hidden = self.chunk_encoder(action_embeddings)
         return hidden[-1]
+
+    def _predict_step(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        conditioned_action = self._expand_condition(action, state)
+        return self.predictor(torch.cat([state, conditioned_action], dim=-1))
+
+    def _predict_hierarchy(self, state: torch.Tensor, chunk: torch.Tensor) -> torch.Tensor:
+        conditioned_chunk = self._expand_condition(chunk, state)
+        return self.hierarchy_predictor(torch.cat([state, conditioned_chunk], dim=-1))
+
+    @staticmethod
+    def _expand_condition(condition: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
+        while condition.ndim < state.ndim:
+            condition = condition.unsqueeze(-2)
+        return condition.expand(*state.shape[:-1], condition.shape[-1])
+
+    def _pool_delta(self, delta: torch.Tensor) -> torch.Tensor:
+        if delta.ndim == 2:
+            return delta
+        weights = torch.softmax(self.delta_pool(delta).squeeze(-1), dim=-1)
+        return (delta * weights.unsqueeze(-1)).sum(dim=-2)
 
     def _ldad_loss(self, delta: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         return (
@@ -250,7 +293,11 @@ class ObjectDynamicsJEPA(nn.Module):
         if z.ndim == 2:
             z = z.unsqueeze(1)
         if self.regularizer == "vicreg":
-            return torch.stack([vicreg_regularizer(z[:, step]) for step in range(z.shape[1])]).mean()
+            return torch.stack(
+                [vicreg_regularizer(z[:, step].reshape(-1, z.shape[-1])) for step in range(z.shape[1])]
+            ).mean()
         if self.regularizer == "sigreg":
-            return torch.stack([sigreg_regularizer(z[:, step]) for step in range(z.shape[1])]).mean()
+            return torch.stack(
+                [sigreg_regularizer(z[:, step].reshape(-1, z.shape[-1])) for step in range(z.shape[1])]
+            ).mean()
         raise ValueError(f"Unknown regularizer {self.regularizer!r}.")

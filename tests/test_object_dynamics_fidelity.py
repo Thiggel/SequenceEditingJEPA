@@ -5,10 +5,17 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from puzzle_jepa.object_dynamics.batching import sample_object_dynamics_batch
-from puzzle_jepa.object_dynamics.domain import ObjectSpec, SceneSpec
+from puzzle_jepa.object_dynamics.batching import _visible_object_map, _visible_slot_id, sample_object_dynamics_batch
+from puzzle_jepa.object_dynamics.domain import (
+    ActionOp,
+    LowLevelAction,
+    ObjectSpec,
+    ObjectTrajectory,
+    SceneSpec,
+    TrajectoryCategory,
+)
 from puzzle_jepa.object_dynamics.generator import ObjectDynamicsGenerator, ObjectDynamicsSpec
-from puzzle_jepa.object_dynamics.losses import sigreg_regularizer
+from puzzle_jepa.object_dynamics.losses import covariance_loss, sigreg_regularizer, vicreg_regularizer
 from puzzle_jepa.object_dynamics.model import ObjectDynamicsJEPA
 from puzzle_jepa.object_dynamics.probes import _class_balanced_weights, run_object_dynamics_probes
 
@@ -75,6 +82,43 @@ def test_end_to_end_objectives_keep_future_targets_in_gradient_graph() -> None:
     assert output.targets.requires_grad
 
 
+def test_full_grid_ldad_pools_token_displacement_and_trains_pooler() -> None:
+    rng = np.random.default_rng(14)
+    generator = ObjectDynamicsGenerator(
+        ObjectDynamicsSpec(
+            grid_size=8,
+            max_objects=2,
+            max_shape_extent=4,
+            counterfactual_ratio=0.0,
+            wrong_ratio=0.0,
+        )
+    )
+    batch = sample_object_dynamics_batch(generator, rng, batch_size=2, horizon=1)
+    model = ObjectDynamicsJEPA(
+        grid_size=8,
+        d_model=16,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=1,
+        target_mode="shared",
+        ldad_weight=1.0,
+        latent_representation="grid",
+    )
+    captured: list[torch.Tensor] = []
+    original = model._ldad_loss
+
+    def capture(delta: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+        captured.append(delta)
+        return original(delta, actions)
+
+    model._ldad_loss = capture  # type: ignore[method-assign]
+    output = model(batch)
+    assert captured[0].shape == (2, 16)
+    output.loss.backward()
+    assert model.delta_pool.weight.grad is not None
+    assert bool(torch.isfinite(model.delta_pool.weight.grad).all())
+
+
 def test_sigreg_distinguishes_gaussian_from_rademacher_samples() -> None:
     torch.manual_seed(17)
     gaussian = torch.randn(2048, 1)
@@ -83,6 +127,35 @@ def test_sigreg_distinguishes_gaussian_from_rademacher_samples() -> None:
     gaussian_loss = sigreg_regularizer(gaussian, num_slices=64)
     rademacher_loss = sigreg_regularizer(rademacher, num_slices=64)
     assert float(gaussian_loss) < 0.25 * float(rademacher_loss)
+
+
+def test_vicreg_penalizes_collapse_and_correlated_features() -> None:
+    torch.manual_seed(19)
+    independent = torch.randn(4096, 8)
+    collapsed = torch.zeros_like(independent)
+    shared = torch.randn(4096, 1).expand_as(independent)
+
+    assert float(vicreg_regularizer(independent)) < 0.1 * float(vicreg_regularizer(collapsed))
+    assert float(covariance_loss(shared)) > 100.0 * float(covariance_loss(independent))
+
+
+def test_ema_target_encoder_tracks_online_encoder_without_gradients() -> None:
+    model = ObjectDynamicsJEPA(
+        grid_size=8,
+        d_model=16,
+        encoder_layers=1,
+        encoder_heads=4,
+        target_mode="ema",
+        ema_decay=0.5,
+    )
+    before = model.target_encoder.color.weight.detach().clone()
+    with torch.no_grad():
+        model.encoder.color.weight.add_(2.0)
+
+    model.update_target_encoder()
+
+    torch.testing.assert_close(model.target_encoder.color.weight, before + 1.0)
+    assert all(not parameter.requires_grad for parameter in model.target_encoder.parameters())
 
 
 def test_scene_generator_can_emit_touching_or_diagonal_contact_objects() -> None:
@@ -251,6 +324,53 @@ def test_hidden_object_maps_track_only_objects_present_in_each_state() -> None:
     torch.testing.assert_close(batch.future_object_present[:, -1].sum(dim=1), future_counts)
 
 
+def test_probe_object_slots_remain_stable_as_partial_bboxes_grow() -> None:
+    shape = (6, 6)
+    first_mask = np.zeros(shape, dtype=bool)
+    first_mask[:5, 4] = True
+    second_mask = np.zeros(shape, dtype=bool)
+    second_mask[2, 0] = True
+    target = np.zeros(shape, dtype=np.int64)
+    target[first_mask] = 2
+    target[second_mask] = 3
+
+    state0 = np.zeros(shape, dtype=np.int64)
+    state0[4, 4] = 2
+    state0[2, 0] = 3
+    state1 = state0.copy()
+    state1[0, 4] = 2
+    map0 = np.full(shape, -1, dtype=np.int64)
+    map0[4, 4] = 0
+    map0[2, 0] = 1
+    map1 = map0.copy()
+    map1[0, 4] = 0
+    trajectory = ObjectTrajectory(
+        states=np.stack([state0, state1]),
+        object_maps=np.stack([map0, map1]),
+        actions=(LowLevelAction(ActionOp.PAINT, 0, 4, 2),),
+        action_object_ids=(0,),
+        scene=SceneSpec(
+            grid=target,
+            objects=(
+                ObjectSpec(0, "line", 2, first_mask),
+                ObjectSpec(1, "line", 3, second_mask),
+            ),
+        ),
+        kind="slot_stability",
+        semantic=True,
+        category=TrajectoryCategory.SEMANTIC,
+        transition_categories=(TrajectoryCategory.SEMANTIC,),
+        state_validity=np.ones(2, dtype=bool),
+    )
+
+    for state_index in (0, 1):
+        assert _visible_slot_id(trajectory, state_index, 0, max_objects=2) == 1
+        assert _visible_slot_id(trajectory, state_index, 1, max_objects=2) == 2
+        object_map = _visible_object_map(trajectory, state_index, max_objects=2)
+        assert object_map[4, 4] == 1
+        assert object_map[2, 0] == 2
+
+
 def test_probe_evaluation_preserves_model_mode_and_torch_rng() -> None:
     rng = np.random.default_rng(47)
     generator = ObjectDynamicsGenerator(
@@ -296,6 +416,14 @@ def test_phase_sweep_includes_non_empty_start_trajectory_regimes() -> None:
     text = script.read_text()
     assert "completion" in text
     assert "transform_identity" in text
+    assert "random_off_manifold" in text
+
+
+def test_phase_sweep_uses_a_common_probe_distribution() -> None:
+    config = (Path(__file__).resolve().parents[1] / "configs" / "object_dynamics" / "train.yaml").read_text()
+    trainer = (Path(__file__).resolve().parents[1] / "puzzle_jepa" / "train" / "object_dynamics.py").read_text()
+    assert "probe_trajectory_kind: semantic_mix" in config
+    assert "probe_generator" in trainer
 
 
 def test_probe_class_weights_equalize_observed_class_mass() -> None:
@@ -338,8 +466,11 @@ def test_balanced_reprobe_is_paired_to_every_stability_training_job() -> None:
     ).read_text()
     for train_job in range(3831210, 3831228):
         assert f":{train_job}\"" in script
+    for train_job in range(3831379, 3831394, 2):
+        assert f":{train_job}\"" in script
     assert 'dependency_args=(--dependency="afterok:${train_job}")' in script
     assert 'sbatch --parsable "${dependency_args[@]}"' in script
+    assert "probe_eval_balanced_v3.json" in script
     assert "run_object_dynamics_probe_eval.slurm" in script
 
 

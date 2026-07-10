@@ -34,7 +34,12 @@ def evaluate_object_dynamics_checkpoint(
     data_config = {key: value for key, value in dict(config["data"]).items() if key != "name"}
     model_config = {key: value for key, value in dict(config["model"]).items() if key != "name"}
     objective_config = {key: value for key, value in dict(config["objective"]).items() if key != "name"}
-    generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(**data_config))
+    eval_config = dict(config["eval"])
+    probe_data_config = {
+        **data_config,
+        "trajectory_kind": str(eval_config.get("probe_trajectory_kind", data_config["trajectory_kind"])),
+    }
+    generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(**probe_data_config))
     torch.manual_seed(int(config["seed"]))
     model = ObjectDynamicsJEPA(
         grid_size=generator.spec.grid_size,
@@ -42,7 +47,6 @@ def evaluate_object_dynamics_checkpoint(
         **model_config,
         **objective_config,
     ).to(resolved_device)
-    eval_config = dict(config["eval"])
     probe_seed = int(config["seed"]) + 100_003
     torch.manual_seed(probe_seed)
     horizon = max(int(model_config.get("rollout_horizon", 1)), int(model_config.get("hierarchy_horizon", 0)), 1)

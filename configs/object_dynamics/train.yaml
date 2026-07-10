@@ -21,6 +21,7 @@ training:
 
 eval:
   run_initial_probes: true
+  probe_trajectory_kind: semantic_mix
   probe_train_samples: 512
   probe_eval_samples: 256
   probe_batch_size: 64

@@ -2,12 +2,13 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-10 16:46 CEST
+Last updated: 2026-07-10 18:10 CEST
 
 ## Object Dynamics JEPA Scaffold
 
-Status: fidelity-audited and repaired; the 12-job base prestage completed, but
-it did not identify a defensible phase-sweep default.
+Status: fidelity-audited and repaired. Calibration and three-seed winner
+replication are complete; `cls64_r8 + EMA`, LR `3e-4`, is the best current
+compromise. The trajectory phase remains blocked and has not been submitted.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -32,8 +33,19 @@ Experiment grids:
 
 | Grid | Jobs | State |
 |---|---:|---|
-| Prestage LR/steps | 12 | completed `0:0` |
-| Phase trajectory/model/objective sweep | 104 dry-run commands | blocked/not submitted |
+| Original prestage LR/steps | 12 | completed `0:0` |
+| Base 5000-step extension | 6 | completed `0:0`, jobs `3831210`-`3831215` |
+| EMA/VICReg/SIGReg stability triage | 12 | completed `0:0`, jobs `3831216`-`3831227` |
+| EMA/SIGReg winner replications | 8 train + 8 original probes | trains complete; four original r1 probes failed compatibility and were superseded |
+| Stable-slot v3 re-probes | 26 | completed `0:0`, jobs `3831509`-`3831534` |
+| Full-grid batch-64 smoke | 1 | completed `0:0`, job `3831536` |
+| Phase trajectory/model/objective sweep | 144 dry-run commands | blocked/not submitted |
+
+Original replication probes `3831380/82/84/86` failed because an unfinished
+grid-only `delta_pool` was temporarily required when loading older CLS
+checkpoints. The pooler is now grid-only; v3 jobs `3831527`-`3831530`
+supersede those failures. Original r8 probes `3831388/90/92/94` completed but
+are also superseded by v3.
 
 Prestage job map (`semantic_mix`, `base`, seed `1707`):
 
@@ -60,39 +72,57 @@ Endpoint changes versus each run's fixed step-0 encoder (`500 / 1500`):
 | `cls64_r8` | `3e-4` | `.365 / .325` | `+.035 / +.020` | `+.004 / +.021` | `+.021 / +.029` | `+.039 / +.093` |
 | `cls64_r8` | `1e-3` | `.174 / .102` | `-.020 / -.016` | `+.026 / +.048` | `+.038 / +.035` | `+.090 / +.073` |
 
-No row passes the intended object-emergence gate. Current-object probe accuracy
-falls by `.004-.055` and latent-delta object accuracy falls by `.012-.063` at
-all 12 endpoints versus step 0. Absolute latent probe scores are not enough:
-the random step-0 Transformer already beats the raw-grid linear control on
-several labels. The two train lengths also cannot establish probe saturation;
-this is now a strict fidelity xfail. The phase launcher requires explicit
-`PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and `MAX_STEPS`, and no
-selection is currently confirmed.
+The original 500/1500-step rows did not pass the object-emergence gate. The
+5000-step extension and stability triage are complete, and the winner rows
+were replicated at seeds `1707/2707/3707`. Class-balanced v3
+trained-minus-initial results at LR `3e-4` are:
+
+| Model/objective | dObject count | dCurrent balanced | dAction object | dObject-map fg mIoU | dGrid fg mIoU | dInvalid AUROC |
+|---|---:|---:|---:|---:|---:|---:|
+| `cls64_r1/ema` | `+.009 +/-.018` | `-.054 +/-.017` | `-.034 +/-.038` | `+.0023 +/-.0013` | `+.0083 +/-.0020` | `+.111 +/-.018` |
+| `cls64_r1/sigreg` | `+.111 +/-.050` | `+.013 +/-.035` | `+.030 +/-.013` | `+.0009 +/-.0021` | `-.0018 +/-.0021` | `+.060 +/-.009` |
+| `cls64_r8/ema` | `+.102 +/-.052` | `+.038 +/-.046` | `+.010 +/-.016` | `+.0047 +/-.0031` | `+.0028 +/-.0024` | `+.117 +/-.007` |
+| `cls64_r8/sigreg` | `+.164 +/-.056` | `+.021 +/-.032` | `-.053 +/-.021` | `-.0061 +/-.0016` | `-.0041 +/-.0006` | `+.102 +/-.097` |
+
+`r8/EMA` is the only row with positive mean changes on all listed factors and
+low surprise variance. `r8/SIGReg` learns the strongest count abstraction but
+consistently loses action-object and spatial information. VICReg remains
+unstable, including a severe `r8/3e-4` seed-1707 failure. The phase launcher
+still requires explicit `PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and
+`MAX_STEPS`.
+
+All phase models use a common `semantic_mix` probe distribution, and
+`random_off_manifold` is now a pure-random-edit training control. This avoids
+confounding trajectory-regime comparisons with different probe datasets.
 
 Prepared scripts:
 
 - `scripts/slurm/run_object_dynamics_train.slurm`
 - `scripts/experiments/submit_object_dynamics_prestage.sh`
+- `scripts/experiments/submit_object_dynamics_stability_prestage.sh`
+- `scripts/experiments/submit_object_dynamics_stability_replication.sh`
+- `scripts/experiments/submit_object_dynamics_balanced_reprobe.sh`
 - `scripts/experiments/submit_object_dynamics_phase1.sh`
 
 Verification:
 
-- Thirty targeted object/Grid-Goal fidelity checks pass; ten remaining object
-  research gaps are strict xfails in
+- Targeted objective, trajectory, probe, and launcher contracts pass; eight
+  remaining object research gaps are strict xfails in
   `tests/test_object_dynamics_remaining_fidelity.py`.
-- The complete repository run is `298 passed, 10 xfailed` (`308` collected).
+- The complete repository run is `314 passed, 8 xfailed` (`322` collected).
 - Slurm verification `3830903` completed `0:0` on `a0123` in 20s; its log is
   `logs/jepa-obj-verify-3830903.out`. Preflight `3830803` failed `127:0`
   before collection because the repo-local interpreter was unavailable on the
   compute node; `logs/jepa-audit-verify-3830803.err` records the failure.
-- One-step Hydra CPU runs pass for base, LDAD, VICReg, SIGReg, EMA, and H16
-  hierarchy/noisy-repair configurations.
+- One-step Hydra CPU runs pass for base, LDAD, VICReg, SIGReg, EMA, H16,
+  full-grid, and full-grid H8+LDAD configurations. Batch-64 A40 smoke
+  `3831536` completed `0:0` with about 3.1 GiB peak GPU allocation.
 - LDAD now decodes encoded adjacent-state displacement with a shared
   end-to-end encoder; SIGReg now uses projected Epps-Pulley Gaussian testing.
 - Effective semantic/counterfactual/wrong sampling is tested at `80/15/5`.
   Counterfactuals are local wrong-color/outgrowth/erase alternatives rather
-  than shuffled gold actions; hidden per-state ownership keeps probes aligned
-  to only the objects visible at each state.
+  than shuffled gold actions. Probe v3 uses stable scene-canonical object
+  slots; v2 incorrectly re-sorted partial visible bboxes and could swap IDs.
 - Frozen evaluation now includes visible object geometry/color/shape/relations,
   missing/overgrowth/wrong-color severity, balanced foreground grid/object-map
   decoding, latent-delta actions, rollout transfer, hierarchy chunks, latent
@@ -101,13 +131,14 @@ Verification:
 - Grid-Goal SIGReg now uses the same projected Epps-Pulley test, and Grid-Goal
   LDAD now decodes encoded endpoint displacement. Historical checkpoints were
   trained before these repairs and retain the old objective semantics.
+- Full-grid cell-token baselines and paired CLS/grid LDAD rows now exist for
+  flat and H8 configs. Delta-JEPA defines adjacent-state action decoding; the
+  prior long-horizon action-sequence requirement was erroneous.
 
-Phase submission remains gated on a three-length saturation calibration, a
-Phase-1 full-grid compression baseline,
-paired full-grid/single-CLS Delta rows, long-horizon sequence LDAD, multi-seed
-launch support, actual HWM planning, and explicit part/inside, attention,
-nonlinear-probe, correction-chunk, and reconstruction baselines. The completed
-base-only prestage also failed its own calibration gate.
+Phase submission remains gated on actual HWM planning/high-level evaluation,
+rollout object-count evaluation, multi-seed phase launch support, and explicit
+part/inside, attention, nonlinear/correction-chunk, and reconstruction
+baselines. Full-grid and paired Delta rows are implemented.
 
 ## Structured JEPA Audit Update
 
@@ -134,7 +165,11 @@ mask expansion is fixed. Repair jobs are running on A40 with output suffix
 | `PR0_state_pair` | `3831095` | `GW1_waypoint_only` | `3831097` |
 | `C0_full_ldad_sd` | `3831099` | `C2_full_sd_pr` | `3831101` |
 
-All 14 were running on A40 at 16:46 CEST; no planner row had been written yet.
+All 14 were still running on A40 at 18:10 CEST. Every checkpoint has emitted its
+first row: `8/8`, remaining Hamming `0.0`, for depth-4 oracle latent rollout
+(oracle waypoint for `GW1`, oracle goal otherwise). This validates the mask
+repair and oracle geometry only; remaining score/transition/depth rows are
+still running.
 Eighteen stale `DependencyNeverSatisfied` evals were canceled as superseded.
 
 ## ARC First-Pass Candidate Scorers

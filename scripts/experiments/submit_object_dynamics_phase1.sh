@@ -22,9 +22,10 @@ DATASETS=(
   noisy_repair
   completion
   transform_identity
+  random_off_manifold
 )
 
-PHASE1_MODELS=(cls64_r1 cls64_r4 cls64_r8 cls128_r4 cls128_r8)
+PHASE1_MODELS=(cls64_r1 cls64_r4 cls64_r8 cls128_r4 cls128_r8 grid128_r8)
 PHASE2_OBJECTIVES=(ldad vicreg sigreg ema)
 HIERARCHY_MODELS=(h_cls128_h4 h_cls128_h8 h_cls128_h16)
 
@@ -61,11 +62,13 @@ for data in "${DATASETS[@]}"; do
   for objective in "${PHASE2_OBJECTIVES[@]}"; do
     submit_or_print "${data}" cls128_r8 "${objective}" phase2
   done
+  submit_or_print "${data}" grid128_r8 ldad phase2_grid_ldad
 
   for model in "${HIERARCHY_MODELS[@]}"; do
     submit_or_print "${data}" "${model}" base phase3
   done
   submit_or_print "${data}" h_cls128_h8 ldad phase3_h8_ldad
+  submit_or_print "${data}" h_grid128_h8 ldad phase3_h8_grid_ldad
 done
 
 if [[ "${SUBMIT:-0}" == "1" ]]; then

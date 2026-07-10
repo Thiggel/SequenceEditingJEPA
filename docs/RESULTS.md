@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-10 16:46 CEST
+Last updated: 2026-07-10 18:10 CEST
 
 ## Object Dynamics Prestage Result
 
@@ -28,34 +28,51 @@ std ratio is endpoint across-sample std divided by initialization std.
 | `cls64_r8` | `1e-3` | 500 | `.174` | `-.020` | `-.035` | `+.026` | `+.090` |
 | `cls64_r8` | `1e-3` | 1500 | `.102` | `-.016` | `-.016` | `+.048` | `+.073` |
 
-Interpretation: the prestage does not select a default. All endpoints lose
+Interpretation: the original short prestage does not select a default. All endpoints lose
 current-object and latent-delta object probe accuracy relative to step 0,
 despite improvements in some map/grid and invalid-state metrics. The
 `cls64_r8/1e-3` rows reduce latent std to `.174/.102` of initialization while obtaining
 the lowest rollout loss and strongest object-map gain, demonstrating why loss
 alone is a misleading selection criterion. The random step-0 encoder also
-already beats the raw-grid linear control on several labels. A third,
-well-separated train length and independent seeds are still needed; the phase
-sweep remains blocked and its launcher now requires an explicit confirmed
-prestage selection.
+already beats the raw-grid linear control on several labels.
+
+The 5000-step base jobs `3831210`-`3831215` and stability jobs
+`3831216`-`3831227` completed `0:0`. Stable-slot v3 jobs
+`3831509`-`3831534` re-probed those 18 checkpoints and eight EMA/SIGReg
+replications. The repair was material: v2 sorted slots by each partial visible
+bbox, so persistent objects could exchange IDs while growing.
+
+Three-seed results at LR `3e-4` select `cls64_r8 + EMA` as the current
+compromise: object count `+.102 +/-.052`, balanced current object
+`+.038 +/-.046`, action object `+.010 +/-.016`, object-map foreground mIoU
+`+.0047 +/-.0031`, grid foreground mIoU `+.0028 +/-.0024`, and invalid-state
+AUROC `+.117 +/-.007`, all trained minus matched initialization. `r8 +
+SIGReg` has stronger count gain (`+.164 +/-.056`) but loses action-object
+(`-.053 +/-.021`) and spatial information on every seed.
 
 Implementation verification:
 
 | Check | Result |
 |---|---|
-| JEPA fidelity contract tests | 30 pass, 10 strict research-gap xfails |
-| Complete repository suite | 298 passed, 10 strict research-gap xfails |
-| Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/H16 pass on CPU |
+| JEPA fidelity contract tests | objective/trajectory/probe/launcher contracts pass; 8 strict research-gap xfails |
+| Complete repository suite | 314 passed, 8 strict research-gap xfails |
+| Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/H16 and full-grid/H8-LDAD pass on CPU |
 | Prestage jobs | 12 completed `0:0` |
-| Phase wrapper | 104 dry-run commands; real submission guarded |
+| Full-grid A40 smoke | job `3831536`, batch 64, `0:0`, about 3.1 GiB peak GPU allocation |
+| Phase wrapper | 144 dry-run commands; real submission guarded |
 
 The audit corrected material semantics before submission: LDAD uses encoded
 adjacent endpoints with shared end-to-end gradients; SIGReg is the projected
 Epps-Pulley Gaussian test; `80/15/5` is an effective sampled-window mix;
 counterfactuals are structured off-path edits; and hidden state-level ownership
-prevents probes from being trained against unseen/future object labels. Probe
+plus stable canonical slots prevents probe identity swaps. Probe
 metrics now include corruption severity, foreground-balanced segmentation,
 raw-grid controls, and geometry-based surprise.
+
+The Delta-JEPA source defines LDAD on adjacent encoded endpoints and one
+executed action. The previous long-horizon sequence-decoder requirement was
+incorrect. Flat and H8 LDAD rows now have paired CLS/full-grid configs, but no
+phase jobs have been submitted.
 
 ## ARC First-Pass Training Results
 
@@ -106,7 +123,10 @@ slot latents carried more than 81 tokens while planner masks remained length
 81. Mask expansion is fixed. Repair evals `3831076`, `3831077`, `3831079`,
 `3831081`, `3831083`, `3831085`, `3831087`, `3831089`, `3831091`,
 `3831093`, `3831095`, `3831097`, `3831099`, and `3831101` are running on
-A40; no repaired planner row exists yet.
+A40. Every repaired checkpoint now solves `8/8`, remaining Hamming `0.0`, on
+its first depth-4 oracle latent-rollout row. This proves the mask repair reaches
+planning and preserves oracle geometry; it does not establish a structured,
+LDAD, SD, preference, or waypoint benefit. Remaining rows are running.
 
 ## ARC CPU Coverage Scaffold
 

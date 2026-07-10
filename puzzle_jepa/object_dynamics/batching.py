@@ -210,7 +210,8 @@ def sample_object_dynamics_batch(
 def _completion_vector(trajectory: ObjectTrajectory, state_index: int, *, max_objects: int) -> np.ndarray:
     state = trajectory.states[state_index]
     values = np.zeros((max_objects,), dtype=np.float32)
-    for slot, (object_id, _) in enumerate(_visible_objects(trajectory, state_index, max_objects=max_objects)):
+    for object_id, _ in _visible_objects(trajectory, state_index, max_objects=max_objects):
+        slot = object_id
         obj = trajectory.scene.objects[object_id]
         target_cells = obj.mask
         correct = np.count_nonzero((state == obj.color) & target_cells)
@@ -245,9 +246,8 @@ def _object_metadata(
     wrong_color = np.zeros((max_objects,), dtype=np.float32)
     grid_size = trajectory.scene.grid.shape[0]
     state = trajectory.states[state_index]
-    for slot, (object_id, visible_mask) in enumerate(
-        _visible_objects(trajectory, state_index, max_objects=max_objects)
-    ):
+    for object_id, visible_mask in _visible_objects(trajectory, state_index, max_objects=max_objects):
+        slot = object_id
         obj = trajectory.scene.objects[object_id]
         present[slot] = True
         visible_colors = state[visible_mask]
@@ -275,15 +275,15 @@ def _object_relations(
     present = np.zeros((pair_count,), dtype=bool)
     relations = np.zeros((pair_count, len(RELATION_NAMES)), dtype=np.float32)
     state = trajectory.states[state_index]
-    visible = _visible_objects(trajectory, state_index, max_objects=max_objects)
+    visible = dict(_visible_objects(trajectory, state_index, max_objects=max_objects))
     pair_index = 0
     for left_id in range(max_objects):
         for right_id in range(left_id + 1, max_objects):
-            if right_id < len(visible):
-                left_object_id, left_mask = visible[left_id]
-                right_object_id, right_mask = visible[right_id]
-                left = trajectory.scene.objects[left_object_id]
-                right = trajectory.scene.objects[right_object_id]
+            if left_id in visible and right_id in visible:
+                left_mask = visible[left_id]
+                right_mask = visible[right_id]
+                left = trajectory.scene.objects[left_id]
+                right = trajectory.scene.objects[right_id]
                 left_color = int(np.bincount(state[left_mask]).argmax())
                 right_color = int(np.bincount(state[right_mask]).argmax())
                 left_centroid = np.argwhere(left_mask).mean(axis=0)
@@ -314,14 +314,13 @@ def _visible_objects(
         mask = state_object_map == object_id
         if bool(np.any(mask)):
             visible.append((object_id, mask))
-    visible.sort(key=lambda item: _mask_bbox(item[1]))
     return visible[:max_objects]
 
 
 def _visible_object_map(trajectory: ObjectTrajectory, state_index: int, *, max_objects: int) -> np.ndarray:
     output = np.zeros(trajectory.scene.grid.shape, dtype=np.int64)
-    for slot, (_, mask) in enumerate(_visible_objects(trajectory, state_index, max_objects=max_objects), start=1):
-        output[mask] = slot
+    for object_id, mask in _visible_objects(trajectory, state_index, max_objects=max_objects):
+        output[mask] = object_id + 1
     return output
 
 
@@ -334,11 +333,9 @@ def _visible_slot_id(
 ) -> int:
     if object_id < 0:
         return 0
-    for slot, (candidate, _) in enumerate(
-        _visible_objects(trajectory, state_index, max_objects=max_objects), start=1
-    ):
+    for candidate, _ in _visible_objects(trajectory, state_index, max_objects=max_objects):
         if candidate == object_id:
-            return slot
+            return candidate + 1
     return 0
 
 
@@ -349,15 +346,9 @@ def _action_slot_id(
     *,
     max_objects: int,
 ) -> int:
-    before = _visible_slot_id(trajectory, state_index, object_id, max_objects=max_objects)
-    if before or state_index + 1 >= trajectory.states.shape[0]:
-        return before
-    return _visible_slot_id(trajectory, state_index + 1, object_id, max_objects=max_objects)
-
-
-def _mask_bbox(mask: np.ndarray) -> tuple[int, int, int, int]:
-    rows, cols = np.where(mask)
-    return int(rows.min()), int(cols.min()), int(rows.max()) + 1, int(cols.max()) + 1
+    if 0 <= object_id < min(trajectory.scene.object_count, max_objects):
+        return object_id + 1
+    return 0
 
 
 def _shape_index(trajectory: ObjectTrajectory, object_id: int) -> int:

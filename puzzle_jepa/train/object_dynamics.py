@@ -27,6 +27,12 @@ def run_object_dynamics_training(config: dict[str, Any]) -> dict[str, Any]:
 
     data_cfg = _without_name(dict(config["data"]))
     generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(**data_cfg))
+    eval_cfg = dict(config["eval"])
+    probe_data_cfg = {
+        **data_cfg,
+        "trajectory_kind": str(eval_cfg.get("probe_trajectory_kind", data_cfg["trajectory_kind"])),
+    }
+    probe_generator = ObjectDynamicsGenerator(ObjectDynamicsSpec(**probe_data_cfg))
     model_cfg = _without_name(dict(config["model"]))
     objective_cfg = _without_name(dict(config["objective"]))
     model = ObjectDynamicsJEPA(
@@ -39,7 +45,6 @@ def run_object_dynamics_training(config: dict[str, Any]) -> dict[str, Any]:
     (output_dir / "config.json").write_text(json.dumps(config, indent=2, sort_keys=True))
 
     training_cfg = dict(config["training"])
-    eval_cfg = dict(config["eval"])
     optimizer = AdamW(
         model.parameters(),
         lr=float(training_cfg.get("learning_rate", 3.0e-4)),
@@ -60,7 +65,7 @@ def run_object_dynamics_training(config: dict[str, Any]) -> dict[str, Any]:
             torch.manual_seed(probe_seed)
             return run_object_dynamics_probes(
                 model,
-                generator,
+                probe_generator,
                 np.random.default_rng(probe_seed),
                 train_samples=int(eval_cfg.get("probe_train_samples", 256)),
                 eval_samples=int(eval_cfg.get("probe_eval_samples", 128)),

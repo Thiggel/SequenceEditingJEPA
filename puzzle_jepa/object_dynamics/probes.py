@@ -18,6 +18,8 @@ from puzzle_jepa.object_dynamics.shapes import SHAPE_TYPES
 class ProbeDataset:
     features: torch.Tensor
     predicted_features: torch.Tensor
+    spatial_features: torch.Tensor
+    predicted_spatial_features: torch.Tensor
     rollout_error: torch.Tensor
     delta_features: torch.Tensor
     chunk_features: torch.Tensor
@@ -83,10 +85,19 @@ def collect_probe_dataset(
             horizon=horizon,
             device=device,
         )
-        features = model.encode(batch.states).float()
-        next_features = model.encode(batch.futures[:, 0]).float()
+        encoded = model.encode(batch.states).float()
+        next_encoded = model.encode(batch.futures[:, 0]).float()
         predicted = model.predict_latents(batch.states, batch.actions).float()
-        future_features = model.encode(batch.futures[:, -1]).float()
+        future_encoded = model.encode(batch.futures[:, -1]).float()
+        spatial_features = encoded if model.latent_representation == "grid" else encoded.unsqueeze(1)
+        predicted_spatial = (
+            predicted[:, -1]
+            if model.latent_representation == "grid"
+            else predicted[:, -1].unsqueeze(1)
+        )
+        features = model.pool_latents(encoded)
+        next_features = model.pool_latents(next_encoded)
+        predicted_features = model.pool_latents(predicted[:, -1])
         chunk = model.encode_action_chunk(batch.actions).float()
         chunk_object_id = batch.action_object_ids.mode(dim=1).values
         chunk_op = batch.actions[..., 0].mode(dim=1).values
@@ -94,9 +105,11 @@ def collect_probe_dataset(
 
         values = {
             "features": features,
-            "predicted_features": predicted[:, -1],
-            "rollout_error": (predicted[:, -1] - future_features).square().mean(dim=-1),
-            "delta_features": next_features - features,
+            "predicted_features": predicted_features,
+            "spatial_features": spatial_features,
+            "predicted_spatial_features": predicted_spatial,
+            "rollout_error": (predicted[:, -1] - future_encoded).square().flatten(1).mean(dim=-1),
+            "delta_features": model.delta_probe_features(next_encoded - encoded),
             "chunk_features": chunk,
             "states": batch.states,
             "future_states": batch.futures[:, -1],
@@ -210,13 +223,24 @@ def _run_object_dynamics_probes(
     train_raw = _raw_grid_features(train.states, generator.spec.num_colors)
     eval_raw = _raw_grid_features(eval_data.states, generator.spec.num_colors)
     train_raw, eval_raw = _standardize(train_raw, eval_raw)
+    rollout_x = _standardize_with_train(train.features, eval_data.predicted_features)
+    if model.latent_representation == "grid":
+        train_grid_x, eval_grid_x = _standardize_spatial(train.spatial_features, eval_data.spatial_features)
+        rollout_grid_x = _standardize_spatial_with_train(
+            train.spatial_features,
+            eval_data.predicted_spatial_features,
+        )
+    else:
+        train_grid_x, eval_grid_x = train_x, eval_x
+        rollout_grid_x = rollout_x
 
     max_objects = int(generator.spec.max_objects)
     grid_size = int(generator.spec.grid_size)
     num_colors = int(generator.spec.num_colors)
     metrics: dict[str, Any] = {
-        "probe_fit_version": 2,
+        "probe_fit_version": 3,
         "probe_class_balanced_objectives": 1.0,
+        "probe_trajectory_kind": generator.spec.trajectory_kind,
     }
 
     metrics.update(
@@ -296,7 +320,7 @@ def _run_object_dynamics_probes(
         eval_x,
         eval_data.object_bboxes,
         eval_data.object_present,
-        transfer_x=_standardize_with_train(train.features, eval_data.predicted_features),
+        transfer_x=rollout_x,
         transfer_y=eval_data.future_object_bboxes,
         transfer_mask=eval_data.future_object_present,
         steps=steps,
@@ -331,7 +355,7 @@ def _run_object_dynamics_probes(
         eval_x,
         eval_data.completion.unsqueeze(-1),
         eval_data.object_present,
-        transfer_x=_standardize_with_train(train.features, eval_data.predicted_features),
+        transfer_x=rollout_x,
         transfer_y=eval_data.future_completion.unsqueeze(-1),
         transfer_mask=eval_data.future_object_present,
         steps=steps,
@@ -357,7 +381,7 @@ def _run_object_dynamics_probes(
             eval_x,
             eval_y.unsqueeze(-1),
             eval_data.object_present,
-            transfer_x=_standardize_with_train(train.features, eval_data.predicted_features),
+            transfer_x=rollout_x,
             transfer_y=future_y.unsqueeze(-1),
             transfer_mask=eval_data.future_object_present,
             steps=steps,
@@ -445,12 +469,12 @@ def _run_object_dynamics_probes(
         metrics[f"raw_probe_relation_{name}_acc"] = accuracy
 
     grid_metrics, rollout_grid_metrics = _fit_grid_decoder(
-        train_x,
+        train_grid_x,
         train.states,
-        eval_x,
+        eval_grid_x,
         eval_data.states,
         num_classes=num_colors,
-        transfer_x=_standardize_with_train(train.features, eval_data.predicted_features),
+        transfer_x=rollout_grid_x,
         transfer_y=eval_data.future_states,
         steps=steps,
         learning_rate=learning_rate,
@@ -460,12 +484,12 @@ def _run_object_dynamics_probes(
     for name, value in rollout_grid_metrics.items():
         metrics[f"probe_rollout_grid_{name}"] = value
     object_map_metrics, rollout_object_map_metrics = _fit_grid_decoder(
-        train_x,
+        train_grid_x,
         train.object_map,
-        eval_x,
+        eval_grid_x,
         eval_data.object_map,
         num_classes=max_objects + 1,
-        transfer_x=_standardize_with_train(train.features, eval_data.predicted_features),
+        transfer_x=rollout_grid_x,
         transfer_y=eval_data.future_object_map,
         steps=steps,
         learning_rate=learning_rate,
@@ -578,6 +602,18 @@ def _standardize(train_x: torch.Tensor, eval_x: torch.Tensor) -> tuple[torch.Ten
 def _standardize_with_train(train_x: torch.Tensor, eval_x: torch.Tensor) -> torch.Tensor:
     mean = train_x.mean(dim=0, keepdim=True)
     std = train_x.std(dim=0, keepdim=True).clamp_min(1.0e-4)
+    return (eval_x - mean) / std
+
+
+def _standardize_spatial(train_x: torch.Tensor, eval_x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    mean = train_x.flatten(0, 1).mean(dim=0, keepdim=True)
+    std = train_x.flatten(0, 1).std(dim=0, keepdim=True).clamp_min(1.0e-4)
+    return (train_x - mean) / std, (eval_x - mean) / std
+
+
+def _standardize_spatial_with_train(train_x: torch.Tensor, eval_x: torch.Tensor) -> torch.Tensor:
+    mean = train_x.flatten(0, 1).mean(dim=0, keepdim=True)
+    std = train_x.flatten(0, 1).std(dim=0, keepdim=True).clamp_min(1.0e-4)
     return (eval_x - mean) / std
 
 
@@ -765,18 +801,22 @@ def _fit_grid_decoder(
     learning_rate: float,
 ) -> tuple[dict[str, float], dict[str, float]]:
     height, width = train_y.shape[1:]
-    probe = nn.Linear(train_x.shape[-1], height * width * num_classes)
+    tokenwise = train_x.ndim == 3
+    if tokenwise and train_x.shape[1] != height * width:
+        raise ValueError(f"Spatial probe has {train_x.shape[1]} tokens for a {height}x{width} target.")
+    output_size = num_classes if tokenwise else height * width * num_classes
+    probe = nn.Linear(train_x.shape[-1], output_size)
     optimizer = torch.optim.AdamW(probe.parameters(), lr=learning_rate, weight_decay=1.0e-4)
     target = train_y.clamp(0, num_classes - 1)
     class_weights = _class_balanced_weights(target, num_classes=num_classes)
     for _ in range(steps):
-        logits = probe(train_x).reshape(-1, num_classes, height, width)
+        logits = _grid_probe_logits(probe, train_x, height=height, width=width, tokenwise=tokenwise)
         loss = F.cross_entropy(logits, target, weight=class_weights)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
     with torch.no_grad():
-        pred = probe(eval_x).reshape(-1, num_classes, height, width).argmax(dim=1)
+        pred = _grid_probe_logits(probe, eval_x, height=height, width=width, tokenwise=tokenwise).argmax(dim=1)
         eval_metrics = _segmentation_metrics(pred, eval_y, num_classes=num_classes)
         transfer_metrics = {
             "cell_acc": float("nan"),
@@ -785,9 +825,29 @@ def _fit_grid_decoder(
             "foreground_miou": float("nan"),
         }
         if transfer_x is not None and transfer_y is not None:
-            transfer_pred = probe(transfer_x).reshape(-1, num_classes, height, width).argmax(dim=1)
+            transfer_pred = _grid_probe_logits(
+                probe,
+                transfer_x,
+                height=height,
+                width=width,
+                tokenwise=tokenwise,
+            ).argmax(dim=1)
             transfer_metrics = _segmentation_metrics(transfer_pred, transfer_y, num_classes=num_classes)
     return eval_metrics, transfer_metrics
+
+
+def _grid_probe_logits(
+    probe: nn.Linear,
+    features: torch.Tensor,
+    *,
+    height: int,
+    width: int,
+    tokenwise: bool,
+) -> torch.Tensor:
+    logits = probe(features)
+    if tokenwise:
+        return logits.transpose(1, 2).reshape(-1, probe.out_features, height, width)
+    return logits.reshape(-1, probe.out_features // (height * width), height, width)
 
 
 def _class_balanced_weights(target: torch.Tensor, *, num_classes: int) -> torch.Tensor:
