@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=grid_goal_struct_eval
-#SBATCH --partition=rtxpro6k,a100
+#SBATCH --partition=a40,rtxpro6k,a100
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=06:00:00

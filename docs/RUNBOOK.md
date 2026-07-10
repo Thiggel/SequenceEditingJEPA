@@ -60,8 +60,9 @@ scripts/experiments/submit_grid_goal_structured_eval_repair.sh
 ```
 
 It covers 14 final step-5000 checkpoints, skips existing diagnostics, writes
-to a separate repair output suffix, and requests 12 hours. Use `SUBMIT=1` only
-after the repair commit is available to compute nodes.
+to a separate repair output suffix, requests 12 hours, and admits
+`a40,rtxpro6k,a100`. Use `SUBMIT=1` only after the repair commit is available
+to compute nodes.
 
 ## Legacy Sudoku Surface
 

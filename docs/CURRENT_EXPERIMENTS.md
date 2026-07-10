@@ -87,6 +87,8 @@ Fourteen final step-5000 checkpoints had zero planner rows because structured
 slot latents had 82/108/110 tokens but the planner passed an 81-cell mask. The
 mask expansion is fixed and a 12-hour dry-run repair launcher is available at
 `scripts/experiments/submit_grid_goal_structured_eval_repair.sh`.
+The repair template admits `a40,rtxpro6k,a100`; A40 was the freest suitable
+partition at the pre-submission check.
 
 ## ARC First-Pass Candidate Scorers
 
