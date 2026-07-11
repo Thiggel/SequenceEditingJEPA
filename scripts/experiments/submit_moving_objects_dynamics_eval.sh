@@ -9,7 +9,14 @@ while IFS=$'\t' read -r run_name job_id latent_dim max_objects seed; do
     continue
   fi
   if [[ "${SUBMIT:-0}" == "1" ]]; then
-    eval_job="$(RUN_NAME="${run_name}" sbatch --parsable scripts/slurm/run_moving_objects_dynamics_eval.slurm)"
+    dependency_args=()
+    if [[ "${DEPEND_ON_TRAIN:-0}" == "1" ]]; then
+      dependency_args=(--dependency="afterany:${job_id}")
+    fi
+    eval_job="$(
+      RUN_NAME="${run_name}" \
+        sbatch --parsable "${dependency_args[@]}" scripts/slurm/run_moving_objects_dynamics_eval.slurm
+    )"
     printf '%s\ttrain=%s\teval=%s\tz=%s\tN=%s\tseed=%s\n' \
       "${run_name}" "${job_id}" "${eval_job}" "${latent_dim}" "${max_objects}" "${seed}"
   else

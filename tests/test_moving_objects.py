@@ -297,6 +297,12 @@ def test_six_hour_watcher_is_configured() -> None:
     assert "--begin=" in watcher
 
 
+def test_dynamics_evaluation_can_wait_for_its_own_training_row() -> None:
+    script = (ROOT / "scripts/experiments/submit_moving_objects_dynamics_eval.sh").read_text()
+    assert 'DEPEND_ON_TRAIN:-0' in script
+    assert 'dependency_args=(--dependency="afterany:${job_id}")' in script
+
+
 def test_temporal_gate_keeps_single_cls_and_selected_axes() -> None:
     script = (ROOT / "scripts/experiments/submit_moving_objects_temporal.sh").read_text()
     assert "LATENT_DIMS=(4 8 16 32)" in script
