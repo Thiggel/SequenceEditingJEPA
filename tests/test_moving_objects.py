@@ -442,3 +442,35 @@ def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_pa
     assert summary["aggregates"][0]["max_objects"] == 4
     assert summary["aggregates"][0]["delta"][KEYS[0]]["mean"] == 0.25
     assert analyze(tmp_path, {"another_run"})["runs"] == []
+
+
+def test_analyzer_prefers_matched_v4_reprobe_metrics(tmp_path: Path) -> None:
+    run = tmp_path / "motion_n8_z4_reprobe_seed1707"
+    run.mkdir()
+    initial = {
+        "step": 0,
+        "data": "wrapped_motion",
+        "objective": "ema_vicreg_temporal",
+        "latent_dim": 4,
+        "max_objects": 8,
+        "seed": 1707,
+        "probe_bound_shape_acc": 0.1,
+    }
+    final = {**initial, "step": 5000, "probe_bound_shape_acc": 0.2}
+    (run / "metrics.jsonl").write_text("\n".join((json.dumps(initial), json.dumps(final))))
+    (run / "probe_eval_v4.json").write_text(
+        json.dumps(
+            {
+                "schema": "moving_objects_probe_eval_v4",
+                "initial": {"probe_bound_shape_acc": 0.3},
+                "final": {"probe_bound_shape_acc": 0.8},
+            }
+        )
+    )
+
+    summary = analyze(tmp_path, {run.name})
+
+    assert summary["runs"][0]["probe_source"] == "probe_eval_v4.json"
+    assert summary["aggregates"][0]["probe_v4_n"] == 1
+    assert summary["runs"][0]["absolute"]["probe_bound_shape_acc"] == 0.8
+    assert summary["runs"][0]["delta"]["probe_bound_shape_acc"] == 0.5

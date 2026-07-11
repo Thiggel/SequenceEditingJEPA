@@ -84,6 +84,10 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
         initial, final = rows[0], rows[-1]
         if int(final.get("step", 0)) <= 0:
             continue
+        probe_path = metrics_path.parent / "probe_eval_v4.json"
+        probe_payload = json.loads(probe_path.read_text()) if probe_path.exists() else None
+        probe_initial = probe_payload["initial"] if probe_payload is not None else initial
+        probe_final = probe_payload["final"] if probe_payload is not None else final
         run = {
             "run": metrics_path.parent.name,
             "data": str(final.get("data", "unknown")),
@@ -92,8 +96,19 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "max_objects": int(final["max_objects"]),
             "seed": int(final["seed"]),
             "step": int(final["step"]),
-            "absolute": {key: final.get(key) for key in KEYS},
-            "delta": {key: _delta(final.get(key), initial.get(key)) for key in KEYS},
+            "probe_source": "probe_eval_v4.json" if probe_payload is not None else "metrics.jsonl",
+            "absolute": {
+                key: probe_final.get(key, final.get(key)) if key != "train_prediction_loss" else final.get(key)
+                for key in KEYS
+            },
+            "delta": {
+                key: (
+                    _delta(probe_final.get(key), probe_initial.get(key))
+                    if key != "train_prediction_loss" and key in probe_final
+                    else _delta(final.get(key), initial.get(key))
+                )
+                for key in KEYS
+            },
         }
         dynamics_path = metrics_path.parent / "dynamics_eval_v1.json"
         if dynamics_path.exists():
@@ -117,6 +132,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "latent_dim": latent_dim,
             "max_objects": max_objects,
             "n": len(members),
+            "probe_v4_n": sum(member["probe_source"] == "probe_eval_v4.json" for member in members),
             "seeds": sorted(member["seed"] for member in members),
         }
         for mode in ("absolute", "delta"):
@@ -168,16 +184,17 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final color-indexed object binding, learned/raw/one-step-rollout.",
             "",
-            "| data | objective | z | max objects | Shape acc | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| data | objective | z | max objects | v4 n | Shape acc | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         absolute = row["absolute"]
         lines.append(
-            "| {data} | {objective} | {z} | {objects} | {shape_acc} | {shape} | {velocity} | {angular} | {position} | {completion} |".format(
+            "| {data} | {objective} | {z} | {objects} | {probe_v4_n} | {shape_acc} | {shape} | {velocity} | {angular} | {position} | {completion} |".format(
                 data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=row["max_objects"],
+                probe_v4_n=row["probe_v4_n"],
                 shape_acc=_triple_suffix(absolute, "bound_shape", "acc"),
                 shape=_triple(absolute, "bound_shape"),
                 velocity=_triple(absolute, "bound_velocity"),
