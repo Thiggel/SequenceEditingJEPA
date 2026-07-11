@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 16:07 CEST
+Last updated: 2026-07-11 16:13 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -29,6 +29,8 @@ After that cell failed semantic transfer, the follow-up launcher
 `scripts/experiments/submit_moving_objects_capacity_transfer.sh` restores the
 full base bottleneck/load axes for wrap and rotation and the bounded temporal
 subset. It is dry-run by default and prepares 228 single-CLS jobs.
+Submitted manifest: `capacity_transfer_v1_steps5000.tsv`; trainers are
+`3835525`-`3835752` and six-hour watchers are `3835753`-`3835772`.
 
 ## Historical Object-Edit Surface
 
