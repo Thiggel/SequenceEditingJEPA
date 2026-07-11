@@ -58,6 +58,24 @@ KEYS = (
     "probe_bound_completion_r2",
     "raw_probe_bound_completion_r2",
     "probe_rollout_bound_completion_r2",
+    "probe_bound_half_complete_slots",
+    "raw_probe_bound_half_complete_slots",
+    "probe_rollout_bound_half_complete_slots",
+    "probe_bound_shape_acc_half_complete",
+    "raw_probe_bound_shape_acc_half_complete",
+    "probe_rollout_bound_shape_acc_half_complete",
+    "probe_bound_position_r2_half_complete",
+    "raw_probe_bound_position_r2_half_complete",
+    "probe_rollout_bound_position_r2_half_complete",
+    "probe_bound_complete_slots",
+    "raw_probe_bound_complete_slots",
+    "probe_rollout_bound_complete_slots",
+    "probe_bound_shape_acc_complete",
+    "raw_probe_bound_shape_acc_complete",
+    "probe_rollout_bound_shape_acc_complete",
+    "probe_bound_position_r2_complete",
+    "raw_probe_bound_position_r2_complete",
+    "probe_rollout_bound_position_r2_complete",
     "probe_grid_foreground_iou",
     "model_reconstruction_grid_acc",
     "model_reconstruction_foreground_iou",
@@ -209,6 +227,37 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 angular=_triple(absolute, "bound_angular_velocity"),
                 position=_triple(absolute, "bound_position"),
                 completion=_triple(absolute, "bound_completion"),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "Completion-conditioned color-indexed binding, learned/raw/one-step-rollout.",
+            "",
+            "| data | objective | z | max objects | >=50% slots | >=50% shape acc | >=50% position R2 | complete slots | complete shape acc | complete position R2 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["aggregates"]:
+        absolute = row["absolute"]
+        lines.append(
+            "| {data} | {objective} | {z} | {objects} | {half_slots} | {half_shape} | {half_position} | {complete_slots} | {complete_shape} | {complete_position} |".format(
+                data=row["data"], objective=row["objective"],
+                z=row["latent_dim"], objects=row["max_objects"],
+                half_slots=_mean(absolute["probe_bound_half_complete_slots"]),
+                half_shape=_triple_suffix(
+                    absolute, "bound_shape", "acc_half_complete"
+                ),
+                half_position=_triple_suffix(
+                    absolute, "bound_position", "r2_half_complete"
+                ),
+                complete_slots=_mean(absolute["probe_bound_complete_slots"]),
+                complete_shape=_triple_suffix(
+                    absolute, "bound_shape", "acc_complete"
+                ),
+                complete_position=_triple_suffix(
+                    absolute, "bound_position", "r2_complete"
+                ),
             )
         )
     lines.extend(

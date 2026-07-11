@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-12 00:26 CEST
+Last updated: 2026-07-12 00:53 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -58,6 +58,8 @@ manifest `sequence_selected_v2_steps5000.tsv` has 315 trainers
 `3838208`-`3838522`, 45 dependency-staged jobs per family. Diagnostics are
 `3838543`-`3838857`, v4 probes `3838858`-`3839172`, and six-hour watchers
 `3838523`-`3838542`.
+The v4 probe payload now includes half-complete and complete-object shape and
+position metrics plus slot counts; these are required for sequence analysis.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row

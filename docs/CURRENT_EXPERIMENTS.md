@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-12 00:26 CEST
+Last updated: 2026-07-12 00:53 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -27,6 +27,11 @@ and 270 later rows are dependency-held. Dynamics jobs are
 `3838523`-`3838542`. Artifact:
 `../sequence-editing-report/assets/moving_objects/deterministic_full_v2_summary.md`.
 No moving-object row uses a grid of latent states.
+
+Before the dependency-held sequence probes start, v4 evaluation was extended
+with completion-conditioned bound shape and position metrics for objects at
+least half complete and fully complete, with explicit slot counts. This keeps
+ambiguous one-pixel objects from dominating cross-trajectory shape conclusions.
 
 Status: all 90 training jobs `3834593`-`3834682` and dynamics diagnostics
 `3834739`-`3834828` completed `0:0`. This is now the active object

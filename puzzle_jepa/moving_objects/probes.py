@@ -500,6 +500,25 @@ def _bound_metrics(
     shape_prediction = predicted[..., :shape_dim][mask].argmax(dim=-1)
     shape_target = target[..., :shape_dim][mask].argmax(dim=-1)
     output["shape_acc"] = float((shape_prediction == shape_target).float().mean())
+    completion = target[..., shape_dim + 5]
+    for name, threshold in (("half_complete", 0.5), ("complete", 1.0 - 1.0e-6)):
+        selected = mask & (completion >= threshold)
+        output[f"{name}_slots"] = float(selected.sum())
+        if not selected.any():
+            output[f"shape_acc_{name}"] = 0.0
+            output[f"position_r2_{name}"] = 0.0
+            continue
+        selected_shape_prediction = predicted[..., :shape_dim][selected].argmax(dim=-1)
+        selected_shape_target = target[..., :shape_dim][selected].argmax(dim=-1)
+        output[f"shape_acc_{name}"] = float(
+            (selected_shape_prediction == selected_shape_target).float().mean()
+        )
+        position_slice = groups["position"]
+        output[f"position_r2_{name}"] = float(
+            _r2_by_dimension(
+                predicted[..., position_slice][selected], target[..., position_slice][selected]
+            ).mean()
+        )
     return output
 
 

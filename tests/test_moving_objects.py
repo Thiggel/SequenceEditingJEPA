@@ -11,7 +11,7 @@ from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingOb
 from puzzle_jepa.moving_objects.model import MovingObjectJEPA, balanced_reconstruction_loss
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
 from puzzle_jepa.moving_objects.probes import run_moving_object_dynamics_diagnostics
-from puzzle_jepa.moving_objects.probes import _fit_slot_regressor
+from puzzle_jepa.moving_objects.probes import _bound_metrics, _fit_slot_regressor
 from scripts.analysis.analyze_moving_objects import KEYS, _manifest_run_names, analyze
 
 
@@ -257,6 +257,12 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
         "probe_bound_shape_acc",
         "probe_bound_velocity_r2",
         "probe_bound_position_r2",
+        "probe_bound_half_complete_slots",
+        "probe_bound_shape_acc_half_complete",
+        "probe_bound_position_r2_half_complete",
+        "probe_bound_complete_slots",
+        "probe_bound_shape_acc_complete",
+        "probe_bound_position_r2_complete",
         "raw_probe_bound_shape_acc",
         "probe_rollout_bound_shape_acc",
         "probe_grid_foreground_iou",
@@ -367,6 +373,29 @@ def test_reconstruction_control_trains_same_single_cls_without_jepa_gradient() -
     )
     assert np.isfinite(metrics["model_reconstruction_grid_acc"])
     assert np.isfinite(metrics["model_reconstruction_foreground_iou"])
+
+
+def test_bound_metrics_condition_shape_and_position_on_identifiable_completion() -> None:
+    target = torch.zeros(1, 3, 11)
+    predicted = torch.zeros_like(target)
+    target[0, 0, 0] = 1.0
+    target[0, 1, 1] = 1.0
+    target[0, 2, 2] = 1.0
+    predicted[0, :, 0] = 1.0
+    target[0, :, 8:10] = torch.tensor([[0.1, 0.2], [0.3, 0.4], [0.7, 0.8]])
+    predicted[0, :, 8:10] = target[0, :, 8:10]
+    target[0, :, 10] = torch.tensor([0.25, 0.75, 1.0])
+    predicted[0, :, 10] = target[0, :, 10]
+
+    metrics = _bound_metrics(predicted, target, torch.ones(1, 3, dtype=torch.bool))
+
+    assert np.isclose(metrics["shape_acc"], 1.0 / 3.0)
+    assert metrics["half_complete_slots"] == 2.0
+    assert metrics["shape_acc_half_complete"] == 0.0
+    assert metrics["position_r2_half_complete"] == 1.0
+    assert metrics["complete_slots"] == 1.0
+    assert metrics["shape_acc_complete"] == 0.0
+    assert metrics["position_r2_complete"] == 0.0
 
 
 def test_reconstruction_loss_balances_sparse_foreground_against_background() -> None:

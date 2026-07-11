@@ -53,7 +53,9 @@ vector can carry color-specific position, so the missing spatial state is an
 objective effect rather than an impossible capacity requirement.
 Selection must use v4 color-indexed binding metrics in addition to bags:
 bound shape, position, velocity/angular direction, completion, raw controls,
-and one-step rollout transfer.
+and one-step rollout transfer. For construction trajectories, report shape and
+position both over all visible objects and conditioned on at least 50%/100%
+completion so hidden labels are not scored as identifiable after one pixel.
 The active selected sequence matrix contains 315 rows and stages 45 jobs per
 family. It tests tight high-load, z4 count/relation and temporal rows, z16
 relations, z32 JEPA versus valid reconstruction at N4/N6/N8, and z64/N2 shape
