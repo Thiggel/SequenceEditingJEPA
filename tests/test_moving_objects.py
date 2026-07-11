@@ -199,6 +199,18 @@ def test_transfer_gate_pairs_base_and_temporal_single_cls_rows() -> None:
     assert "grid" not in script.lower()
 
 
+def test_capacity_transfer_restores_size_and_load_axes_without_cell_latents() -> None:
+    script = (ROOT / "scripts/experiments/submit_moving_objects_capacity_transfer.sh").read_text()
+    assert "DATASETS=(wrapped_motion rotating_motion)" in script
+    assert "BASE_LATENT_DIMS=(2 4 8 16 32 64)" in script
+    assert "BASE_MAX_OBJECT_COUNTS=(1 2 4 6 8)" in script
+    assert "TEMPORAL_LATENT_DIMS=(4 8 16 32)" in script
+    assert "TEMPORAL_MAX_OBJECT_COUNTS=(4 8)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "228 single-CLS jobs" in script
+    assert "grid" not in script.lower()
+
+
 def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_path: Path) -> None:
     run = tmp_path / "motion_n4_z8_test_seed1707"
     run.mkdir()

@@ -26,10 +26,13 @@ temporal-delta variance objective and gate it at `N={4,8}` and
 `z={4,8,16,32}`. Require positive held-out velocity R2 and predictor wins in
 all three seeds; static semantics alone do not pass the motion-world gate.
 
-The temporal gate selects only `z=4,N=8`. Transfer that exact recipe first to
-wrapped boundaries and rigid rotation/translation trajectories, then to the
-construction/completion/repair families through a two-frame sequence adapter.
-Retain the base z4/N8 row as a paired control for every family.
+The temporal gate selected only `z=4,N=8`, but its paired wrapped/rotating
+transfer failed semantically: predictor consistency transferred, while
+velocity/angular factors did not and static factors declined. Restore the
+latent-size and object-load axes within wrap and rotation to test whether each
+trajectory has a different capacity optimum. Then transfer evidence-backed
+cells to construction/completion/repair through a two-frame sequence adapter.
+Retain base and temporal controls; never use a grid of latent states.
 
 ## Strategic Reframing
 

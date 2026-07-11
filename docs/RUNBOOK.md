@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 11:54 CEST
+Last updated: 2026-07-11 16:07 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -24,6 +24,11 @@ The selected z4/N8 transfer launcher is
 `scripts/experiments/submit_moving_objects_transfer.sh`; it pairs base and
 temporal objectives on wrapped and rotating trajectories and is dry-run by
 default.
+
+After that cell failed semantic transfer, the follow-up launcher
+`scripts/experiments/submit_moving_objects_capacity_transfer.sh` restores the
+full base bottleneck/load axes for wrap and rotation and the bounded temporal
+subset. It is dry-run by default and prepares 228 single-CLS jobs.
 
 ## Historical Object-Edit Surface
 

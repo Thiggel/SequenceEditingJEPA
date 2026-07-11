@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-11 11:14 CEST
+Last updated: 2026-07-11 16:07 CEST
 
 ## Moving-Object Bottleneck Smoke
 
@@ -37,6 +37,16 @@ All temporal trainers `3834849`-`3834872` and diagnostics
 velocity R2 `.021/.013/.008` and predictor-over-identity wins in all seeds.
 Larger z rows do not recover velocity and usually lose to identity. Full tables
 are in `assets/moving_objects/temporal_delta_v1_summary.md` in the report repo.
+
+## Moving-Object Transfer Result
+
+Wrapped/rotating z4/N8 trainers `3834975`-`3834986` and diagnostics
+`3835493`-`3835504` completed `0:0`. Temporal improves wrapped predictor wins
+from `2/3` to `3/3` but lowers count `.429 -> .317`, shape R2
+`.096 -> .031`, and velocity `.017 -> .012`. Both rotating objectives beat
+identity `3/3`, but angular R2 remains negative. This rejects z4/N8 temporal
+as a general semantic recipe; the next run restores latent-size and load axes
+for wrap and rotation.
 
 ## Object Dynamics Prestage Result
 

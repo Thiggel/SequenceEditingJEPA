@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 11:54 CEST
+Last updated: 2026-07-11 16:07 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -58,8 +58,16 @@ rotation+translation, each with base and temporal z4/N8 rows at three seeds
 wrapped relation labels use toroidal distance. Rotating temporal smoke
 `3834974` completed `0:0` on A40 in 14s.
 
-Update: all 12 transfer trainers `3834975`-`3834986` are running on A40;
-six-hour watcher jobs are `3834987`-`3835006`.
+All 12 transfer trainers `3834975`-`3834986` and diagnostics
+`3835493`-`3835504` completed `0:0`; watcher jobs are
+`3834987`-`3835006`. Temporal pressure improves wrap predictor wins from
+`2/3` to `3/3` but reduces count `.429 -> .317` and shape R2
+`.096 -> .031`; velocity does not improve. Both rotating rows beat identity
+`3/3`, but angular R2 is negative (`-.253/-.247`). The z4/N8 temporal effect
+is therefore not a general semantic transfer. Next, recover the bottleneck and
+object-load axes within wrap and rotation before construction/repair adapters.
+The prepared follow-up contains 228 single-CLS rows; largest rotating base
+smoke `3835521` (`z=64,N=8`) completed `0:0` on A40 in 21s.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.
