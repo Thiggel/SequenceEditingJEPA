@@ -365,6 +365,22 @@ def test_sequence_transfer_covers_all_ordering_completion_and_repair_families() 
     assert "grid" not in script.lower()
 
 
+def test_deterministic_confirmation_crosses_selected_capacity_and_load_rows() -> None:
+    script = (
+        ROOT / "scripts/experiments/submit_moving_objects_deterministic_confirmation.sh"
+    ).read_text()
+    assert "DATASETS=(reflected_motion wrapped_motion rotating_motion)" in script
+    assert '"4 4 ema_vicreg"' in script
+    assert '"4 4 ema_vicreg_temporal"' in script
+    assert '"4 8 ema_vicreg"' in script
+    assert '"4 8 ema_vicreg_temporal"' in script
+    assert '"32 4 ema_vicreg"' in script
+    assert '"32 8 ema_vicreg"' in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "54 deterministic single-CLS jobs" in script
+    assert "grid" not in script.lower()
+
+
 def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_path: Path) -> None:
     run = tmp_path / "motion_n4_z8_test_seed1707"
     run.mkdir()

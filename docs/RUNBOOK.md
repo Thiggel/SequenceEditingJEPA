@@ -34,6 +34,8 @@ Submitted manifest: `capacity_transfer_v1_steps5000.tsv`; trainers are
 Diagnostics are `3835930`-`3836157`; all train/eval rows completed `0:0`.
 Capacity rankings are provisional because identical configs did not reproduce.
 New training defaults to deterministic cuBLAS, attention, and PyTorch kernels.
+Exactness jobs `3836199`-`3836202` pass; artifact:
+`../sequence-editing-report/assets/moving_objects/determinism_v1.json`.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row

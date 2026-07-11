@@ -45,6 +45,9 @@ Capacity duplicates exposed GPU nondeterminism. Before selecting those rows,
 run two identical deterministic jobs for wrap-temporal z4/N8 and a rotating
 control; require exact model tensors and metrics. Then rerun selected 5k rows
 under deterministic kernels before submitting any sequence-family stage.
+The 500-step exactness gate passed. The next bounded matrix has 54 rows:
+reflect/wrap/rotate, z4 base/temporal at N4/N8, and z32 base at N4/N8, all at
+three seeds.
 
 ## Strategic Reframing
 

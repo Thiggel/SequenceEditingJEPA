@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 16:55 CEST
+Last updated: 2026-07-11 17:06 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -77,6 +77,10 @@ seeds. Rotation direction is never decoded reliably.
 Nominal duplicate z4/N8 runs differ materially despite identical configs, so
 capacity conclusions are provisional. Deterministic cuBLAS/PyTorch/attention
 is now the default; exact paired reruns gate the next submission.
+Determinism pairs `3836199`-`3836202` completed `0:0`; both have exact model
+tensors (`max diff 0.0`), final metrics, and metric histories. Six-hour
+watchers are `3836203`-`3836206`. A 54-row deterministic confirmation across
+reflect/wrap/rotate, z4/z32, N4/N8, and paired z4 objectives is prepared.
 
 Construction/completion/repair adapters are implemented for seven ordering
 families with visible-only semantic labels, explicit scene count, rollout
