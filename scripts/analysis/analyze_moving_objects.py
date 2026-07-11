@@ -12,6 +12,11 @@ from typing import Any
 KEYS = (
     "probe_object_count_balanced_acc",
     "raw_probe_object_count_balanced_acc",
+    "probe_visible_object_count_balanced_acc",
+    "raw_probe_visible_object_count_balanced_acc",
+    "probe_scene_object_count_balanced_acc",
+    "raw_probe_scene_object_count_balanced_acc",
+    "probe_rollout_object_count_balanced_acc",
     "probe_shape_count_mae",
     "probe_shape_count_r2",
     "raw_probe_shape_count_r2",
@@ -31,6 +36,10 @@ KEYS = (
     "probe_relations_r2",
     "raw_probe_relations_r2",
     "probe_rollout_relations_r2",
+    "probe_completion_mae",
+    "probe_completion_r2",
+    "raw_probe_completion_r2",
+    "probe_rollout_completion_r2",
     "probe_grid_foreground_iou",
     "probe_latent_std_mean",
     "probe_latent_effective_rank",
@@ -141,22 +150,28 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final absolute learned/raw/one-step-rollout R2; count is learned/raw balanced accuracy.",
             "",
-            "| data | objective | z | max objects | Count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | fg IoU | rank |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| data | objective | z | max objects | Visible count | Scene count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | Completion R2 | fg IoU | rank |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         absolute = row["absolute"]
         lines.append(
-            "| {data} | {objective} | {z} | {objects} | {count} | {shape} | {color} | {velocity} | {angular} | {relation} | {grid} | {rank} |".format(
+            "| {data} | {objective} | {z} | {objects} | {count} | {scene} | {shape} | {color} | {velocity} | {angular} | {relation} | {completion} | {grid} | {rank} |".format(
                 data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=row["max_objects"],
                 count=_pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc"),
+                scene=_pair(
+                    absolute,
+                    "probe_scene_object_count_balanced_acc",
+                    "raw_probe_scene_object_count_balanced_acc",
+                ),
                 shape=_triple(absolute, "shape_count"),
                 color=_triple(absolute, "color_count"),
                 velocity=_triple(absolute, "velocity_count"),
                 angular=_triple(absolute, "angular_velocity_count"),
                 relation=_triple(absolute, "relations"),
+                completion=_triple(absolute, "completion"),
                 grid=_mean(absolute["probe_grid_foreground_iou"]),
                 rank=_mean(absolute["probe_latent_effective_rank"]),
             )

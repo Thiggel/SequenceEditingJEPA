@@ -83,6 +83,120 @@ def test_wrapped_relations_use_shortest_toroidal_distance() -> None:
     assert _pair_distance(left, right, 16, "wrap") == 1.0
 
 
+def test_construction_trajectory_families_preserve_objects_and_progress() -> None:
+    kinds = (
+        "object_blocked",
+        "frontier_build",
+        "random_within_object",
+        "interleaved_build",
+        "global_random",
+        "completion",
+        "noisy_repair",
+    )
+    for index, kind in enumerate(kinds):
+        generator = MovingObjectGenerator(
+            MovingObjectSpec(
+                grid_size=16,
+                min_objects=4,
+                max_objects=4,
+                trajectory_kind=kind,
+            )
+        )
+        trajectory = generator.sample_trajectory(np.random.default_rng(101 + index))
+        assert trajectory.kind == kind
+        assert trajectory.object_count == 4
+        assert len(trajectory.states) >= 6
+        assert np.all(trajectory.velocities == 0)
+        assert np.all(trajectory.angular_velocities == 0)
+        assert np.all(np.diff(trajectory.completion, axis=0) >= 0.0)
+        assert np.allclose(trajectory.completion[-1], 1.0)
+        changed = np.count_nonzero(trajectory.states[1:] != trajectory.states[:-1], axis=(1, 2))
+        assert np.all(changed == 1)
+
+
+def test_construction_batch_has_visible_count_completion_and_no_fake_motion() -> None:
+    generator = MovingObjectGenerator(
+        MovingObjectSpec(
+            grid_size=16,
+            min_objects=8,
+            max_objects=8,
+            trajectory_kind="interleaved_build",
+        )
+    )
+    batch = sample_moving_object_batch(
+        generator, np.random.default_rng(131), batch_size=16, horizon=4
+    )
+    assert torch.all(batch.object_count == 8)
+    assert torch.all((batch.visible_object_count >= 1) & (batch.visible_object_count <= 8))
+    assert torch.all((batch.future_visible_object_count >= 1) & (batch.future_visible_object_count <= 8))
+    assert batch.completion_features.shape == (16, 5)
+    assert torch.all((batch.completion_features >= 0.0) & (batch.completion_features <= 1.0))
+    assert torch.all(
+        (batch.future_completion_features >= 0.0) & (batch.future_completion_features <= 1.0)
+    )
+    assert torch.count_nonzero(batch.velocity_counts) == 0
+    assert torch.count_nonzero(batch.angular_velocity_counts) == 0
+
+
+def test_construction_ordering_regimes_are_behaviorally_distinct() -> None:
+    trajectories = {}
+    for index, kind in enumerate(
+        ("object_blocked", "random_within_object", "interleaved_build", "frontier_build")
+    ):
+        generator = MovingObjectGenerator(
+            MovingObjectSpec(
+                grid_size=16,
+                min_objects=4,
+                max_objects=4,
+                trajectory_kind=kind,
+            )
+        )
+        trajectories[kind] = generator.sample_trajectory(np.random.default_rng(211 + index))
+
+    for kind in ("object_blocked", "random_within_object"):
+        ids = _changed_object_ids(trajectories[kind])
+        segments = [ids[0]] + [current for previous, current in zip(ids, ids[1:]) if current != previous]
+        assert len(segments) == len(set(segments)) == 4
+
+    interleaved_ids = _changed_object_ids(trajectories["interleaved_build"])
+    assert len(set(interleaved_ids[:4])) == 4
+    assert interleaved_ids[0] == interleaved_ids[4]
+
+    frontier = trajectories["frontier_build"]
+    for step in range(1, len(frontier.states)):
+        changed = np.argwhere(frontier.states[step] != frontier.states[step - 1])
+        row, col = (int(value) for value in changed[0])
+        object_id = int(frontier.object_maps[step, row, col])
+        previous_cells = np.argwhere(frontier.object_maps[step - 1] == object_id)
+        if len(previous_cells):
+            assert np.any(np.max(np.abs(previous_cells - np.asarray([row, col])), axis=1) == 1)
+
+
+def test_completion_and_repair_start_with_all_objects_visible_but_incomplete() -> None:
+    for index, kind in enumerate(("completion", "noisy_repair")):
+        generator = MovingObjectGenerator(
+            MovingObjectSpec(
+                grid_size=16,
+                min_objects=5,
+                max_objects=5,
+                trajectory_kind=kind,
+            )
+        )
+        trajectory = generator.sample_trajectory(np.random.default_rng(251 + index))
+        assert len(np.unique(trajectory.object_maps[0][trajectory.object_maps[0] >= 0])) == 5
+        assert np.all((trajectory.completion[0] > 0.0) & (trajectory.completion[0] < 1.0))
+        assert np.allclose(trajectory.completion[-1], 1.0)
+
+
+def _changed_object_ids(trajectory) -> list[int]:
+    output = []
+    for step in range(1, len(trajectory.states)):
+        changed = np.argwhere(trajectory.states[step] != trajectory.states[step - 1])
+        row, col = (int(value) for value in changed[0])
+        output.append(int(trajectory.object_maps[step, row, col]))
+    return output
+
+
 def test_latent_dim_is_a_projection_not_the_visual_token_width() -> None:
     small = MovingObjectJEPA(grid_size=8, token_dim=32, latent_dim=2, encoder_layers=1, encoder_heads=4)
     wide = MovingObjectJEPA(grid_size=8, token_dim=32, latent_dim=16, encoder_layers=1, encoder_heads=4)
@@ -120,11 +234,14 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
     )
     for key in (
         "probe_object_count_balanced_acc",
+        "probe_visible_object_count_balanced_acc",
+        "probe_rollout_object_count_balanced_acc",
         "probe_shape_count_mae",
         "probe_shape_count_r2",
         "probe_velocity_count_mae",
         "probe_velocity_count_r2",
         "probe_relations_mae",
+        "probe_completion_r2",
         "probe_grid_foreground_iou",
     ):
         assert np.isfinite(metrics[key])
@@ -208,6 +325,27 @@ def test_capacity_transfer_restores_size_and_load_axes_without_cell_latents() ->
     assert "TEMPORAL_MAX_OBJECT_COUNTS=(4 8)" in script
     assert "SEEDS=(1707 2707 3707)" in script
     assert "228 single-CLS jobs" in script
+    assert "grid" not in script.lower()
+
+
+def test_sequence_transfer_covers_all_ordering_completion_and_repair_families() -> None:
+    script = (ROOT / "scripts/experiments/submit_moving_objects_sequence_transfer.sh").read_text()
+    for data in (
+        "object_blocked_build",
+        "frontier_build",
+        "random_within_object_build",
+        "interleaved_build",
+        "global_random_build",
+        "completion",
+        "noisy_repair",
+    ):
+        assert data in script
+    assert "OBJECTIVES=(ema_vicreg ema_vicreg_temporal)" in script
+    assert "LATENT_DIMS=(2 4 8 16 32)" in script
+    assert "MAX_OBJECT_COUNTS=(4 8)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "420 single-CLS jobs" in script
+    assert 'dependency_args=(--dependency="afterany:${previous_stage_ids}")' in script
     assert "grid" not in script.lower()
 
 

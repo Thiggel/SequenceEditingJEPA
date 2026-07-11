@@ -6,4 +6,5 @@ max_objects: 8
 sequence_length: 12
 boundary_mode: wrap
 rotate_objects: false
+trajectory_kind: motion
 max_scene_retries: 512

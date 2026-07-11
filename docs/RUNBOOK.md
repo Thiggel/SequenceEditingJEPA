@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 16:13 CEST
+Last updated: 2026-07-11 16:49 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -31,6 +31,12 @@ full base bottleneck/load axes for wrap and rotation and the bounded temporal
 subset. It is dry-run by default and prepares 228 single-CLS jobs.
 Submitted manifest: `capacity_transfer_v1_steps5000.tsv`; trainers are
 `3835525`-`3835752` and six-hour watchers are `3835753`-`3835772`.
+
+The unsubmitted sequence-family launcher is
+`scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row
+dry run covers seven construction/completion/repair families and stages each
+60-job family after the previous family completes. Do not submit the ceiling
+matrix until capacity-transfer results select rows.
 
 ## Historical Object-Edit Surface
 

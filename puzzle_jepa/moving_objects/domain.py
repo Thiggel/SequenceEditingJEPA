@@ -27,6 +27,8 @@ class MovingObjectTrajectory:
     angular_velocities: np.ndarray
     shape_ids: np.ndarray
     colors: np.ndarray
+    completion: np.ndarray
+    kind: str = "motion"
 
     def __post_init__(self) -> None:
         if self.states.ndim != 3 or self.object_maps.shape != self.states.shape:
@@ -39,6 +41,10 @@ class MovingObjectTrajectory:
             raise ValueError("Each object must have one shape and color label.")
         if self.angular_velocities.shape != self.positions.shape[:2]:
             raise ValueError("Angular velocities must be [T,N].")
+        if self.completion.shape != self.positions.shape[:2]:
+            raise ValueError("Completion must be [T,N].")
+        if np.any((self.completion < 0.0) | (self.completion > 1.0)):
+            raise ValueError("Completion values must lie in [0,1].")
 
     @property
     def object_count(self) -> int:

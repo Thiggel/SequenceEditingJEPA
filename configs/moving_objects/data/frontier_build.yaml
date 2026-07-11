@@ -1,10 +1,10 @@
-name: reflected_motion
+name: frontier_build
 grid_size: 16
 num_colors: 10
 min_objects: 1
-max_objects: 4
+max_objects: 8
 sequence_length: 12
 boundary_mode: reflect
 rotate_objects: false
-trajectory_kind: motion
+trajectory_kind: frontier_build
 max_scene_retries: 512

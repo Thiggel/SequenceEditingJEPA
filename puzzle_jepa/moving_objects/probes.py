@@ -17,6 +17,8 @@ class _ProbeData:
     latents: torch.Tensor
     raw: torch.Tensor
     count: torch.Tensor
+    visible_count: torch.Tensor
+    future_visible_count: torch.Tensor
     semantic: torch.Tensor
     future_semantic: torch.Tensor
     grid: torch.Tensor
@@ -61,6 +63,27 @@ def run_moving_object_probes(
         learning_rate=learning_rate,
         standardize=False,
     )
+    latent_visible_count = _fit_classifier(
+        train.latents,
+        train.visible_count,
+        evaluate.latents,
+        evaluate.visible_count,
+        num_classes=max_objects + 1,
+        steps=steps,
+        learning_rate=learning_rate,
+        transfer_x=evaluate.rollout_latents,
+        transfer_y=evaluate.future_visible_count,
+    )
+    raw_visible_count = _fit_classifier(
+        train.raw,
+        train.visible_count,
+        evaluate.raw,
+        evaluate.visible_count,
+        num_classes=max_objects + 1,
+        steps=steps,
+        learning_rate=learning_rate,
+        standardize=False,
+    )
     semantic_head, semantic_mae, semantic_r2, semantic_lower, semantic_upper = _fit_regressor(
         train.latents,
         train.semantic,
@@ -98,11 +121,21 @@ def run_moving_object_probes(
     effective_rank = _effective_rank(eigenvalues)
     splits = _semantic_splits(shape_dim, generator.spec.num_colors - 1)
     metrics: dict[str, float | int | str] = {
-        "probe_schema": "moving_objects_v2",
-        "probe_object_count_acc": latent_count[0],
-        "probe_object_count_balanced_acc": latent_count[1],
-        "raw_probe_object_count_acc": raw_count[0],
-        "raw_probe_object_count_balanced_acc": raw_count[1],
+        "probe_schema": "moving_objects_v3",
+        "probe_object_count_acc": latent_visible_count[0],
+        "probe_object_count_balanced_acc": latent_visible_count[1],
+        "raw_probe_object_count_acc": raw_visible_count[0],
+        "raw_probe_object_count_balanced_acc": raw_visible_count[1],
+        "probe_visible_object_count_acc": latent_visible_count[0],
+        "probe_visible_object_count_balanced_acc": latent_visible_count[1],
+        "raw_probe_visible_object_count_acc": raw_visible_count[0],
+        "raw_probe_visible_object_count_balanced_acc": raw_visible_count[1],
+        "probe_scene_object_count_acc": latent_count[0],
+        "probe_scene_object_count_balanced_acc": latent_count[1],
+        "raw_probe_scene_object_count_acc": raw_count[0],
+        "raw_probe_scene_object_count_balanced_acc": raw_count[1],
+        "probe_rollout_object_count_acc": latent_visible_count[2],
+        "probe_rollout_object_count_balanced_acc": latent_visible_count[3],
         "probe_grid_acc": grid_acc,
         "probe_grid_foreground_iou": grid_fg_iou,
         "probe_latent_std_mean": float(latent_std.mean()),
@@ -181,7 +214,9 @@ def _collect(
     device: torch.device,
 ) -> _ProbeData:
     parts: dict[str, list[torch.Tensor]] = {
-        "latents": [], "raw": [], "count": [], "semantic": [], "future_semantic": [],
+        "latents": [], "raw": [], "count": [], "visible_count": [],
+        "future_visible_count": [],
+        "semantic": [], "future_semantic": [],
         "grid": [], "rollout_latents": []
     }
     remaining = samples
@@ -197,16 +232,18 @@ def _collect(
                 batch.velocity_counts,
                 batch.angular_velocity_counts,
                 batch.relations,
+                batch.completion_features,
             ],
             dim=1,
         )
         future_semantic = torch.cat(
             [
-                batch.shape_counts,
-                batch.color_counts,
+                batch.future_shape_counts,
+                batch.future_color_counts,
                 batch.future_velocity_counts,
                 batch.future_angular_velocity_counts,
                 batch.future_relations,
+                batch.future_completion_features,
             ],
             dim=1,
         )
@@ -215,6 +252,8 @@ def _collect(
             F.one_hot(batch.contexts, num_classes=generator.spec.num_colors).flatten(1).float()
         )
         parts["count"].append(batch.object_count)
+        parts["visible_count"].append(batch.visible_object_count)
+        parts["future_visible_count"].append(batch.future_visible_object_count)
         parts["semantic"].append(semantic)
         parts["future_semantic"].append(future_semantic)
         parts["grid"].append(batch.current_grid)
@@ -233,9 +272,16 @@ def _fit_classifier(
     steps: int,
     learning_rate: float,
     standardize: bool = True,
-) -> tuple[float, float]:
+    transfer_x: torch.Tensor | None = None,
+    transfer_y: torch.Tensor | None = None,
+) -> tuple[float, float, float, float]:
     if standardize:
-        train_x, eval_x = _standardize(train_x, eval_x)
+        mean = train_x.mean(dim=0, keepdim=True)
+        std = train_x.std(dim=0, keepdim=True).clamp_min(1.0e-4)
+        train_x = (train_x - mean) / std
+        eval_x = (eval_x - mean) / std
+        if transfer_x is not None:
+            transfer_x = (transfer_x - mean) / std
     head = nn.Linear(train_x.shape[1], num_classes).to(train_x.device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=learning_rate, weight_decay=1.0e-4)
     counts = torch.bincount(train_y, minlength=num_classes).clamp_min(1)
@@ -252,7 +298,17 @@ def _fit_classifier(
     for label in torch.unique(eval_y):
         mask = eval_y == label
         recalls.append((predicted[mask] == label).float().mean())
-    return accuracy, float(torch.stack(recalls).mean())
+    balanced = float(torch.stack(recalls).mean())
+    if transfer_x is None or transfer_y is None:
+        return accuracy, balanced, float("nan"), float("nan")
+    with torch.no_grad():
+        transfer_predicted = head(transfer_x).argmax(dim=1)
+    transfer_accuracy = float((transfer_predicted == transfer_y).float().mean())
+    transfer_recalls = []
+    for label in torch.unique(transfer_y):
+        mask = transfer_y == label
+        transfer_recalls.append((transfer_predicted[mask] == label).float().mean())
+    return accuracy, balanced, transfer_accuracy, float(torch.stack(transfer_recalls).mean())
 
 
 def _fit_regressor(
@@ -331,12 +387,14 @@ def _semantic_splits(shape_dim: int, color_dim: int) -> dict[str, slice]:
     velocity = slice(color.stop, color.stop + 24)
     angular_velocity = slice(velocity.stop, velocity.stop + len(ANGULAR_VELOCITIES))
     relations = slice(angular_velocity.stop, angular_velocity.stop + 5)
+    completion = slice(relations.stop, relations.stop + 5)
     return {
         "shape_count": shape,
         "color_count": color,
         "velocity_count": velocity,
         "angular_velocity_count": angular_velocity,
         "relations": relations,
+        "completion": completion,
     }
 
 

@@ -34,6 +34,13 @@ trajectory has a different capacity optimum. Then transfer evidence-backed
 cells to construction/completion/repair through a two-frame sequence adapter.
 Retain base and temporal controls; never use a grid of latent states.
 
+The two-frame adapter now covers all seven construction/completion/repair
+families. Its primary labels are visible count and visible object factors;
+hidden final-scene count is reported separately. The full 420-row matrix is a
+prepared ceiling, not an automatic submission: use the active capacity result
+to select latent sizes/object loads, then submit dependency-staged 60-job
+families.
+
 ## Strategic Reframing
 
 The current Sudoku evidence should not be read as JEPA reasoning. Oracle
