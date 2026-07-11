@@ -119,6 +119,7 @@ def run_moving_object_probes(
         steps=steps,
         learning_rate=learning_rate,
     )
+    direct_reconstruction = _direct_reconstruction_metrics(model, evaluate)
     bound_metrics, rollout_bound_metrics = _fit_slot_regressor(
         train.latents,
         train.object_slots,
@@ -166,6 +167,7 @@ def run_moving_object_probes(
         "probe_rollout_object_count_balanced_acc": latent_visible_count[3],
         "probe_grid_acc": grid_acc,
         "probe_grid_foreground_iou": grid_fg_iou,
+        **direct_reconstruction,
         "probe_latent_std_mean": float(latent_std.mean()),
         "probe_latent_std_min": float(latent_std.min()),
         "probe_latent_effective_rank": effective_rank,
@@ -406,6 +408,27 @@ def _fit_grid_decoder(
         intersection = ((predicted == target) & foreground).sum().float()
         union = ((predicted > 0) | foreground).sum().float().clamp_min(1.0)
     return accuracy, float(intersection / union)
+
+
+@torch.no_grad()
+def _direct_reconstruction_metrics(
+    model: MovingObjectJEPA, evaluate: _ProbeData
+) -> dict[str, float]:
+    if model.reconstruction_decoder is None:
+        return {}
+    pixels = evaluate.grid.shape[1] * evaluate.grid.shape[2]
+    predicted = model.reconstruction_decoder(evaluate.latents).reshape(
+        len(evaluate.latents), pixels, model.num_colors
+    ).argmax(dim=-1)
+    target = evaluate.grid.flatten(1)
+    accuracy = float((predicted == target).float().mean())
+    foreground = target > 0
+    intersection = ((predicted == target) & foreground).sum().float()
+    union = ((predicted > 0) | foreground).sum().float().clamp_min(1.0)
+    return {
+        "model_reconstruction_grid_acc": accuracy,
+        "model_reconstruction_foreground_iou": float(intersection / union),
+    }
 
 
 def _fit_slot_regressor(

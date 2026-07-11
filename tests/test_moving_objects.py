@@ -354,6 +354,19 @@ def test_reconstruction_control_trains_same_single_cls_without_jepa_gradient() -
         parameter.grad is None or torch.count_nonzero(parameter.grad) == 0
         for parameter in model.predictor.parameters()
     )
+    metrics = run_moving_object_probes(
+        model,
+        generator,
+        np.random.default_rng(53),
+        train_samples=8,
+        eval_samples=8,
+        batch_size=4,
+        device=torch.device("cpu"),
+        steps=1,
+        learning_rate=1.0e-2,
+    )
+    assert np.isfinite(metrics["model_reconstruction_grid_acc"])
+    assert np.isfinite(metrics["model_reconstruction_foreground_iou"])
 
 
 def test_new_sweep_is_single_cls_only_and_crosses_requested_axes() -> None:
