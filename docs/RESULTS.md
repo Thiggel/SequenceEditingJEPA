@@ -1,6 +1,20 @@
 # Results
 
-Last updated: 2026-07-11 16:55 CEST
+Last updated: 2026-07-11 23:28 CEST
+
+## Deterministic Moving-Object Binding Result
+
+All 54 JEPA confirmations and 36 original reconstruction controls completed
+with v4 bound probes. z32/N8 decodes aggregate count/color and weak bound shape
+classification, but every reflect/wrap/rotate row has negative bound position
+and velocity R2; rotating angular R2 is also negative. Raw pixels retain strong
+position readout. z4 temporal predictors beat identity without semantic
+velocity. The current representation is not a bound object state.
+
+The original reconstruction decoder obtained `.933-.966` accuracy by predicting
+background and had effectively zero foreground IoU. Foreground/background-
+balanced reconstruction is now running as the valid control. Full table:
+`../sequence-editing-report/assets/moving_objects/deterministic_combined_v1_summary.md`.
 
 ## Moving-Object Bottleneck Smoke
 

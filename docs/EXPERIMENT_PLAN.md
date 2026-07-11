@@ -45,16 +45,20 @@ Capacity duplicates exposed GPU nondeterminism. Before selecting those rows,
 run two identical deterministic jobs for wrap-temporal z4/N8 and a rotating
 control; require exact model tensors and metrics. Then rerun selected 5k rows
 under deterministic kernels before submitting any sequence-family stage.
-The 500-step exactness gate passed. The next bounded matrix has 54 rows:
-reflect/wrap/rotate, z4 base/temporal at N4/N8, and z32 base at N4/N8, all at
-three seeds.
+The 500-step exactness gate and 54-row deterministic confirmation passed
+execution. Its scientific gate failed: z32 recovers aggregate count/color but
+not bound position/velocity, while z4 temporal predictor wins do not carry
+semantic velocity. Complete the missing reflected z/N cells deterministically
+and rerun the invalid background-collapsed reconstruction control with balanced
+foreground/background loss before sequence-family submission.
 Selection must use v4 color-indexed binding metrics in addition to bags:
 bound shape, position, velocity/angular direction, completion, raw controls,
 and one-step rollout transfer.
 Run the matched reconstruction-only control at z4/z32 and N4/N8 so any object
 factor gain can be tested for JEPA specificity rather than generic compression.
 The selected held sequence matrix contains 210 rows and stages 30 jobs per
-family; do not submit the older 420-row ceiling.
+family; submit it only after the active deterministic full matrix and balanced
+control are interpreted. Do not submit the older 420-row ceiling.
 
 ## Strategic Reframing
 

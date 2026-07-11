@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 16:55 CEST
+Last updated: 2026-07-11 23:28 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -37,15 +37,21 @@ New training defaults to deterministic cuBLAS, attention, and PyTorch kernels.
 Exactness jobs `3836199`-`3836202` pass; artifact:
 `../sequence-editing-report/assets/moving_objects/determinism_v1.json`.
 Confirmation manifest: `deterministic_confirmation_v1_steps5000.tsv`;
-trainers `3836223`-`3836276`, watchers `3836277`-`3836296`.
-Dependent diagnostics are `3836351`-`3836404`.
-Dependent v4 reprobes are `3836574`-`3836627`.
+trainers `3836223`-`3836276`, diagnostics `3836351`-`3836404`, and v4
+reprobes `3836574`-`3836627` all completed; watchers are
+`3836277`-`3836296`.
 The matched reconstruction-control launcher is
 `scripts/experiments/submit_moving_objects_reconstruction_confirmation.sh`
 and is dry-run by default (36 rows).
-Submitted controls are `3836464`-`3836499`, diagnostics `3836522`-`3836557`,
-and watchers `3836502`-`3836521`.
-Dependent v4 reprobes are `3836632`-`3836667`.
+Submitted controls `3836464`-`3836499`, diagnostics `3836522`-`3836557`, and
+v4 reprobes `3836632`-`3836667` completed but the decoder collapsed to
+background; watchers are `3836502`-`3836521`.
+Balanced replacement manifest: `reconstruction_balanced_v2_steps5000.tsv`,
+trainers `3837715`-`3837779`. Deterministic reflected completion manifest:
+`deterministic_reflected_matrix_v2_steps5000.tsv`, 78 new trainers
+`3837714`-`3837827` plus 12 reused endpoints. Their dependent diagnostics and
+v4 probes are interleaved in `3837829`-`3838120`; watchers are
+`3837833`-`3837946`.
 The held selected sequence launcher is
 `scripts/experiments/submit_moving_objects_sequence_selected.sh` (210 rows,
 30 dependency-staged jobs per family).

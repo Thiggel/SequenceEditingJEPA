@@ -8,7 +8,7 @@ import torch
 
 from puzzle_jepa.moving_objects.batching import _pair_distance, sample_moving_object_batch
 from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingObjectSpec
-from puzzle_jepa.moving_objects.model import MovingObjectJEPA
+from puzzle_jepa.moving_objects.model import MovingObjectJEPA, balanced_reconstruction_loss
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
 from puzzle_jepa.moving_objects.probes import run_moving_object_dynamics_diagnostics
 from puzzle_jepa.moving_objects.probes import _fit_slot_regressor
@@ -369,6 +369,22 @@ def test_reconstruction_control_trains_same_single_cls_without_jepa_gradient() -
     assert np.isfinite(metrics["model_reconstruction_foreground_iou"])
 
 
+def test_reconstruction_loss_balances_sparse_foreground_against_background() -> None:
+    logits = torch.tensor(
+        [
+            [10.0, 0.0, 0.0],
+            [10.0, 0.0, 0.0],
+            [10.0, 0.0, 0.0],
+            [10.0, 0.0, 0.0],
+        ]
+    )
+    targets = torch.tensor([0, 0, 0, 1])
+    unbalanced = torch.nn.functional.cross_entropy(logits, targets)
+    balanced = balanced_reconstruction_loss(logits, targets)
+    assert float(balanced) > 4.0
+    assert float(balanced) > 1.9 * float(unbalanced)
+
+
 def test_new_sweep_is_single_cls_only_and_crosses_requested_axes() -> None:
     submit = (ROOT / "scripts/experiments/submit_moving_objects_bottleneck.sh").read_text()
     slurm = (ROOT / "scripts/slurm/run_moving_objects_train.slurm").read_text()
@@ -482,6 +498,20 @@ def test_deterministic_confirmation_crosses_selected_capacity_and_load_rows() ->
     assert "SEEDS=(1707 2707 3707)" in script
     assert "54 deterministic single-CLS jobs" in script
     assert "grid" not in script.lower()
+
+
+def test_deterministic_completion_reuses_endpoints_and_submits_all_missing_cells() -> None:
+    script = (
+        ROOT / "scripts/experiments/submit_moving_objects_deterministic_completion.sh"
+    ).read_text()
+    assert "LATENT_DIMS=(2 4 8 16 32 64)" in script
+    assert "MAX_OBJECT_COUNTS=(1 2 4 6 8)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert 'REUSED_CELLS=("4 4" "4 8" "32 4" "32 8")' in script
+    assert "DATA_CONFIG=reflected_motion OBJECTIVE_CONFIG=ema_vicreg" in script
+    assert "Rows: 90 deterministic single-CLS runs" in script
+    assert "deterministic_confirmation_v1_steps5000" in script
+    assert "latent_representation" not in script
 
 
 def test_reconstruction_confirmation_matches_selected_capacity_and_load_rows() -> None:

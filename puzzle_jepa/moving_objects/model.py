@@ -10,6 +10,15 @@ from puzzle_jepa.moving_objects.batching import MovingObjectBatch
 from puzzle_jepa.object_dynamics.losses import covariance_loss, variance_loss, vicreg_regularizer
 
 
+def balanced_reconstruction_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    per_pixel = F.cross_entropy(logits, targets, reduction="none")
+    foreground = targets != 0
+    background = ~foreground
+    if foreground.any() and background.any():
+        return 0.5 * (per_pixel[foreground].mean() + per_pixel[background].mean())
+    return per_pixel.mean()
+
+
 @dataclass(slots=True)
 class MovingObjectOutput:
     loss: torch.Tensor
@@ -160,7 +169,7 @@ class MovingObjectJEPA(nn.Module):
             reconstruction_logits = self.reconstruction_decoder(current).reshape(
                 len(current), self.grid_size * self.grid_size, self.num_colors
             )
-            reconstruction_loss = F.cross_entropy(
+            reconstruction_loss = balanced_reconstruction_loss(
                 reconstruction_logits.flatten(0, 1), batch.current_grid.flatten()
             )
         else:

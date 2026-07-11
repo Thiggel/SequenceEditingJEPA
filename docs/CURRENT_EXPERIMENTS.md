@@ -2,9 +2,30 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 17:06 CEST
+Last updated: 2026-07-11 23:28 CEST
 
 ## Moving-Object Bottleneck Grid
+
+Latest decision: all deterministic confirmation trainers `3836223`-`3836276`,
+dynamics jobs `3836351`-`3836404`, and bound probes `3836574`-`3836627`
+completed `0:0`. At z32/N8, reflect/wrap/rotate recover aggregate count
+`.550/.569/.566` and color R2 `.704/.687/.715`, but bound position R2 is
+`-.185/-.186/-.186`, bound velocity is `-.136/-.151/-.158`, and rotating
+angular R2 is `-.137`; raw position controls are `.454/.353/.466`. z4 temporal
+predictors win `3/3` at N8 without positive bound velocity. This is static
+bag-like information plus nonsemantic latent dynamics, not object binding.
+
+The completed unweighted reconstruction control collapsed to background
+(`.933-.966` grid accuracy, approximately zero foreground IoU). Reconstruction
+now balances foreground and background loss; smoke `3837703` completed `0:0`.
+Balanced controls `3837715`-`3837779` and 78 missing deterministic reflected
+cells `3837714`-`3837827` are running. The reflected manifest reuses 12
+completed endpoints to form the full 90-row z x N matrix. Their 252 dependent
+jobs are interleaved in `3837829`-`3838120`; six-hour watchers are
+`3837833`-`3837946`. The 210-row sequence matrix remains held. Artifact:
+`../sequence-editing-report/assets/moving_objects/deterministic_combined_v1_summary.md`.
+The complete repository test suite, compile checks, shell syntax, and
+`git diff --check` pass for the balanced loss and completion launcher.
 
 Status: all 90 training jobs `3834593`-`3834682` and dynamics diagnostics
 `3834739`-`3834828` completed `0:0`. This is now the active object
@@ -81,7 +102,8 @@ Determinism pairs `3836199`-`3836202` completed `0:0`; both have exact model
 tensors (`max diff 0.0`), final metrics, and metric histories. Six-hour
 watchers are `3836203`-`3836206`. A 54-row deterministic confirmation across
 reflect/wrap/rotate, z4/z32, N4/N8, and paired z4 objectives is prepared.
-All trainers `3836223`-`3836276` started; six-hour watchers are
+All trainers `3836223`-`3836276`, diagnostics `3836351`-`3836404`, and v4
+probes `3836574`-`3836627` completed; six-hour watchers are
 `3836277`-`3836296`.
 
 Construction/completion/repair adapters are implemented for seven ordering
@@ -89,7 +111,8 @@ families with visible-only semantic labels, explicit scene count, rollout
 count, completion probes, and zeroed stationary motion targets. All 19 focused
 tests and the full suite pass; 40 eight-object stress samples per family and a
 one-step CPU Hydra smoke pass. The 420-row launcher is dry-run only and stages
-families 60 jobs at a time; submission waits for deterministic confirmation.
+families 60 jobs at a time; the selected 210-row subset waits for the active
+deterministic matrix and balanced control.
 Largest noisy-repair temporal smoke `3836318` (z32/N8, one step) completed
 `0:0` on A40 in 29s with finite v3 probes and checkpoint.
 Schema v4 adds color-indexed bound shape/position/velocity/angular/completion
@@ -100,13 +123,14 @@ diagnostics are dependency-held jobs `3836351`-`3836404`.
 Full v4 reprobes are dependency-held jobs `3836574`-`3836627`.
 Full duplicate v4 reprobes `3836450`-`3836453` are exact. At 500 steps, bound
 shape is near chance and bound velocity/position R2 are negative; raw position
-R2 is positive. The 5k result remains pending.
+R2 is positive. The completed 5k result confirms the same binding failure.
 A reconstruction-only single-CLS control is implemented and CPU-smoked. Its
 36 prepared rows match reflect/wrap/rotate, z4/z32, N4/N8, and three seeds;
 the pixel decoder does not introduce a grid latent.
-Smoke `3836463` completed `0:0`; trainers `3836464`-`3836499` are running,
-diagnostics are `3836522`-`3836557`, and watchers are `3836502`-`3836521`.
-Dependent v4 reprobes are `3836632`-`3836667`.
+Smoke `3836463`, trainers `3836464`-`3836499`, diagnostics
+`3836522`-`3836557`, and v4 reprobes `3836632`-`3836667` completed `0:0`.
+The direct decoder collapsed to background, so balanced v2 supersedes this as
+the pixel-control gate; watchers are `3836502`-`3836521`.
 The held selected sequence matrix has 210 rows and stages 30 jobs per family:
 z4/z32, N4/N8, z4 base/temporal, and matched reconstruction controls.
 
