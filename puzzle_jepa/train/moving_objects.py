@@ -17,6 +17,7 @@ from puzzle_jepa.moving_objects.batching import sample_moving_object_batch
 from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingObjectSpec
 from puzzle_jepa.moving_objects.model import MovingObjectJEPA
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
+from puzzle_jepa.moving_objects.reproducibility import configure_reproducibility
 
 
 def run_moving_object_training(config: dict[str, Any]) -> dict[str, Any]:
@@ -32,7 +33,7 @@ def run_moving_object_training(config: dict[str, Any]) -> dict[str, Any]:
     model_cfg = _without_name(dict(config["model"]))
     objective_cfg = _without_name(dict(config["objective"]))
     training_cfg = dict(config["training"])
-    _configure_reproducibility(bool(training_cfg.get("deterministic", True)))
+    configure_reproducibility(bool(training_cfg.get("deterministic", True)))
     eval_cfg = dict(config["eval"])
     generator = MovingObjectGenerator(MovingObjectSpec(**data_cfg))
     model = MovingObjectJEPA(
@@ -144,16 +145,6 @@ def _fork_rng_devices(device: torch.device) -> list[int]:
     if device.type != "cuda":
         return []
     return [device.index if device.index is not None else torch.cuda.current_device()]
-
-
-def _configure_reproducibility(deterministic: bool) -> None:
-    torch.use_deterministic_algorithms(deterministic)
-    torch.backends.cudnn.benchmark = not deterministic
-    torch.backends.cudnn.deterministic = deterministic
-    if torch.cuda.is_available():
-        torch.backends.cuda.enable_flash_sdp(not deterministic)
-        torch.backends.cuda.enable_mem_efficient_sdp(not deterministic)
-        torch.backends.cuda.enable_math_sdp(True)
 
 
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:

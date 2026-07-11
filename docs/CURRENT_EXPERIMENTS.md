@@ -92,6 +92,9 @@ one-step CPU Hydra smoke pass. The 420-row launcher is dry-run only and stages
 families 60 jobs at a time; submission waits for deterministic confirmation.
 Largest noisy-repair temporal smoke `3836318` (z32/N8, one step) completed
 `0:0` on A40 in 29s with finite v3 probes and checkpoint.
+Schema v4 adds color-indexed bound shape/position/velocity/angular/completion
+for latent, raw-frame, and rollout controls. Existing checkpoints can be
+reprobed through a manifest-driven matched-initialization evaluator.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

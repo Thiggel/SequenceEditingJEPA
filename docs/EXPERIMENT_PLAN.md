@@ -48,6 +48,9 @@ under deterministic kernels before submitting any sequence-family stage.
 The 500-step exactness gate passed. The next bounded matrix has 54 rows:
 reflect/wrap/rotate, z4 base/temporal at N4/N8, and z32 base at N4/N8, all at
 three seeds.
+Selection must use v4 color-indexed binding metrics in addition to bags:
+bound shape, position, velocity/angular direction, completion, raw controls,
+and one-step rollout transfer.
 
 ## Strategic Reframing
 

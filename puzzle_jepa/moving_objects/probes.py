@@ -23,6 +23,10 @@ class _ProbeData:
     future_semantic: torch.Tensor
     grid: torch.Tensor
     rollout_latents: torch.Tensor
+    object_slots: torch.Tensor
+    object_slot_present: torch.Tensor
+    future_object_slots: torch.Tensor
+    future_object_slot_present: torch.Tensor
 
 
 def run_moving_object_probes(
@@ -115,13 +119,37 @@ def run_moving_object_probes(
         steps=steps,
         learning_rate=learning_rate,
     )
+    bound_metrics, rollout_bound_metrics = _fit_slot_regressor(
+        train.latents,
+        train.object_slots,
+        train.object_slot_present,
+        evaluate.latents,
+        evaluate.object_slots,
+        evaluate.object_slot_present,
+        steps=steps,
+        learning_rate=learning_rate,
+        transfer_x=evaluate.rollout_latents,
+        transfer_y=evaluate.future_object_slots,
+        transfer_mask=evaluate.future_object_slot_present,
+    )
+    raw_bound_metrics, _ = _fit_slot_regressor(
+        train.raw,
+        train.object_slots,
+        train.object_slot_present,
+        evaluate.raw,
+        evaluate.object_slots,
+        evaluate.object_slot_present,
+        steps=steps,
+        learning_rate=learning_rate,
+        standardize=False,
+    )
     latent_std = evaluate.latents.std(dim=0)
     covariance = torch.cov(evaluate.latents.T) if len(evaluate.latents) > 1 else torch.zeros(1, device=device)
     eigenvalues = torch.linalg.eigvalsh(covariance.float()).clamp_min(0.0)
     effective_rank = _effective_rank(eigenvalues)
     splits = _semantic_splits(shape_dim, generator.spec.num_colors - 1)
     metrics: dict[str, float | int | str] = {
-        "probe_schema": "moving_objects_v3",
+        "probe_schema": "moving_objects_v4",
         "probe_object_count_acc": latent_visible_count[0],
         "probe_object_count_balanced_acc": latent_visible_count[1],
         "raw_probe_object_count_acc": raw_visible_count[0],
@@ -141,6 +169,9 @@ def run_moving_object_probes(
         "probe_latent_std_mean": float(latent_std.mean()),
         "probe_latent_std_min": float(latent_std.min()),
         "probe_latent_effective_rank": effective_rank,
+        **{f"probe_bound_{key}": value for key, value in bound_metrics.items()},
+        **{f"raw_probe_bound_{key}": value for key, value in raw_bound_metrics.items()},
+        **{f"probe_rollout_bound_{key}": value for key, value in rollout_bound_metrics.items()},
     }
     for name, index in splits.items():
         metrics[f"probe_{name}_mae"] = float(semantic_mae[index].mean())
@@ -217,7 +248,9 @@ def _collect(
         "latents": [], "raw": [], "count": [], "visible_count": [],
         "future_visible_count": [],
         "semantic": [], "future_semantic": [],
-        "grid": [], "rollout_latents": []
+        "grid": [], "rollout_latents": [], "object_slots": [],
+        "object_slot_present": [], "future_object_slots": [],
+        "future_object_slot_present": []
     }
     remaining = samples
     while remaining:
@@ -258,6 +291,10 @@ def _collect(
         parts["future_semantic"].append(future_semantic)
         parts["grid"].append(batch.current_grid)
         parts["rollout_latents"].append(output.predictions[:, 0].detach())
+        parts["object_slots"].append(batch.object_slot_features)
+        parts["object_slot_present"].append(batch.object_slot_present)
+        parts["future_object_slots"].append(batch.future_object_slot_features)
+        parts["future_object_slot_present"].append(batch.future_object_slot_present)
         remaining -= size
     return _ProbeData(**{name: torch.cat(values) for name, values in parts.items()})
 
@@ -369,6 +406,73 @@ def _fit_grid_decoder(
         intersection = ((predicted == target) & foreground).sum().float()
         union = ((predicted > 0) | foreground).sum().float().clamp_min(1.0)
     return accuracy, float(intersection / union)
+
+
+def _fit_slot_regressor(
+    train_x: torch.Tensor,
+    train_y: torch.Tensor,
+    train_mask: torch.Tensor,
+    eval_x: torch.Tensor,
+    eval_y: torch.Tensor,
+    eval_mask: torch.Tensor,
+    *,
+    steps: int,
+    learning_rate: float,
+    standardize: bool = True,
+    transfer_x: torch.Tensor | None = None,
+    transfer_y: torch.Tensor | None = None,
+    transfer_mask: torch.Tensor | None = None,
+) -> tuple[dict[str, float], dict[str, float]]:
+    if standardize:
+        mean = train_x.mean(dim=0, keepdim=True)
+        std = train_x.std(dim=0, keepdim=True).clamp_min(1.0e-4)
+        train_x = (train_x - mean) / std
+        eval_x = (eval_x - mean) / std
+        if transfer_x is not None:
+            transfer_x = (transfer_x - mean) / std
+    slots, dimensions = train_y.shape[1:]
+    head = nn.Linear(train_x.shape[1], slots * dimensions).to(train_x.device)
+    optimizer = torch.optim.AdamW(head.parameters(), lr=learning_rate, weight_decay=1.0e-4)
+    expanded_train_mask = train_mask.unsqueeze(-1).expand_as(train_y)
+    for _ in range(steps):
+        optimizer.zero_grad(set_to_none=True)
+        predicted = head(train_x).reshape(-1, slots, dimensions)
+        loss = (predicted - train_y).square()[expanded_train_mask].mean()
+        loss.backward()
+        optimizer.step()
+    with torch.no_grad():
+        predicted = head(eval_x).reshape(-1, slots, dimensions)
+        metrics = _bound_metrics(predicted, eval_y, eval_mask)
+        transfer_metrics = {}
+        if transfer_x is not None and transfer_y is not None and transfer_mask is not None:
+            transfer_predicted = head(transfer_x).reshape(-1, slots, dimensions)
+            transfer_metrics = _bound_metrics(transfer_predicted, transfer_y, transfer_mask)
+    return metrics, transfer_metrics
+
+
+def _bound_metrics(
+    predicted: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+) -> dict[str, float]:
+    shape_dim = len(SHAPE_NAMES)
+    groups = {
+        "shape": slice(0, shape_dim),
+        "velocity": slice(shape_dim, shape_dim + 2),
+        "angular_velocity": slice(shape_dim + 2, shape_dim + 3),
+        "position": slice(shape_dim + 3, shape_dim + 5),
+        "completion": slice(shape_dim + 5, shape_dim + 6),
+    }
+    output = {}
+    for name, feature_slice in groups.items():
+        selected_prediction = predicted[..., feature_slice][mask]
+        selected_target = target[..., feature_slice][mask]
+        mae = (selected_prediction - selected_target).abs().mean()
+        r2 = _r2_by_dimension(selected_prediction, selected_target).mean()
+        output[f"{name}_mae"] = float(mae)
+        output[f"{name}_r2"] = float(r2)
+    shape_prediction = predicted[..., :shape_dim][mask].argmax(dim=-1)
+    shape_target = target[..., :shape_dim][mask].argmax(dim=-1)
+    output["shape_acc"] = float((shape_prediction == shape_target).float().mean())
+    return output
 
 
 def _standardize(train: torch.Tensor, evaluate: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

@@ -46,6 +46,9 @@ dry run covers seven construction/completion/repair families and stages each
 matrix until capacity-transfer results select rows.
 Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
 completed `0:0` in 29s.
+Reprobe a manifest with `scripts/experiments/submit_moving_objects_probe_eval.sh`;
+each job writes `probe_eval_v4.json` beside its checkpoint and can depend on
+its corresponding trainer with `DEPEND_ON_TRAIN=1`.
 
 ## Historical Object-Edit Surface
 

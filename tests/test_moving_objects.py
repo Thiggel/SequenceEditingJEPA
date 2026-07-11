@@ -49,6 +49,13 @@ def test_motion_batch_uses_two_frames_and_probeable_object_load() -> None:
     assert batch.angular_velocity_counts.shape == (12, 3)
     assert batch.future_angular_velocity_counts.shape == (12, 3)
     assert batch.future_relations.shape == (12, 5)
+    assert batch.object_slot_features.shape == (12, 9, 11)
+    assert batch.future_object_slot_features.shape == (12, 9, 11)
+    assert torch.equal(batch.object_slot_present.sum(dim=1), batch.object_count)
+    assert torch.allclose(
+        batch.object_slot_features[..., :5].sum(dim=-1)[batch.object_slot_present],
+        torch.ones_like(batch.object_slot_features[..., 0][batch.object_slot_present]),
+    )
 
 
 def test_collision_retries_do_not_bias_away_from_requested_high_load() -> None:
@@ -136,6 +143,10 @@ def test_construction_batch_has_visible_count_completion_and_no_fake_motion() ->
     )
     assert torch.count_nonzero(batch.velocity_counts) == 0
     assert torch.count_nonzero(batch.angular_velocity_counts) == 0
+    assert torch.equal(batch.object_slot_present.sum(dim=1), batch.visible_object_count)
+    assert torch.equal(
+        batch.future_object_slot_present.sum(dim=1), batch.future_visible_object_count
+    )
 
 
 def test_construction_ordering_regimes_are_behaviorally_distinct() -> None:
@@ -242,6 +253,11 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
         "probe_velocity_count_r2",
         "probe_relations_mae",
         "probe_completion_r2",
+        "probe_bound_shape_acc",
+        "probe_bound_velocity_r2",
+        "probe_bound_position_r2",
+        "raw_probe_bound_shape_acc",
+        "probe_rollout_bound_shape_acc",
         "probe_grid_foreground_iou",
     ):
         assert np.isfinite(metrics[key])
@@ -296,9 +312,21 @@ def test_moving_training_defaults_to_deterministic_gpu_kernels() -> None:
     trainer = (ROOT / "puzzle_jepa/train/moving_objects.py").read_text()
     assert "deterministic: true" in config
     assert 'CUBLAS_WORKSPACE_CONFIG", ":4096:8"' in trainer
-    assert "torch.use_deterministic_algorithms(deterministic)" in trainer
-    assert "enable_flash_sdp(not deterministic)" in trainer
-    assert "enable_mem_efficient_sdp(not deterministic)" in trainer
+    reproducibility = (ROOT / "puzzle_jepa/moving_objects/reproducibility.py").read_text()
+    assert "configure_reproducibility" in trainer
+    assert "torch.use_deterministic_algorithms(deterministic)" in reproducibility
+    assert "enable_flash_sdp(not deterministic)" in reproducibility
+    assert "enable_mem_efficient_sdp(not deterministic)" in reproducibility
+
+
+def test_bound_object_reprobe_is_manifest_driven_and_dependency_safe() -> None:
+    submit = (ROOT / "scripts/experiments/submit_moving_objects_probe_eval.sh").read_text()
+    slurm = (ROOT / "scripts/slurm/run_moving_objects_probe_eval.slurm").read_text()
+    evaluator = (ROOT / "puzzle_jepa/eval/moving_object_probes.py").read_text()
+    assert 'dependency_args=(--dependency="afterany:${job_id}")' in submit
+    assert "probe_eval_v4.json" in slurm
+    assert '"schema": "moving_objects_probe_eval_v4"' in evaluator
+    assert "run_moving_object_probes" in evaluator
 
 
 def test_six_hour_watcher_is_configured() -> None:

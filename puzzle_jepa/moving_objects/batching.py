@@ -5,6 +5,7 @@ from dataclasses import dataclass, fields
 import numpy as np
 import torch
 
+from puzzle_jepa.moving_objects.domain import MovingObjectTrajectory
 from puzzle_jepa.moving_objects.generator import (
     ANGULAR_VELOCITIES,
     MovingObjectGenerator,
@@ -32,6 +33,10 @@ class MovingObjectBatch:
     future_angular_velocity_counts: torch.Tensor
     future_relations: torch.Tensor
     future_completion_features: torch.Tensor
+    object_slot_features: torch.Tensor
+    object_slot_present: torch.Tensor
+    future_object_slot_features: torch.Tensor
+    future_object_slot_present: torch.Tensor
     current_grid: torch.Tensor
 
     def to(self, device: torch.device | str) -> "MovingObjectBatch":
@@ -65,6 +70,10 @@ def sample_moving_object_batch(
     future_angular_velocity_counts = []
     future_relations = []
     future_completion_features = []
+    object_slot_features = []
+    object_slot_present = []
+    future_object_slot_features = []
+    future_object_slot_present = []
     current_grids = []
     required = horizon + 2
     for _ in range(batch_size):
@@ -146,6 +155,20 @@ def sample_moving_object_batch(
         future_completion_features.append(
             _completion_features(trajectory.completion[state_index + 1, future_visible_ids])
         )
+        slot_features, slot_present = _object_slots(
+            trajectory, state_index, visible_ids, generator.spec.grid_size, generator.spec.num_colors
+        )
+        future_slot_features, future_slot_present = _object_slots(
+            trajectory,
+            state_index + 1,
+            future_visible_ids,
+            generator.spec.grid_size,
+            generator.spec.num_colors,
+        )
+        object_slot_features.append(slot_features)
+        object_slot_present.append(slot_present)
+        future_object_slot_features.append(future_slot_features)
+        future_object_slot_present.append(future_slot_present)
         current_grids.append(trajectory.states[state_index])
     return MovingObjectBatch(
         contexts=torch.as_tensor(np.stack(contexts), dtype=torch.long, device=device),
@@ -181,6 +204,18 @@ def sample_moving_object_batch(
         future_completion_features=torch.as_tensor(
             np.stack(future_completion_features), dtype=torch.float32, device=device
         ),
+        object_slot_features=torch.as_tensor(
+            np.stack(object_slot_features), dtype=torch.float32, device=device
+        ),
+        object_slot_present=torch.as_tensor(
+            np.stack(object_slot_present), dtype=torch.bool, device=device
+        ),
+        future_object_slot_features=torch.as_tensor(
+            np.stack(future_object_slot_features), dtype=torch.float32, device=device
+        ),
+        future_object_slot_present=torch.as_tensor(
+            np.stack(future_object_slot_present), dtype=torch.bool, device=device
+        ),
         current_grid=torch.as_tensor(np.stack(current_grids), dtype=torch.long, device=device),
     )
 
@@ -207,6 +242,30 @@ def _completion_features(completion: np.ndarray) -> np.ndarray:
         [values.mean(), values.min(), values.max(), values.std(), np.mean(values >= 1.0)],
         dtype=np.float32,
     )
+
+
+def _object_slots(
+    trajectory: MovingObjectTrajectory,
+    index: int,
+    visible_ids: np.ndarray,
+    grid_size: int,
+    num_colors: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    features = np.zeros((num_colors - 1, len(SHAPE_NAMES) + 6), dtype=np.float32)
+    present = np.zeros(num_colors - 1, dtype=bool)
+    for object_id in visible_ids:
+        color = int(trajectory.colors[object_id])
+        slot = color - 1
+        present[slot] = True
+        features[slot, int(trajectory.shape_ids[object_id])] = 1.0
+        offset = len(SHAPE_NAMES)
+        features[slot, offset : offset + 2] = trajectory.velocities[index, object_id] / 2.0
+        features[slot, offset + 2] = trajectory.angular_velocities[index, object_id]
+        features[slot, offset + 3 : offset + 5] = (
+            trajectory.positions[index, object_id] / max(1, grid_size - 1)
+        )
+        features[slot, offset + 5] = trajectory.completion[index, object_id]
+    return features, present
 
 
 def _relation_features(

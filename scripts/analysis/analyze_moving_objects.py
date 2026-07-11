@@ -40,6 +40,24 @@ KEYS = (
     "probe_completion_r2",
     "raw_probe_completion_r2",
     "probe_rollout_completion_r2",
+    "probe_bound_shape_acc",
+    "raw_probe_bound_shape_acc",
+    "probe_rollout_bound_shape_acc",
+    "probe_bound_shape_r2",
+    "raw_probe_bound_shape_r2",
+    "probe_rollout_bound_shape_r2",
+    "probe_bound_velocity_r2",
+    "raw_probe_bound_velocity_r2",
+    "probe_rollout_bound_velocity_r2",
+    "probe_bound_angular_velocity_r2",
+    "raw_probe_bound_angular_velocity_r2",
+    "probe_rollout_bound_angular_velocity_r2",
+    "probe_bound_position_r2",
+    "raw_probe_bound_position_r2",
+    "probe_rollout_bound_position_r2",
+    "probe_bound_completion_r2",
+    "raw_probe_bound_completion_r2",
+    "probe_rollout_bound_completion_r2",
     "probe_grid_foreground_iou",
     "probe_latent_std_mean",
     "probe_latent_effective_rank",
@@ -148,6 +166,29 @@ def render_markdown(summary: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "Final color-indexed object binding, learned/raw/one-step-rollout.",
+            "",
+            "| data | objective | z | max objects | Shape acc | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["aggregates"]:
+        absolute = row["absolute"]
+        lines.append(
+            "| {data} | {objective} | {z} | {objects} | {shape_acc} | {shape} | {velocity} | {angular} | {position} | {completion} |".format(
+                data=row["data"], objective=row["objective"],
+                z=row["latent_dim"], objects=row["max_objects"],
+                shape_acc=_triple_suffix(absolute, "bound_shape", "acc"),
+                shape=_triple(absolute, "bound_shape"),
+                velocity=_triple(absolute, "bound_velocity"),
+                angular=_triple(absolute, "bound_angular_velocity"),
+                position=_triple(absolute, "bound_position"),
+                completion=_triple(absolute, "bound_completion"),
+            )
+        )
+    lines.extend(
+        [
+            "",
             "Final absolute learned/raw/one-step-rollout R2; count is learned/raw balanced accuracy.",
             "",
             "| data | objective | z | max objects | Visible count | Scene count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | Completion R2 | fg IoU | rank |",
@@ -230,6 +271,19 @@ def _triple(values: dict[str, dict[str, float | None]], stem: str) -> str:
     return "/".join(
         _mean(values[key])
         for key in (f"probe_{stem}_r2", f"raw_probe_{stem}_r2", f"probe_rollout_{stem}_r2")
+    )
+
+
+def _triple_suffix(
+    values: dict[str, dict[str, float | None]], stem: str, suffix: str
+) -> str:
+    return "/".join(
+        _mean(values[key])
+        for key in (
+            f"probe_{stem}_{suffix}",
+            f"raw_probe_{stem}_{suffix}",
+            f"probe_rollout_{stem}_{suffix}",
+        )
     )
 
 
