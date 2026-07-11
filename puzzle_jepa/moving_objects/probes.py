@@ -122,6 +122,56 @@ def run_moving_object_probes(
 
 
 @torch.no_grad()
+def run_moving_object_dynamics_diagnostics(
+    model: MovingObjectJEPA,
+    generator: MovingObjectGenerator,
+    rng: np.random.Generator,
+    *,
+    samples: int,
+    batch_size: int,
+    device: torch.device,
+) -> dict[str, float]:
+    was_training = model.training
+    model.eval()
+    totals = {
+        "prediction_squared_error": 0.0,
+        "identity_squared_error": 0.0,
+        "target_transition_squared_norm": 0.0,
+        "predictor_step_squared_norm": 0.0,
+        "target_variance": 0.0,
+        "pixel_change_rate": 0.0,
+    }
+    seen = 0
+    while seen < samples:
+        size = min(batch_size, samples - seen)
+        batch = sample_moving_object_batch(generator, rng, batch_size=size, horizon=1, device=device)
+        current = model.encode(batch.contexts)
+        output = model(batch)
+        predicted = output.predictions[:, 0]
+        target = output.targets[:, 0]
+        totals["prediction_squared_error"] += float((predicted - target).square().mean(dim=1).sum())
+        totals["identity_squared_error"] += float((current - target).square().mean(dim=1).sum())
+        totals["target_transition_squared_norm"] += float((target - current).square().sum(dim=1).sum())
+        totals["predictor_step_squared_norm"] += float((predicted - current).square().sum(dim=1).sum())
+        totals["target_variance"] += float(target.var(dim=0, unbiased=False).mean() * size)
+        current_grid = batch.contexts[:, -1]
+        next_grid = batch.future_contexts[:, 0, -1]
+        totals["pixel_change_rate"] += float((current_grid != next_grid).float().mean(dim=(1, 2)).sum())
+        seen += size
+    metrics = {f"dynamics_{key}": value / seen for key, value in totals.items()}
+    identity = metrics["dynamics_identity_squared_error"]
+    prediction = metrics["dynamics_prediction_squared_error"]
+    metrics["dynamics_prediction_gain"] = identity - prediction
+    metrics["dynamics_prediction_gain_fraction"] = 1.0 - prediction / max(identity, 1.0e-12)
+    metrics["dynamics_transition_to_variance_ratio"] = identity / max(
+        metrics["dynamics_target_variance"], 1.0e-12
+    )
+    if was_training:
+        model.train()
+    return metrics
+
+
+@torch.no_grad()
 def _collect(
     model: MovingObjectJEPA,
     generator: MovingObjectGenerator,

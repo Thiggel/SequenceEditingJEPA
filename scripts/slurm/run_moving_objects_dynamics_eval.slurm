@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#SBATCH --job-name=motion_diag
+#SBATCH --partition=a40,rtxpro6k,a100
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=4
+#SBATCH --time=00:30:00
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+
+set -euo pipefail
+cd "${SLURM_SUBMIT_DIR:-$PWD}"
+mkdir -p logs
+source scripts/env.sh
+
+RUN_NAME="${RUN_NAME:?RUN_NAME is required}"
+RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/moving_objects/${RUN_NAME}"
+python -m puzzle_jepa.eval.moving_objects \
+  --checkpoint "${RUN_ROOT}/checkpoint.pt" \
+  --output "${RUN_ROOT}/dynamics_eval_v1.json" \
+  --samples "${DIAGNOSTIC_SAMPLES:-512}" \
+  --batch-size "${DIAGNOSTIC_BATCH_SIZE:-64}"

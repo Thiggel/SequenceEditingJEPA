@@ -10,6 +10,7 @@ from puzzle_jepa.moving_objects.batching import sample_moving_object_batch
 from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingObjectSpec
 from puzzle_jepa.moving_objects.model import MovingObjectJEPA
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
+from puzzle_jepa.moving_objects.probes import run_moving_object_dynamics_diagnostics
 from scripts.analysis.analyze_moving_objects import KEYS, analyze
 
 
@@ -100,6 +101,17 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
         "probe_grid_foreground_iou",
     ):
         assert np.isfinite(metrics[key])
+
+    diagnostics = run_moving_object_dynamics_diagnostics(
+        model,
+        generator,
+        np.random.default_rng(19),
+        samples=8,
+        batch_size=4,
+        device=torch.device("cpu"),
+    )
+    assert diagnostics["dynamics_pixel_change_rate"] > 0.0
+    assert np.isfinite(diagnostics["dynamics_prediction_gain_fraction"])
 
 
 def test_new_sweep_is_single_cls_only_and_crosses_requested_axes() -> None:

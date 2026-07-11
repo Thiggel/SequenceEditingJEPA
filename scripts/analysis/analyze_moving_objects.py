@@ -11,14 +11,27 @@ from typing import Any
 
 KEYS = (
     "probe_object_count_balanced_acc",
+    "raw_probe_object_count_balanced_acc",
     "probe_shape_count_mae",
     "probe_shape_count_r2",
+    "raw_probe_shape_count_r2",
+    "probe_rollout_shape_count_r2",
+    "probe_color_count_r2",
+    "raw_probe_color_count_r2",
+    "probe_rollout_color_count_r2",
     "probe_color_count_mae",
     "probe_velocity_count_mae",
     "probe_velocity_count_r2",
+    "raw_probe_velocity_count_r2",
+    "probe_rollout_velocity_count_r2",
     "probe_relations_mae",
+    "probe_relations_r2",
+    "raw_probe_relations_r2",
+    "probe_rollout_relations_r2",
     "probe_grid_foreground_iou",
+    "probe_latent_std_mean",
     "probe_latent_effective_rank",
+    "train_prediction_loss",
 )
 
 
@@ -90,6 +103,29 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 rank=_format(absolute["probe_latent_effective_rank"]),
             )
         )
+    lines.extend(
+        [
+            "",
+            "Final absolute learned/raw/one-step-rollout R2; count is learned/raw balanced accuracy.",
+            "",
+            "| z | max objects | Count | Shape R2 | Color R2 | Velocity R2 | Relation R2 | fg IoU | rank |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["aggregates"]:
+        absolute = row["absolute"]
+        lines.append(
+            "| {z} | {objects} | {count} | {shape} | {color} | {velocity} | {relation} | {grid} | {rank} |".format(
+                z=row["latent_dim"], objects=row["max_objects"],
+                count=_pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc"),
+                shape=_triple(absolute, "shape_count"),
+                color=_triple(absolute, "color_count"),
+                velocity=_triple(absolute, "velocity_count"),
+                relation=_triple(absolute, "relations"),
+                grid=_mean(absolute["probe_grid_foreground_iou"]),
+                rank=_mean(absolute["probe_latent_effective_rank"]),
+            )
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -103,6 +139,21 @@ def _format(value: dict[str, float | None]) -> str:
     if value["mean"] is None:
         return ""
     return f"{value['mean']:+.4f} +/- {value['std']:.4f}"
+
+
+def _mean(value: dict[str, float | None]) -> str:
+    return "" if value["mean"] is None else f"{value['mean']:.3f}"
+
+
+def _pair(values: dict[str, dict[str, float | None]], learned: str, raw: str) -> str:
+    return f"{_mean(values[learned])}/{_mean(values[raw])}"
+
+
+def _triple(values: dict[str, dict[str, float | None]], stem: str) -> str:
+    return "/".join(
+        _mean(values[key])
+        for key in (f"probe_{stem}_r2", f"raw_probe_{stem}_r2", f"probe_rollout_{stem}_r2")
+    )
 
 
 def main() -> None:
