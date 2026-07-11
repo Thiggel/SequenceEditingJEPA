@@ -8,7 +8,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from puzzle_jepa.moving_objects.batching import MovingObjectBatch, sample_moving_object_batch
-from puzzle_jepa.moving_objects.generator import MovingObjectGenerator
+from puzzle_jepa.moving_objects.generator import ANGULAR_VELOCITIES, MovingObjectGenerator, SHAPE_NAMES
 from puzzle_jepa.moving_objects.model import MovingObjectJEPA
 
 
@@ -40,7 +40,7 @@ def run_moving_object_probes(
     train = _collect(model, generator, rng, train_samples, batch_size, device)
     evaluate = _collect(model, generator, rng, eval_samples, batch_size, device)
     max_objects = generator.spec.max_objects
-    shape_dim = train.semantic.shape[1] - (generator.spec.num_colors - 1) - 24 - 5
+    shape_dim = len(SHAPE_NAMES)
 
     latent_count = _fit_classifier(
         train.latents,
@@ -98,7 +98,7 @@ def run_moving_object_probes(
     effective_rank = _effective_rank(eigenvalues)
     splits = _semantic_splits(shape_dim, generator.spec.num_colors - 1)
     metrics: dict[str, float | int | str] = {
-        "probe_schema": "moving_objects_v1",
+        "probe_schema": "moving_objects_v2",
         "probe_object_count_acc": latent_count[0],
         "probe_object_count_balanced_acc": latent_count[1],
         "raw_probe_object_count_acc": raw_count[0],
@@ -195,6 +195,7 @@ def _collect(
                 batch.shape_counts,
                 batch.color_counts,
                 batch.velocity_counts,
+                batch.angular_velocity_counts,
                 batch.relations,
             ],
             dim=1,
@@ -204,6 +205,7 @@ def _collect(
                 batch.shape_counts,
                 batch.color_counts,
                 batch.future_velocity_counts,
+                batch.future_angular_velocity_counts,
                 batch.future_relations,
             ],
             dim=1,
@@ -327,8 +329,15 @@ def _semantic_splits(shape_dim: int, color_dim: int) -> dict[str, slice]:
     shape = slice(0, shape_dim)
     color = slice(shape.stop, shape.stop + color_dim)
     velocity = slice(color.stop, color.stop + 24)
-    relations = slice(velocity.stop, velocity.stop + 5)
-    return {"shape_count": shape, "color_count": color, "velocity_count": velocity, "relations": relations}
+    angular_velocity = slice(velocity.stop, velocity.stop + len(ANGULAR_VELOCITIES))
+    relations = slice(angular_velocity.stop, angular_velocity.stop + 5)
+    return {
+        "shape_count": shape,
+        "color_count": color,
+        "velocity_count": velocity,
+        "angular_velocity_count": angular_velocity,
+        "relations": relations,
+    }
 
 
 def _effective_rank(eigenvalues: torch.Tensor) -> float:

@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 11:45 CEST
+Last updated: 2026-07-11 11:53 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -51,6 +51,13 @@ All 24 trainers and diagnostics `3834947`-`3834970` completed `0:0`. Only
 `.021/.013/.008`, and predictor MSE beats identity in all three. It retains
 count `.371`, shape R2 `.068`, relation R2 `.068`, and foreground IoU `.000`.
 This narrow high-load/small-state recipe is selected for trajectory transfer.
+
+The first paired transfer is implemented: wrapped translation and rigid
+rotation+translation, each with base and temporal z4/N8 rows at three seeds
+(12 jobs). Rotating worlds add a clockwise/counterclockwise frozen probe;
+wrapped relation labels use toroidal distance. Rotating temporal smoke
+`3834974` completed `0:0` on A40 in 14s. The transfer grid is prepared but not
+yet submitted.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

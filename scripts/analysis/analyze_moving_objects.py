@@ -24,6 +24,9 @@ KEYS = (
     "probe_velocity_count_r2",
     "raw_probe_velocity_count_r2",
     "probe_rollout_velocity_count_r2",
+    "probe_angular_velocity_count_r2",
+    "raw_probe_angular_velocity_count_r2",
+    "probe_rollout_angular_velocity_count_r2",
     "probe_relations_mae",
     "probe_relations_r2",
     "raw_probe_relations_r2",
@@ -133,19 +136,20 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final absolute learned/raw/one-step-rollout R2; count is learned/raw balanced accuracy.",
             "",
-            "| z | max objects | Count | Shape R2 | Color R2 | Velocity R2 | Relation R2 | fg IoU | rank |",
-            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| z | max objects | Count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | fg IoU | rank |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         absolute = row["absolute"]
         lines.append(
-            "| {z} | {objects} | {count} | {shape} | {color} | {velocity} | {relation} | {grid} | {rank} |".format(
+            "| {z} | {objects} | {count} | {shape} | {color} | {velocity} | {angular} | {relation} | {grid} | {rank} |".format(
                 z=row["latent_dim"], objects=row["max_objects"],
                 count=_pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc"),
                 shape=_triple(absolute, "shape_count"),
                 color=_triple(absolute, "color_count"),
                 velocity=_triple(absolute, "velocity_count"),
+                angular=_triple(absolute, "angular_velocity_count"),
                 relation=_triple(absolute, "relations"),
                 grid=_mean(absolute["probe_grid_foreground_iou"]),
                 rank=_mean(absolute["probe_latent_effective_rank"]),

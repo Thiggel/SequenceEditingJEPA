@@ -14,6 +14,7 @@ VELOCITIES = tuple(
     for col in (-2, -1, 0, 1, 2)
     if (row, col) != (0, 0) and max(abs(row), abs(col)) <= 2
 )
+ANGULAR_VELOCITIES = (-1, 0, 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +25,7 @@ class MovingObjectSpec:
     max_objects: int = 4
     sequence_length: int = 12
     boundary_mode: str = "reflect"
+    rotate_objects: bool = False
     max_scene_retries: int = 512
 
 
@@ -69,6 +71,7 @@ class MovingObjectGenerator:
                     col=col,
                     velocity_row=velocity_row,
                     velocity_col=velocity_col,
+                    angular_velocity=(int(rng.choice((-1, 1))) if self.spec.rotate_objects else 0),
                 )
             )
         return tuple(objects)
@@ -79,6 +82,7 @@ class MovingObjectGenerator:
         maps = []
         positions = []
         velocities = []
+        angular_velocities = []
         for _ in range(self.spec.sequence_length):
             rendered = _render(objects, self.spec.grid_size)
             if rendered is None:
@@ -88,12 +92,14 @@ class MovingObjectGenerator:
             maps.append(object_map)
             positions.append([(obj.row, obj.col) for obj in objects])
             velocities.append([(obj.velocity_row, obj.velocity_col) for obj in objects])
+            angular_velocities.append([obj.angular_velocity for obj in objects])
             objects = self._advance_collision_safe(objects)
         return MovingObjectTrajectory(
             states=np.stack(frames),
             object_maps=np.stack(maps),
             positions=np.asarray(positions, dtype=np.int64),
             velocities=np.asarray(velocities, dtype=np.int64),
+            angular_velocities=np.asarray(angular_velocities, dtype=np.int64),
             shape_ids=np.asarray([obj.shape_id for obj in initial], dtype=np.int64),
             colors=np.asarray([obj.color for obj in initial], dtype=np.int64),
         )
@@ -110,7 +116,7 @@ class MovingObjectGenerator:
             col, velocity_col = _reflected_step(
                 obj.col, obj.velocity_col, self.spec.grid_size - obj.mask.shape[1]
             )
-        return MovingObject(
+        advanced = MovingObject(
             object_id=obj.object_id,
             shape_id=obj.shape_id,
             color=obj.color,
@@ -119,7 +125,9 @@ class MovingObjectGenerator:
             col=col,
             velocity_row=velocity_row,
             velocity_col=velocity_col,
+            angular_velocity=obj.angular_velocity,
         )
+        return _rotate_advanced(advanced, self.spec.grid_size) if self.spec.rotate_objects else advanced
 
     def _advance_collision_safe(self, objects: tuple[MovingObject, ...]) -> tuple[MovingObject, ...]:
         proposed = tuple(self._advance(obj) for obj in objects)
@@ -192,4 +200,26 @@ def _reverse_in_place(obj: MovingObject) -> MovingObject:
         col=obj.col,
         velocity_row=-obj.velocity_row,
         velocity_col=-obj.velocity_col,
+        angular_velocity=obj.angular_velocity,
+    )
+
+
+def _rotate_advanced(obj: MovingObject, grid_size: int) -> MovingObject:
+    rotated = np.ascontiguousarray(np.rot90(obj.mask, k=obj.angular_velocity))
+    center_row = obj.row + 0.5 * (obj.mask.shape[0] - 1)
+    center_col = obj.col + 0.5 * (obj.mask.shape[1] - 1)
+    row = int(round(center_row - 0.5 * (rotated.shape[0] - 1)))
+    col = int(round(center_col - 0.5 * (rotated.shape[1] - 1)))
+    row = min(max(row, 0), grid_size - rotated.shape[0])
+    col = min(max(col, 0), grid_size - rotated.shape[1])
+    return MovingObject(
+        object_id=obj.object_id,
+        shape_id=obj.shape_id,
+        color=obj.color,
+        mask=rotated,
+        row=row,
+        col=col,
+        velocity_row=obj.velocity_row,
+        velocity_col=obj.velocity_col,
+        angular_velocity=obj.angular_velocity,
     )

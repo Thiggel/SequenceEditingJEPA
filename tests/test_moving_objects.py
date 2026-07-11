@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from puzzle_jepa.moving_objects.batching import sample_moving_object_batch
+from puzzle_jepa.moving_objects.batching import _pair_distance, sample_moving_object_batch
 from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingObjectSpec
 from puzzle_jepa.moving_objects.model import MovingObjectJEPA
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
@@ -27,6 +27,7 @@ def test_reflected_motion_is_collision_free_and_keeps_attributes() -> None:
     assert np.all((trajectory.object_maps >= -1) & (trajectory.object_maps < 3))
     assert np.all(np.count_nonzero(trajectory.object_maps == 0, axis=(1, 2)) > 0)
     assert trajectory.shape_ids.shape == trajectory.colors.shape == (3,)
+    assert trajectory.angular_velocities.shape == (8, 3)
     assert len(set(trajectory.colors.tolist())) == 3
     assert np.any(trajectory.positions[1:] != trajectory.positions[:-1])
 
@@ -45,6 +46,8 @@ def test_motion_batch_uses_two_frames_and_probeable_object_load() -> None:
     assert batch.velocity_counts.shape == (12, 24)
     assert batch.relations.shape == (12, 5)
     assert batch.future_velocity_counts.shape == (12, 24)
+    assert batch.angular_velocity_counts.shape == (12, 3)
+    assert batch.future_angular_velocity_counts.shape == (12, 3)
     assert batch.future_relations.shape == (12, 5)
 
 
@@ -54,6 +57,30 @@ def test_collision_retries_do_not_bias_away_from_requested_high_load() -> None:
     )
     trajectory = generator.sample_trajectory(np.random.default_rng(12))
     assert trajectory.object_count == 8
+
+
+def test_rotating_motion_preserves_identity_and_exposes_angular_velocity() -> None:
+    generator = MovingObjectGenerator(
+        MovingObjectSpec(
+            grid_size=12,
+            min_objects=4,
+            max_objects=4,
+            sequence_length=8,
+            rotate_objects=True,
+        )
+    )
+    trajectory = generator.sample_trajectory(np.random.default_rng(29))
+    assert set(np.unique(trajectory.angular_velocities)).issubset({-1, 1})
+    assert np.all(trajectory.angular_velocities == trajectory.angular_velocities[0])
+    assert trajectory.states.shape == trajectory.object_maps.shape
+    assert all(np.count_nonzero(frame) > 0 for frame in trajectory.states)
+
+
+def test_wrapped_relations_use_shortest_toroidal_distance() -> None:
+    left = np.asarray([0, 0])
+    right = np.asarray([0, 15])
+    assert _pair_distance(left, right, 16, "reflect") == 15.0
+    assert _pair_distance(left, right, 16, "wrap") == 1.0
 
 
 def test_latent_dim_is_a_projection_not_the_visual_token_width() -> None:
@@ -159,6 +186,16 @@ def test_temporal_gate_keeps_single_cls_and_selected_axes() -> None:
     assert "MAX_OBJECT_COUNTS=(4 8)" in script
     assert "SEEDS=(1707 2707 3707)" in script
     assert "ema_vicreg_temporal" in script
+    assert "grid" not in script.lower()
+
+
+def test_transfer_gate_pairs_base_and_temporal_single_cls_rows() -> None:
+    script = (ROOT / "scripts/experiments/submit_moving_objects_transfer.sh").read_text()
+    assert "DATASETS=(wrapped_motion rotating_motion)" in script
+    assert "OBJECTIVES=(ema_vicreg ema_vicreg_temporal)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "LATENT_DIM=4" in script
+    assert "MAX_OBJECTS=8" in script
     assert "grid" not in script.lower()
 
 

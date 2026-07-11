@@ -5,7 +5,12 @@ from dataclasses import dataclass, fields
 import numpy as np
 import torch
 
-from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, SHAPE_NAMES, VELOCITIES
+from puzzle_jepa.moving_objects.generator import (
+    ANGULAR_VELOCITIES,
+    MovingObjectGenerator,
+    SHAPE_NAMES,
+    VELOCITIES,
+)
 
 
 @dataclass(slots=True)
@@ -16,8 +21,10 @@ class MovingObjectBatch:
     shape_counts: torch.Tensor
     color_counts: torch.Tensor
     velocity_counts: torch.Tensor
+    angular_velocity_counts: torch.Tensor
     relations: torch.Tensor
     future_velocity_counts: torch.Tensor
+    future_angular_velocity_counts: torch.Tensor
     future_relations: torch.Tensor
     current_grid: torch.Tensor
 
@@ -41,8 +48,10 @@ def sample_moving_object_batch(
     shape_counts = []
     color_counts = []
     velocity_counts = []
+    angular_velocity_counts = []
     relations = []
     future_velocity_counts = []
+    future_angular_velocity_counts = []
     future_relations = []
     current_grids = []
     required = horizon + 2
@@ -61,13 +70,37 @@ def sample_moving_object_batch(
         color_counts.append(np.bincount(trajectory.colors, minlength=generator.spec.num_colors)[1:])
         velocity_ids = [_velocity_id(tuple(values)) for values in trajectory.velocities[state_index]]
         velocity_counts.append(np.bincount(velocity_ids, minlength=len(VELOCITIES)))
-        relations.append(_relation_features(trajectory.positions, state_index, generator.spec.grid_size))
+        angular_velocity_counts.append(
+            np.bincount(
+                [_angular_velocity_id(value) for value in trajectory.angular_velocities[state_index]],
+                minlength=len(ANGULAR_VELOCITIES),
+            )
+        )
+        relations.append(
+            _relation_features(
+                trajectory.positions,
+                state_index,
+                generator.spec.grid_size,
+                boundary_mode=generator.spec.boundary_mode,
+            )
+        )
         future_velocity_ids = [
             _velocity_id(tuple(values)) for values in trajectory.velocities[state_index + 1]
         ]
         future_velocity_counts.append(np.bincount(future_velocity_ids, minlength=len(VELOCITIES)))
+        future_angular_velocity_counts.append(
+            np.bincount(
+                [_angular_velocity_id(value) for value in trajectory.angular_velocities[state_index + 1]],
+                minlength=len(ANGULAR_VELOCITIES),
+            )
+        )
         future_relations.append(
-            _relation_features(trajectory.positions, state_index + 1, generator.spec.grid_size)
+            _relation_features(
+                trajectory.positions,
+                state_index + 1,
+                generator.spec.grid_size,
+                boundary_mode=generator.spec.boundary_mode,
+            )
         )
         current_grids.append(trajectory.states[state_index])
     return MovingObjectBatch(
@@ -77,9 +110,15 @@ def sample_moving_object_batch(
         shape_counts=torch.as_tensor(np.stack(shape_counts), dtype=torch.float32, device=device),
         color_counts=torch.as_tensor(np.stack(color_counts), dtype=torch.float32, device=device),
         velocity_counts=torch.as_tensor(np.stack(velocity_counts), dtype=torch.float32, device=device),
+        angular_velocity_counts=torch.as_tensor(
+            np.stack(angular_velocity_counts), dtype=torch.float32, device=device
+        ),
         relations=torch.as_tensor(np.stack(relations), dtype=torch.float32, device=device),
         future_velocity_counts=torch.as_tensor(
             np.stack(future_velocity_counts), dtype=torch.float32, device=device
+        ),
+        future_angular_velocity_counts=torch.as_tensor(
+            np.stack(future_angular_velocity_counts), dtype=torch.float32, device=device
         ),
         future_relations=torch.as_tensor(np.stack(future_relations), dtype=torch.float32, device=device),
         current_grid=torch.as_tensor(np.stack(current_grids), dtype=torch.long, device=device),
@@ -90,14 +129,30 @@ def _velocity_id(velocity: tuple[int, int]) -> int:
     return VELOCITIES.index(velocity)
 
 
-def _relation_features(positions: np.ndarray, index: int, grid_size: int) -> np.ndarray:
+def _angular_velocity_id(value: int) -> int:
+    return ANGULAR_VELOCITIES.index(int(value))
+
+
+def _relation_features(
+    positions: np.ndarray,
+    index: int,
+    grid_size: int,
+    *,
+    boundary_mode: str = "reflect",
+) -> np.ndarray:
     current = positions[index].astype(np.float32)
     if len(current) < 2:
         return np.zeros(5, dtype=np.float32)
     previous = positions[max(0, index - 1)].astype(np.float32)
     pairs = [(left, right) for left in range(len(current)) for right in range(left + 1, len(current))]
-    distances = np.asarray([np.abs(current[a] - current[b]).sum() for a, b in pairs], dtype=np.float32)
-    previous_distances = np.asarray([np.abs(previous[a] - previous[b]).sum() for a, b in pairs], dtype=np.float32)
+    distances = np.asarray(
+        [_pair_distance(current[a], current[b], grid_size, boundary_mode) for a, b in pairs],
+        dtype=np.float32,
+    )
+    previous_distances = np.asarray(
+        [_pair_distance(previous[a], previous[b], grid_size, boundary_mode) for a, b in pairs],
+        dtype=np.float32,
+    )
     same_row = np.asarray([abs(current[a, 0] - current[b, 0]) <= 1 for a, b in pairs], dtype=np.float32)
     same_col = np.asarray([abs(current[a, 1] - current[b, 1]) <= 1 for a, b in pairs], dtype=np.float32)
     return np.asarray(
@@ -110,3 +165,10 @@ def _relation_features(positions: np.ndarray, index: int, grid_size: int) -> np.
         ],
         dtype=np.float32,
     )
+
+
+def _pair_distance(left: np.ndarray, right: np.ndarray, grid_size: int, boundary_mode: str) -> float:
+    delta = np.abs(left - right)
+    if boundary_mode == "wrap":
+        delta = np.minimum(delta, grid_size - delta)
+    return float(delta.sum())

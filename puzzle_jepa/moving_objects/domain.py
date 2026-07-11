@@ -15,6 +15,7 @@ class MovingObject:
     col: int
     velocity_row: int
     velocity_col: int
+    angular_velocity: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +24,7 @@ class MovingObjectTrajectory:
     object_maps: np.ndarray
     positions: np.ndarray
     velocities: np.ndarray
+    angular_velocities: np.ndarray
     shape_ids: np.ndarray
     colors: np.ndarray
 
@@ -35,6 +37,8 @@ class MovingObjectTrajectory:
             raise ValueError("Trajectory metadata does not match frame/object counts.")
         if self.colors.shape != self.shape_ids.shape:
             raise ValueError("Each object must have one shape and color label.")
+        if self.angular_velocities.shape != self.positions.shape[:2]:
+            raise ValueError("Angular velocities must be [T,N].")
 
     @property
     def object_count(self) -> int:

@@ -1,9 +1,9 @@
-name: reflected_motion
+name: rotating_motion
 grid_size: 16
 num_colors: 10
 min_objects: 1
-max_objects: 4
+max_objects: 8
 sequence_length: 12
 boundary_mode: reflect
-rotate_objects: false
+rotate_objects: true
 max_scene_retries: 512

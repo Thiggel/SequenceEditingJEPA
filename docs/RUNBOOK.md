@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 11:45 CEST
+Last updated: 2026-07-11 11:53 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -19,6 +19,11 @@ exit nonzero because they contain prohibited full-grid latent rows.
 The follow-up temporal-delta grid is dry-run by default at
 `scripts/experiments/submit_moving_objects_temporal.sh`; set `SUBMIT=1` only
 after the temporal objective smoke and full suite pass.
+
+The selected z4/N8 transfer launcher is
+`scripts/experiments/submit_moving_objects_transfer.sh`; it pairs base and
+temporal objectives on wrapped and rotating trajectories and is dry-run by
+default.
 
 ## Historical Object-Edit Surface
 

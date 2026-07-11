@@ -17,9 +17,11 @@ MAX_OBJECTS="${MAX_OBJECTS:?MAX_OBJECTS is required}"
 SEED="${SEED:?SEED is required}"
 RUN_SUFFIX="${RUN_SUFFIX:-bottleneck_grid}"
 OBJECTIVE_CONFIG="${OBJECTIVE_CONFIG:-ema_vicreg}"
+DATA_CONFIG="${DATA_CONFIG:-reflected_motion}"
 RUN_NAME="motion_n${MAX_OBJECTS}_z${LATENT_DIM}_${RUN_SUFFIX}_seed${SEED}"
 
 python -m puzzle_jepa.train.moving_objects \
+  "data=${DATA_CONFIG}" \
   "objective=${OBJECTIVE_CONFIG}" \
   "seed=${SEED}" \
   "model.latent_dim=${LATENT_DIM}" \
