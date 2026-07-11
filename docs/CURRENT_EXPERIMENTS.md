@@ -97,6 +97,7 @@ for latent, raw-frame, and rollout controls. Existing checkpoints can be
 reprobed through a manifest-driven matched-initialization evaluator.
 GPU v4 reprobe smoke `3836346` completed `0:0` in 14s; confirmation dynamics
 diagnostics are dependency-held jobs `3836351`-`3836404`.
+Full v4 reprobes are dependency-held jobs `3836574`-`3836627`.
 Full duplicate v4 reprobes `3836450`-`3836453` are exact. At 500 steps, bound
 shape is near chance and bound velocity/position R2 are negative; raw position
 R2 is positive. The 5k result remains pending.

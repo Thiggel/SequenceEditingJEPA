@@ -39,6 +39,7 @@ Exactness jobs `3836199`-`3836202` pass; artifact:
 Confirmation manifest: `deterministic_confirmation_v1_steps5000.tsv`;
 trainers `3836223`-`3836276`, watchers `3836277`-`3836296`.
 Dependent diagnostics are `3836351`-`3836404`.
+Dependent v4 reprobes are `3836574`-`3836627`.
 The matched reconstruction-control launcher is
 `scripts/experiments/submit_moving_objects_reconstruction_confirmation.sh`
 and is dry-run by default (36 rows).
