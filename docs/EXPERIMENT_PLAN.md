@@ -3,6 +3,23 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
+## Active Moving-Object Bottleneck Plan
+
+The immediate experiment replaces the broad low-level edit sweep. A fixed-width
+Transformer encodes two consecutive rendered frames into exactly one projected
+CLS state. Autonomous latent rollout predicts subsequent two-frame contexts;
+no exact pixel action and no grid-token latent are available.
+
+Cross `latent_dim={2,4,8,16,32,64}` with maximum object load
+`N={1,2,4,6,8}` and three seeds. Each N-row samples counts uniformly from
+`1..N`, because fixed-N training would make the object-count probe constant.
+Objects carry shape, color, reflected velocity, and pair-relation labels used
+only by frozen probes. Gate on trained-minus-initial semantic gains, semantic
+R2 versus pixel foreground decodability, rollout transfer, and effective rank.
+After identifying a reproducible capacity transition, repeat the selected
+bottlenecks on other trajectory families. Do not submit any full-grid latent
+experiment.
+
 ## Strategic Reframing
 
 The current Sudoku evidence should not be read as JEPA reasoning. Oracle

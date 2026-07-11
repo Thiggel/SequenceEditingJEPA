@@ -1,0 +1,26 @@
+defaults:
+  - data: reflected_motion
+  - model: cls_bottleneck
+  - objective: ema_vicreg
+  - _self_
+
+seed: 1707
+device: auto
+run_name: motion_n${data.max_objects}_z${model.latent_dim}_seed${seed}
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/moving_objects/${run_name}
+
+training:
+  max_steps: 5000
+  batch_size: 128
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  bf16: true
+  eval_every_steps: 5000
+
+eval:
+  probe_train_samples: 512
+  probe_eval_samples: 256
+  probe_batch_size: 64
+  probe_steps: 100
+  probe_learning_rate: 1.0e-2

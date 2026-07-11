@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+printf 'Retired: the broad object-dynamics phase contains full-grid latent rows. Use submit_moving_objects_bottleneck.sh.\n' >&2
+exit 2
+
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/../..}"
 mkdir -p logs
 source scripts/env.sh

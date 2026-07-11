@@ -2,7 +2,31 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 02:04 CEST
+Last updated: 2026-07-11 10:29 CEST
+
+## Moving-Object Bottleneck Grid
+
+Status: implementation and largest-cell A40 smoke complete; the 90 training
+jobs are prepared but not yet submitted. This is now the active object
+abstraction experiment. It uses only one learned CLS latent and never a grid of
+latent states.
+
+The generator renders `1..N` persistent rigid objects with hidden shape,
+color, position, and velocity. Two observed frames make velocity identifiable;
+objects move autonomously, reflect at boundaries, and reverse in place on
+collisions. The visual Transformer width stays fixed at 64 while the projected
+state bottleneck crosses `z={2,4,8,16,32,64}` and
+`max_objects={1,2,4,6,8}` at seeds `1707/2707/3707`.
+
+Frozen probes report count, shape/color/velocity histograms, pair relations,
+pixel foreground decoding, rollout semantics, latent variance/effective rank,
+raw-frame controls, and matched step-zero deltas. GPU smoke `3834574`
+completed `0:0` on A40 in 22s at 1482 MiB peak GPU memory. It validates
+execution only. Output root:
+`/home/vault/c107fa/c107fa12/sequence-editing/runs/moving_objects`.
+
+The historical 486-job object phase remains unsubmitted, and its two launchers
+now exit as retired because they contain full-grid latent rows.
 
 ## Object Dynamics JEPA Scaffold
 
@@ -105,9 +129,8 @@ trained-minus-initial results at LR `3e-4` are:
 `r8/EMA` is the only row with positive mean changes on all listed factors and
 low surprise variance. `r8/SIGReg` learns the strongest count abstraction but
 consistently loses action-object and spatial information. VICReg remains
-unstable, including a severe `r8/3e-4` seed-1707 failure. The phase launcher
-still requires explicit `PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and
-`MAX_STEPS`.
+unstable, including a severe `r8/3e-4` seed-1707 failure. The historical phase
+launcher required explicit prestage selection and is now retired.
 
 Probe-v4 three-seed trained-minus-initial results at LR `3e-4` revise that
 interpretation:
@@ -236,7 +259,7 @@ Verification:
 
 - All objective, trajectory, probe, hierarchy, baseline, and launcher contracts
   pass, including the eight former strict research-gap specifications.
-- The complete repository run is `334 passed` with no xfails.
+- The complete repository run passes with no xfails.
 - Slurm verification `3830903` completed `0:0` on `a0123` in 20s; its log is
   `logs/jepa-obj-verify-3830903.out`. Preflight `3830803` failed `127:0`
   before collection because the repo-local interpreter was unavailable on the

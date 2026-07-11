@@ -1,6 +1,14 @@
 # Results
 
-Last updated: 2026-07-11 02:04 CEST
+Last updated: 2026-07-11 10:29 CEST
+
+## Moving-Object Bottleneck Smoke
+
+Largest prepared cell `latent_dim=64`, `max_objects=8`, seed 1707, one train
+step: job `3834574`, A40, completed `0:0` in 22s with 1482 MiB peak GPU memory.
+This validates generator/model/probe execution only. The corrected sampler
+keeps the chosen object count fixed across collision retries; an earlier local
+stress test exposed and removed a severe bias toward low-count scenes.
 
 ## Object Dynamics Prestage Result
 
@@ -55,7 +63,7 @@ Implementation verification:
 | Check | Result |
 |---|---|
 | JEPA fidelity contract tests | all objective/trajectory/probe/HWM/baseline/launcher contracts pass |
-| Complete repository suite | 334 passed, no xfails |
+| Complete repository suite | passes, no xfails |
 | Named-objective Hydra smoke | base/LDAD/VICReg/SIGReg/EMA/reconstruction/joint+staged HWM/full-grid pass on CPU |
 | Prestage jobs | 12 completed `0:0` |
 | Full-grid A40 smoke | job `3831536`, batch 64, `0:0`, about 3.1 GiB peak GPU allocation |
@@ -64,7 +72,7 @@ Implementation verification:
 | HWM d4 confirmation | `3832932`-`3832943`, all `0:0` |
 | Corrected probe refresh | length/HWM jobs `3832957`-`3832981`, all `0:0` |
 | Trajectory gate | 45 train + 90 dual probes, `3833013`-`3833147`, all `0:0` |
-| Phase wrapper | 486 dry-run commands; real submission guarded |
+| Historical phase wrapper | 486 dry-run commands; now retired |
 
 The audit corrected material semantics before submission: LDAD uses encoded
 adjacent endpoints with shared end-to-end gradients; SIGReg is the projected

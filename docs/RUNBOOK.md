@@ -1,12 +1,24 @@
 # Runbook
 
-Last updated: 2026-07-11 02:04 CEST
+Last updated: 2026-07-11 10:29 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
-## Active Surface
+## Active Moving-Object Sweep
 
-The current new surface is **Object Dynamics JEPA**. It tests whether a
+Dry run with `bash scripts/experiments/submit_moving_objects_bottleneck.sh`;
+set `SUBMIT=1` for the 90 single-CLS rows. The launcher writes its manifest
+under `$PUZZLE_JEPA_WORK_ROOT/runs/moving_objects/manifests`. Schedule the
+six-hour monitor by setting `MOTION_MANIFEST` to that absolute manifest path
+and running `scripts/experiments/submit_moving_objects_oversight.sh`.
+
+Aggregate with `scripts/analysis/analyze_moving_objects.py`. Historical
+`submit_object_dynamics_{phase1,trajectory_gate}.sh` launchers are retired and
+exit nonzero because they contain prohibited full-grid latent rows.
+
+## Historical Object-Edit Surface
+
+The completed **Object Dynamics JEPA** surface tested whether a
 compressed single-CLS latent world model trained only on low-level grid edit
 dynamics can recover hidden object/process structure. Hidden objects are used
 by the generator and probes only; training sees grids plus
@@ -23,7 +35,7 @@ by the generator and probes only; training sees grids plus
 - Replication/re-probe wrappers:
   `scripts/experiments/submit_object_dynamics_stability_replication.sh` and
   `scripts/experiments/submit_object_dynamics_balanced_reprobe.sh`
-- Phase sweep dry-run wrapper:
+- Retired phase sweep wrapper:
   `scripts/experiments/submit_object_dynamics_phase1.sh`
 - Length and HWM calibration wrappers:
   `scripts/experiments/submit_object_dynamics_length_calibration.sh` and
@@ -44,7 +56,7 @@ score compares canonical slots rather than semantic object factors.
 
 Calibration trainers disable inline full probes and use one dependent v4 probe
 at the final checkpoint. This avoids repeating MLP, attention, and CEM work.
-The complete repository verification is `334 passed`; the maximum H16 data
+The complete repository verification passes; the maximum H16 data
 contract is 32 edits and is tested for every trajectory config.
 
 Batch-64 v4 GPU gates `3832316`-`3832318` completed `0:0` on A40. They cover
@@ -86,9 +98,8 @@ python -m puzzle_jepa.train.object_dynamics \
   eval.probe_train_samples=8 eval.probe_eval_samples=6 eval.probe_steps=2
 ```
 
-The wrappers do not submit by default. The phase wrapper also refuses real
-submission unless `PRESTAGE_SELECTION_CONFIRMED=1`, `LEARNING_RATE`, and
-`MAX_STEPS` are explicit. No phase selection is currently confirmed.
+The calibration wrappers do not submit by default. The old phase wrapper is
+retired and always exits nonzero; no phase selection can now submit it.
 
 Regenerate the object result summary:
 
