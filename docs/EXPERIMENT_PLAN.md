@@ -53,6 +53,8 @@ bound shape, position, velocity/angular direction, completion, raw controls,
 and one-step rollout transfer.
 Run the matched reconstruction-only control at z4/z32 and N4/N8 so any object
 factor gain can be tested for JEPA specificity rather than generic compression.
+The selected held sequence matrix contains 210 rows and stages 30 jobs per
+family; do not submit the older 420-row ceiling.
 
 ## Strategic Reframing
 

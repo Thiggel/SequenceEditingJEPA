@@ -497,6 +497,36 @@ def test_reconstruction_confirmation_matches_selected_capacity_and_load_rows() -
     assert "grid" not in script.lower()
 
 
+def test_selected_sequence_matrix_keeps_binding_load_and_control_axes() -> None:
+    script = (ROOT / "scripts/experiments/submit_moving_objects_sequence_selected.sh").read_text()
+    for data in (
+        "object_blocked_build",
+        "frontier_build",
+        "random_within_object_build",
+        "interleaved_build",
+        "global_random_build",
+        "completion",
+        "noisy_repair",
+    ):
+        assert data in script
+    for row in (
+        '"4 4 ema_vicreg"',
+        '"4 4 ema_vicreg_temporal"',
+        '"4 4 reconstruction"',
+        '"4 8 ema_vicreg"',
+        '"4 8 ema_vicreg_temporal"',
+        '"4 8 reconstruction"',
+        '"32 4 ema_vicreg"',
+        '"32 4 reconstruction"',
+        '"32 8 ema_vicreg"',
+        '"32 8 reconstruction"',
+    ):
+        assert row in script
+    assert 'dependency_args=(--dependency="afterany:${previous_stage_ids}")' in script
+    assert "210 deterministic single-CLS jobs" in script
+    assert "grid" not in script.lower()
+
+
 def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_path: Path) -> None:
     run = tmp_path / "motion_n4_z8_test_seed1707"
     run.mkdir()
