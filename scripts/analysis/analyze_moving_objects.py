@@ -309,18 +309,25 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--json-output", type=Path, required=True)
     parser.add_argument("--markdown-output", type=Path, required=True)
-    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--manifest", type=Path, action="append")
     args = parser.parse_args()
     run_names = None
     if args.manifest is not None:
-        with args.manifest.open(newline="") as handle:
-            run_names = {row["run_name"] for row in csv.DictReader(handle, delimiter="\t")}
+        run_names = _manifest_run_names(args.manifest)
     summary = analyze(args.root, run_names)
     args.json_output.parent.mkdir(parents=True, exist_ok=True)
     args.markdown_output.parent.mkdir(parents=True, exist_ok=True)
     args.json_output.write_text(json.dumps(summary, indent=2, sort_keys=True))
     args.markdown_output.write_text(render_markdown(summary))
     print(json.dumps({"complete_runs": len(summary["runs"]), "groups": len(summary["aggregates"])}))
+
+
+def _manifest_run_names(manifests: list[Path]) -> set[str]:
+    run_names = set()
+    for manifest in manifests:
+        with manifest.open(newline="") as handle:
+            run_names.update(row["run_name"] for row in csv.DictReader(handle, delimiter="\t"))
+    return run_names
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from puzzle_jepa.moving_objects.model import MovingObjectJEPA
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
 from puzzle_jepa.moving_objects.probes import run_moving_object_dynamics_diagnostics
 from puzzle_jepa.moving_objects.probes import _fit_slot_regressor
-from scripts.analysis.analyze_moving_objects import KEYS, analyze
+from scripts.analysis.analyze_moving_objects import KEYS, _manifest_run_names, analyze
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -549,3 +549,11 @@ def test_analyzer_prefers_matched_v4_reprobe_metrics(tmp_path: Path) -> None:
     assert summary["aggregates"][0]["probe_v4_n"] == 1
     assert summary["runs"][0]["absolute"]["probe_bound_shape_acc"] == 0.8
     assert summary["runs"][0]["delta"]["probe_bound_shape_acc"] == 0.5
+
+
+def test_analyzer_unions_explicit_manifests_without_root_scanning(tmp_path: Path) -> None:
+    first = tmp_path / "first.tsv"
+    second = tmp_path / "second.tsv"
+    first.write_text("run_name\tjob_id\nrun_a\t1\n")
+    second.write_text("run_name\tjob_id\nrun_b\t2\nrun_c\t3\n")
+    assert _manifest_run_names([first, second]) == {"run_a", "run_b", "run_c"}
