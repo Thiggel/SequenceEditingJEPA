@@ -44,6 +44,8 @@ The unsubmitted sequence-family launcher is
 dry run covers seven construction/completion/repair families and stages each
 60-job family after the previous family completes. Do not submit the ceiling
 matrix until capacity-transfer results select rows.
+Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
+completed `0:0` in 29s.
 
 ## Historical Object-Edit Surface
 

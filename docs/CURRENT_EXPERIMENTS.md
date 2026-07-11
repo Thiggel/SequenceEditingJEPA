@@ -90,6 +90,8 @@ count, completion probes, and zeroed stationary motion targets. All 19 focused
 tests and the full suite pass; 40 eight-object stress samples per family and a
 one-step CPU Hydra smoke pass. The 420-row launcher is dry-run only and stages
 families 60 jobs at a time; submission waits for deterministic confirmation.
+Largest noisy-repair temporal smoke `3836318` (z32/N8, one step) completed
+`0:0` on A40 in 29s with finite v3 probes and checkpoint.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.
