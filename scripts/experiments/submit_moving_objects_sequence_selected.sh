@@ -16,18 +16,23 @@ DATASETS=(
 )
 SEEDS=(1707 2707 3707)
 ROWS=(
+  "2 8 ema_vicreg"
   "4 4 ema_vicreg"
   "4 4 ema_vicreg_temporal"
-  "4 4 reconstruction"
+  "4 6 ema_vicreg"
+  "4 6 ema_vicreg_temporal"
   "4 8 ema_vicreg"
   "4 8 ema_vicreg_temporal"
-  "4 8 reconstruction"
+  "16 8 ema_vicreg"
   "32 4 ema_vicreg"
   "32 4 reconstruction"
+  "32 6 ema_vicreg"
+  "32 6 reconstruction"
   "32 8 ema_vicreg"
   "32 8 reconstruction"
+  "64 2 ema_vicreg"
 )
-RUN_SUFFIX="${RUN_SUFFIX:-sequence_selected_v1_steps${MAX_STEPS:-5000}}"
+RUN_SUFFIX="${RUN_SUFFIX:-sequence_selected_v2_steps${MAX_STEPS:-5000}}"
 MANIFEST="${PUZZLE_JEPA_WORK_ROOT}/runs/moving_objects/manifests/${RUN_SUFFIX}.tsv"
 mkdir -p "$(dirname "${MANIFEST}")"
 
@@ -68,7 +73,7 @@ for data in "${DATASETS[@]}"; do
 done
 
 if [[ "${SUBMIT:-0}" == "1" ]]; then
-  printf 'Manifest: %s (seven dependency-staged families, 30 jobs each)\n' "${MANIFEST}"
+  printf 'Manifest: %s (seven dependency-staged families, 45 jobs each)\n' "${MANIFEST}"
 else
-  printf 'Dry run only. Re-run with SUBMIT=1 to submit 210 deterministic single-CLS jobs.\n'
+  printf 'Dry run only. Re-run with SUBMIT=1 to submit 315 deterministic single-CLS jobs.\n'
 fi

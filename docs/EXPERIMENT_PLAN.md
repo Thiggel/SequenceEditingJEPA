@@ -45,20 +45,20 @@ Capacity duplicates exposed GPU nondeterminism. Before selecting those rows,
 run two identical deterministic jobs for wrap-temporal z4/N8 and a rotating
 control; require exact model tensors and metrics. Then rerun selected 5k rows
 under deterministic kernels before submitting any sequence-family stage.
-The 500-step exactness gate and 54-row deterministic confirmation passed
-execution. Its scientific gate failed: z32 recovers aggregate count/color but
-not bound position/velocity, while z4 temporal predictor wins do not carry
-semantic velocity. Complete the missing reflected z/N cells deterministically
-and rerun the invalid background-collapsed reconstruction control with balanced
-foreground/background loss before sequence-family submission.
+The exactness gate, full deterministic reflected matrix, and balanced controls
+are complete. Tight bottlenecks do not induce object binding. z4/N6 learns
+aggregate count/relations; z64/N2 weakly learns shape; no multi-object JEPA row
+learns bound position or velocity. Balanced z32 reconstruction proves a single
+vector can carry color-specific position, so the missing spatial state is an
+objective effect rather than an impossible capacity requirement.
 Selection must use v4 color-indexed binding metrics in addition to bags:
 bound shape, position, velocity/angular direction, completion, raw controls,
 and one-step rollout transfer.
-Run the matched reconstruction-only control at z4/z32 and N4/N8 so any object
-factor gain can be tested for JEPA specificity rather than generic compression.
-The selected held sequence matrix contains 210 rows and stages 30 jobs per
-family; submit it only after the active deterministic full matrix and balanced
-control are interpreted. Do not submit the older 420-row ceiling.
+The active selected sequence matrix contains 315 rows and stages 45 jobs per
+family. It tests tight high-load, z4 count/relation and temporal rows, z16
+relations, z32 JEPA versus valid reconstruction at N4/N6/N8, and z64/N2 shape
+across all seven construction/completion/repair trajectories. Do not submit the
+older 420-row ceiling.
 
 ## Strategic Reframing
 

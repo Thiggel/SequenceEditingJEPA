@@ -540,20 +540,28 @@ def test_selected_sequence_matrix_keeps_binding_load_and_control_axes() -> None:
     ):
         assert data in script
     for row in (
+        '"2 8 ema_vicreg"',
         '"4 4 ema_vicreg"',
         '"4 4 ema_vicreg_temporal"',
-        '"4 4 reconstruction"',
+        '"4 6 ema_vicreg"',
+        '"4 6 ema_vicreg_temporal"',
         '"4 8 ema_vicreg"',
         '"4 8 ema_vicreg_temporal"',
-        '"4 8 reconstruction"',
+        '"16 8 ema_vicreg"',
         '"32 4 ema_vicreg"',
         '"32 4 reconstruction"',
+        '"32 6 ema_vicreg"',
+        '"32 6 reconstruction"',
         '"32 8 ema_vicreg"',
         '"32 8 reconstruction"',
+        '"64 2 ema_vicreg"',
     ):
         assert row in script
+    assert '"4 4 reconstruction"' not in script
+    assert '"4 8 reconstruction"' not in script
     assert 'dependency_args=(--dependency="afterany:${previous_stage_ids}")' in script
-    assert "210 deterministic single-CLS jobs" in script
+    assert "315 deterministic single-CLS jobs" in script
+    assert "45 jobs each" in script
     assert "grid" not in script.lower()
 
 

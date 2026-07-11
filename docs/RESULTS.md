@@ -1,6 +1,24 @@
 # Results
 
-Last updated: 2026-07-11 23:28 CEST
+Last updated: 2026-07-12 00:26 CEST
+
+## Full Bottleneck Result
+
+All deterministic reflected rows and balanced controls are complete. Tight
+z2-z8 states do not bind multi-object shape/position/velocity. z64/N2 is the
+only multi-object row with all-seed trained shape improvement (`.446` final),
+but position/velocity remain negative. z4/N6 reliably learns aggregate count
+and relation statistics. At z64/N8, count rises to `.656` while effective rank
+falls to `13.4/64`.
+
+Balanced z32 reconstruction reaches foreground IoU `.138-.155` and positive
+bound-position R2 `.389-.452` in every group/seed; z4 remains background-
+dominated. The capacity can encode layout, but JEPA discards it. Full artifact:
+`../sequence-editing-report/assets/moving_objects/deterministic_full_v2_summary.md`.
+
+The revised seven-family trajectory matrix is active: 315 trainers
+`3838208`-`3838522`, diagnostics `3838543`-`3838857`, bound probes
+`3838858`-`3839172`, and watchers `3838523`-`3838542`.
 
 ## Deterministic Moving-Object Binding Result
 
@@ -13,7 +31,7 @@ velocity. The current representation is not a bound object state.
 
 The original reconstruction decoder obtained `.933-.966` accuracy by predicting
 background and had effectively zero foreground IoU. Foreground/background-
-balanced reconstruction is now running as the valid control. Full table:
+balanced reconstruction is the valid control. Earlier endpoint table:
 `../sequence-editing-report/assets/moving_objects/deterministic_combined_v1_summary.md`.
 
 ## Moving-Object Bottleneck Smoke

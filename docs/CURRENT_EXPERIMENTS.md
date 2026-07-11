@@ -2,30 +2,31 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 23:28 CEST
+Last updated: 2026-07-12 00:26 CEST
 
 ## Moving-Object Bottleneck Grid
 
-Latest decision: all deterministic confirmation trainers `3836223`-`3836276`,
-dynamics jobs `3836351`-`3836404`, and bound probes `3836574`-`3836627`
-completed `0:0`. At z32/N8, reflect/wrap/rotate recover aggregate count
-`.550/.569/.566` and color R2 `.704/.687/.715`, but bound position R2 is
-`-.185/-.186/-.186`, bound velocity is `-.136/-.151/-.158`, and rotating
-angular R2 is `-.137`; raw position controls are `.454/.353/.466`. z4 temporal
-predictors win `3/3` at N8 without positive bound velocity. This is static
-bag-like information plus nonsemantic latent dynamics, not object binding.
+Latest decision: the complete deterministic reflected z x N matrix and
+balanced controls have 168 runs, 56 groups, three seeds, and complete v4 and
+dynamics artifacts. Tight z2-z8 states do not bind objects. z64/N2 is the only
+multi-object row with all-seed trained shape gain (mean accuracy `.446`), but
+bound position/velocity are `-.233/-.225`. z4/N6 instead learns aggregate
+count/relation statistics (`+.094/+.056` mean deltas), and z64/N8 count rises
+to `.656` while effective rank falls to only `13.4/64`.
 
-The completed unweighted reconstruction control collapsed to background
-(`.933-.966` grid accuracy, approximately zero foreground IoU). Reconstruction
-now balances foreground and background loss; smoke `3837703` completed `0:0`.
-Balanced controls `3837715`-`3837779` and 78 missing deterministic reflected
-cells `3837714`-`3837827` are running. The reflected manifest reuses 12
-completed endpoints to form the full 90-row z x N matrix. Their 252 dependent
-jobs are interleaved in `3837829`-`3838120`; six-hour watchers are
-`3837833`-`3837946`. The 210-row sequence matrix remains held. Artifact:
-`../sequence-editing-report/assets/moving_objects/deterministic_combined_v1_summary.md`.
-The complete repository test suite, compile checks, shell syntax, and
-`git diff --check` pass for the balanced loss and completion launcher.
+Balanced z32 reconstruction establishes that the capacity can carry spatial
+layout: direct foreground IoU is `.138-.155` and bound position R2
+`.389-.452` across trajectory/load groups, positive in every seed. z4 cannot
+reconstruct foreground. JEPA therefore discards position/dynamics rather than
+being forced into object abstraction by compression.
+
+The evidence-selected seven-family transfer is active: 315 trainers
+`3838208`-`3838522`, staged 45 per family; 45 object-blocked rows are running
+and 270 later rows are dependency-held. Dynamics jobs are
+`3838543`-`3838857`, bound probes `3838858`-`3839172`, and six-hour watchers
+`3838523`-`3838542`. Artifact:
+`../sequence-editing-report/assets/moving_objects/deterministic_full_v2_summary.md`.
+No moving-object row uses a grid of latent states.
 
 Status: all 90 training jobs `3834593`-`3834682` and dynamics diagnostics
 `3834739`-`3834828` completed `0:0`. This is now the active object
@@ -111,8 +112,8 @@ families with visible-only semantic labels, explicit scene count, rollout
 count, completion probes, and zeroed stationary motion targets. All 19 focused
 tests and the full suite pass; 40 eight-object stress samples per family and a
 one-step CPU Hydra smoke pass. The 420-row launcher is dry-run only and stages
-families 60 jobs at a time; the selected 210-row subset waits for the active
-deterministic matrix and balanced control.
+families 60 jobs at a time; the evidence-selected v2 matrix is the active
+315-row staged submission described above.
 Largest noisy-repair temporal smoke `3836318` (z32/N8, one step) completed
 `0:0` on A40 in 29s with finite v3 probes and checkpoint.
 Schema v4 adds color-indexed bound shape/position/velocity/angular/completion
@@ -131,8 +132,8 @@ Smoke `3836463`, trainers `3836464`-`3836499`, diagnostics
 `3836522`-`3836557`, and v4 reprobes `3836632`-`3836667` completed `0:0`.
 The direct decoder collapsed to background, so balanced v2 supersedes this as
 the pixel-control gate; watchers are `3836502`-`3836521`.
-The held selected sequence matrix has 210 rows and stages 30 jobs per family:
-z4/z32, N4/N8, z4 base/temporal, and matched reconstruction controls.
+The active selected sequence matrix has 315 rows and stages 45 jobs per family,
+covering the final tight/count-relation/shape/spatial-control hypotheses.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

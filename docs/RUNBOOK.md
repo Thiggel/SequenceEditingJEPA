@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 23:28 CEST
+Last updated: 2026-07-12 00:26 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -50,11 +50,14 @@ Balanced replacement manifest: `reconstruction_balanced_v2_steps5000.tsv`,
 trainers `3837715`-`3837779`. Deterministic reflected completion manifest:
 `deterministic_reflected_matrix_v2_steps5000.tsv`, 78 new trainers
 `3837714`-`3837827` plus 12 reused endpoints. Their dependent diagnostics and
-v4 probes are interleaved in `3837829`-`3838120`; watchers are
-`3837833`-`3837946`.
-The held selected sequence launcher is
-`scripts/experiments/submit_moving_objects_sequence_selected.sh` (210 rows,
-30 dependency-staged jobs per family).
+v4 probes are interleaved in `3837829`-`3838120`; all completed. Artifact:
+`../sequence-editing-report/assets/moving_objects/deterministic_full_v2_summary.md`.
+The selected sequence launcher is
+`scripts/experiments/submit_moving_objects_sequence_selected.sh`. Active
+manifest `sequence_selected_v2_steps5000.tsv` has 315 trainers
+`3838208`-`3838522`, 45 dependency-staged jobs per family. Diagnostics are
+`3838543`-`3838857`, v4 probes `3838858`-`3839172`, and six-hour watchers
+`3838523`-`3838542`.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row
