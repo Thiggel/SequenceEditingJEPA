@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 01:20 CEST
+Last updated: 2026-07-11 02:04 CEST
 
 ## Object Dynamics JEPA Scaffold
 
@@ -10,10 +10,9 @@ Status: all audited implementation gates pass. Probe-v4 and the three-seed
 5k/15k/50k EMA length sweep completed, as did the one-seed HWM macro sweep.
 Longer training improves count, rollout transfer, and attention but degrades a
 hidden-provenance process probe; the prior nearest-neighbor score compared
-scene-local canonical slots, not semantics. The 486-job
-trajectory phase remains held. Macro-d4 confirmation jobs `3832932`-`3832943`
-are active at seeds `2707/3707`. A bounded dual-probe trajectory gate is also
-active as jobs `3833013`-`3833147`; all 45 trainers started on A40.
+scene-local canonical slots, not semantics. HWM d4 confirmation and the bounded
+dual-probe trajectory gate are now complete. Neither hierarchy nor temporal
+object ordering passes its intended gate, so the 486-job phase remains held.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -48,9 +47,9 @@ Experiment grids:
 | Probe-v4 legacy re-probe | 26 | all completed `0:0`, jobs `3832338`-`3832363` |
 | CLS64/128 EMA length calibration | 18 train + 18 dependent probes | all completed `0:0`, `3832365`-`3832400` |
 | HWM macro/schedule calibration | 7 train + 7 dependent probes | all completed `0:0`, `3832401`-`3832414` |
-| HWM macro-d4 confirmation | 6 train + 6 dependent probes | active `3832932`-`3832943` |
+| HWM macro-d4 confirmation | 6 train + 6 dependent probes | all completed `0:0`, `3832932`-`3832943` |
 | Corrected semantic probe refresh | 18 length + 7 seed-1707 HWM checkpoints | all completed `0:0`, `3832957`-`3832981` |
-| Dual-probe trajectory gate | 5 data regimes x 3 controls x 3 seeds, common + in-domain probes | 45 train + 90 probe, active `3833013`-`3833147` |
+| Dual-probe trajectory gate | 5 data regimes x 3 controls x 3 seeds, common + in-domain probes | all 135 completed `0:0`, `3833013`-`3833147` |
 | Phase trajectory/model/objective sweep | 486 dry-run commands | held/not submitted |
 
 Original replication probes `3831380/82/84/86` failed because an unfinished
@@ -63,9 +62,7 @@ Calibration trainers defer full probes to one dependent v4 job. All length
 pairs `3832365`-`3832400` and seed-1707 HWM pairs `3832401`-`3832414`
 completed `0:0`. Macro-d4 confirmation uses low/joint/staged train-probe pairs
 `3832932/33`, `3832934/35`, `3832936/37` at seed 2707 and `3832938/39`,
-`3832940/41`, `3832942/43` at seed 3707. At 00:48 the four independent
-low/joint trainers were running on A40; staged rows and all probes were held by
-valid dependencies. Outputs are under
+`3832940/41`, `3832942/43` at seed 3707. All completed `0:0`. Outputs are under
 `/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics`.
 
 Prestage job map (`semantic_mix`, `base`, seed `1707`):
@@ -184,20 +181,44 @@ probe. Dataset job blocks are object-blocked `3833013`-`3833039`, frontier
 three-job unit the IDs are train/common/in-domain. Outputs are under
 `/home/vault/c107fa/c107fa12/sequence-editing/runs/object_dynamics` with run
 names `<data>_<model>_<objective>_trajectory_gate_steps5000_seed<seed>`.
-At 01:20 all 45 trainers were running on A40 and all 90 probes were held only
-by `afterok` dependencies.
+All 135 jobs completed `0:0`. On the common probe, CLS trained-minus-initial
+results are:
 
-The seed-1707 HWM sweep also completed. Joint macro-d4 had the best combined
-retrieval/subgoal row: macro retrieval `.258`, low-level retrieval `.203`,
-retrieval execution success `.203`, subgoal L1 `.101`, and endpoint MSE
-`.00124`. Staged d4 had subgoal L1 `.099` but only `.133` retrieval success.
-Every d4/d8/d16 joint or staged row had zero CEM exact executions and about
-`.060` executed-goal Hamming fraction. Macro dimension 4 is being confirmed at
-two additional seeds; no hierarchy winner is selected yet.
+| Training data | dCount EMA/recon | dObject map EMA/recon | dAttention >=4 EMA/recon | dRollout count EMA/recon |
+|---|---:|---:|---:|---:|
+| object-blocked | `+.037/+.081` | `+.002/+.026` | `+.448/+.460` | `+.469/+.262` |
+| frontier | `-.001/+.067` | `+.001/+.025` | `+.441/+.472` | `+.432/+.264` |
+| interleaved | `+.036/+.056` | `+.001/+.025` | `+.393/+.459` | `+.413/+.250` |
+| global-random | `+.080/+.075` | `+.003/+.027` | `+.463/+.443` | `+.433/+.242` |
+| random-off-manifold | `-.080/-.097` | `-.014/+.049` | `+.135/+.160` | `+.001/-.005` |
 
-All phase models use a common `semantic_mix` probe distribution, and
-`random_off_manifold` is now a pure-random-edit training control. This avoids
-confounding trajectory-regime comparisons with different probe datasets.
+Reconstruction, not JEPA, wins static count on three of four object datasets,
+spatial object maps on every object dataset, and attention on three of four.
+EMA's consistent advantage is rollout-count transfer. In-domain count gains
+are largest for interleaved (`+.153/+.170` EMA/reconstruction) and
+global-random (`+.166/+.135`), not object-blocked (`+.052/+.036`) or frontier
+(`+.033/-.007`). Shape and shape/color/completion NN deltas remain near zero or
+negative. Thus coherent temporal object ordering is not the cause of the
+observed count/attention gains; static object-manifold exposure and
+reconstruction explain at least as much. Random-off-manifold training hurts
+common count, confirming that object-containing states matter. Full-grid EMA
+is a failed control: common grid foreground mIoU drops by `.484-.624` and
+object-map mIoU by `.057-.119` on every regime.
+
+The three-seed d4 confirmation also fails the planning gate:
+
+| Schedule | Endpoint MSE | Model bias L1 | Macro retrieval | Retrieved exact | Subgoal L1 | CEM exact / Hamming |
+|---|---:|---:|---:|---:|---:|---:|
+| joint | `.000825 +/-.000417` | `.0550 +/-.0479` | `.173 +/-.061` | `.154 +/-.036` | `.110 +/-.009` | `.000 / .0602` |
+| staged/frozen | `.000045 +/-.000011` | `.0049 +/-.0010` | `.191 +/-.048` | `.133 +/-.013` | `.109 +/-.010` | `.000 / .0600` |
+
+Staging strongly reduces latent model bias, while joint training gives slightly
+higher retrieved exact execution. Neither schedule produces one exact CEM
+execution on any seed, so no hierarchy row should be scaled.
+
+Future phase models require both common `semantic_mix` and in-domain probes;
+common-only evaluation confounds representation failure with distribution
+shift. `random_off_manifold` remains the pure-random-edit training control.
 
 Prepared scripts:
 
@@ -208,6 +229,7 @@ Prepared scripts:
 - `scripts/experiments/submit_object_dynamics_balanced_reprobe.sh`
 - `scripts/experiments/submit_object_dynamics_length_calibration.sh`
 - `scripts/experiments/submit_object_dynamics_hwm_calibration.sh`
+- `scripts/experiments/submit_object_dynamics_trajectory_gate.sh`
 - `scripts/experiments/submit_object_dynamics_phase1.sh`
 
 Verification:

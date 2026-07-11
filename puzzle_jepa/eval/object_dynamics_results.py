@@ -80,6 +80,16 @@ BALANCED_FIELDS = (
     "pixel_nn_current_color_acc",
     "latent_nn_current_completion_mae",
     "pixel_nn_current_completion_mae",
+    "probe_hierarchy_endpoint_mse",
+    "probe_hierarchy_level_agreement",
+    "probe_hierarchy_macro_retrieval_acc",
+    "probe_hierarchy_low_level_retrieval_acc",
+    "probe_hierarchy_retrieval_goal_success",
+    "probe_hierarchy_retrieval_goal_hamming",
+    "probe_hierarchy_cem_executed_goal_success",
+    "probe_hierarchy_cem_executed_goal_hamming",
+    "probe_hierarchy_subgoal_reachability_l1",
+    "probe_hierarchy_cem_model_bias_l1",
 )
 
 
@@ -316,13 +326,14 @@ def _render_markdown(summary: dict[str, Any]) -> str:
         "",
         f"Runs: {summary['run_count']} ({summary['complete_run_count']} complete)",
         "",
-        "| Probe | Family | Model | Objective | LR | Max steps | Seeds | Complete | Loss | Std ratio | dCurrent | dObject map | dGrid | dInvalid AUROC |",
-        "|---:|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Probe | Distribution | Family | Model | Objective | LR | Max steps | Seeds | Complete | Loss | Std ratio | dCurrent | dObject map | dGrid | dInvalid AUROC |",
+        "|---:|---|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summary["endpoint_aggregates"]:
         lines.append(
-            "| v{version} | {family} | {model} | {objective} | {lr:.1e} | {steps} | {seeds} | {complete}/{n} | {loss} | {std} | {current} | {object_map} | {grid} | {invalid} |".format(
+            "| v{version} | {distribution} | {family} | {model} | {objective} | {lr:.1e} | {steps} | {seeds} | {complete}/{n} | {loss} | {std} | {current} | {object_map} | {grid} | {invalid} |".format(
                 version=row["probe_fit_version"],
+                distribution=row["probe_trajectory_kind"],
                 family=row["run_family"],
                 model=row["model"],
                 objective=row["objective"],
@@ -344,14 +355,15 @@ def _render_markdown(summary: dict[str, Any]) -> str:
             "",
             "## Class-Balanced Re-Probes",
             "",
-            "| Probe | Family | Model | Objective | LR | Max steps | Seeds | Complete | Std ratio | dCount | dCurrent | dCurrent balanced | dAction object | dObject map | dGrid | dInvalid AUROC |",
-            "|---:|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| Probe | Distribution | Family | Model | Objective | LR | Max steps | Seeds | Complete | Std ratio | dCount | dCurrent | dCurrent balanced | dAction object | dObject map | dGrid | dInvalid AUROC |",
+            "|---:|---|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["balanced_reprobe_aggregates"]:
         lines.append(
-            "| v{version} | {family} | {model} | {objective} | {lr:.1e} | {steps} | {seeds} | {complete}/{n} | {std} | {count} | {current} | {balanced} | {action} | {object_map} | {grid} | {invalid} |".format(
+            "| v{version} | {distribution} | {family} | {model} | {objective} | {lr:.1e} | {steps} | {seeds} | {complete}/{n} | {std} | {count} | {current} | {balanced} | {action} | {object_map} | {grid} | {invalid} |".format(
                 version=row["probe_fit_version"],
+                distribution=row["probe_trajectory_kind"],
                 family=row["run_family"],
                 model=row["model"],
                 objective=row["objective"],

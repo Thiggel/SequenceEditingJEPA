@@ -58,14 +58,15 @@ def test_object_dynamics_summary_aggregates_seeds_and_writes_outputs(tmp_path: P
     assert balanced["delta_probe_current_object_acc_mean"] == pytest.approx(0.2)
     assert balanced["raw_probe_action_process_provenance_acc_mean"] == pytest.approx(0.3)
     assert balanced["raw_probe_action_process_provenance_balanced_acc_mean"] == pytest.approx(0.4)
+    assert balanced["probe_hierarchy_retrieval_goal_success_mean"] == pytest.approx(0.25)
 
     output = tmp_path / "summary"
     write_summary(summary, output)
     assert json.loads((output / "object_dynamics_summary.json").read_text())["run_count"] == 2
     markdown = (output / "object_dynamics_summary.md").read_text()
     assert "dCurrent" in markdown
-    assert "| Probe | Family | Model" in markdown
-    assert "| v4 | campaign | M0_cls64_r1 | base | 1.0e-04 | 10 |" in markdown
+    assert "| Probe | Distribution | Family | Model" in markdown
+    assert "| v4 | T0_semantic_mix | campaign | M0_cls64_r1 | base | 1.0e-04 | 10 |" in markdown
 
 
 def test_object_dynamics_summary_rejects_mislabeled_probe_schema(tmp_path: Path) -> None:
@@ -119,6 +120,11 @@ def test_summary_keeps_common_and_in_domain_probe_distributions(tmp_path: Path) 
         "object_blocked",
     }
     assert len(summary["balanced_reprobe_aggregates"]) == 2
+    output = tmp_path / "summary"
+    write_summary(summary, output)
+    markdown = (output / "object_dynamics_summary.md").read_text()
+    assert "| v4 | T0_semantic_mix | campaign |" in markdown
+    assert "| v4 | object_blocked | campaign |" in markdown
 
 
 def test_summary_keeps_dependent_probe_when_inline_baseline_is_disabled(tmp_path: Path) -> None:
@@ -179,6 +185,16 @@ def _write_balanced_reprobe(run: Path, *, current_delta: float) -> None:
         "pixel_nn_current_color_acc": 0.3,
         "latent_nn_current_completion_mae": 0.2,
         "pixel_nn_current_completion_mae": 0.3,
+        "probe_hierarchy_endpoint_mse": 0.01,
+        "probe_hierarchy_level_agreement": 0.2,
+        "probe_hierarchy_macro_retrieval_acc": 0.3,
+        "probe_hierarchy_low_level_retrieval_acc": 0.25,
+        "probe_hierarchy_retrieval_goal_success": 0.25,
+        "probe_hierarchy_retrieval_goal_hamming": 0.05,
+        "probe_hierarchy_cem_executed_goal_success": 0.0,
+        "probe_hierarchy_cem_executed_goal_hamming": 0.06,
+        "probe_hierarchy_subgoal_reachability_l1": 0.1,
+        "probe_hierarchy_cem_model_bias_l1": 0.02,
     }
     (run / "probe_eval_balanced_v4.json").write_text(json.dumps(result))
 

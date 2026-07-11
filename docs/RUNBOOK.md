@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 01:20 CEST
+Last updated: 2026-07-11 02:04 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -54,19 +54,21 @@ reconstruction control; peak allocation was 8376/5372/2798 MiB.
 All 26 legacy probes, 36 length jobs `3832365`-`3832400`, and 14 seed-1707 HWM
 jobs `3832401`-`3832414` completed `0:0`. Joint macro-d4 is the best one-seed
 retrieval/subgoal compromise, but every HWM CEM row has zero exact executions.
-Confirmation train/probe jobs `3832932`-`3832943` add seeds `2707/3707` for
-low-level, joint-d4, and staged-d4. At 00:48 the four independent trainers were
-running on A40; staged rows and probes were dependency-held. The 486-run phase
-is still not submitted. Corrected semantic probe refresh jobs
+Confirmation train/probe jobs `3832932`-`3832943` added seeds `2707/3707` for
+low-level, joint-d4, and staged-d4; all completed `0:0`. Both schedules retain
+zero CEM exact success, so hierarchy fails its gate. The 486-run phase is still
+not submitted. Corrected semantic probe refresh jobs
 `3832957`-`3832981` and balanced refresh `3832984`-`3833008` completed `0:0`:
 balanced process accuracy beats raw controls but declines from initialization,
 and shape/color/completion nearest-neighbor metrics do not improve reliably.
 
-The bounded trajectory gate `3833013`-`3833147` has 45 trainings and 90
-dependent probes. It crosses five data regimes with CLS-EMA, CLS
-reconstruction, and full-grid EMA at three seeds. Every checkpoint receives
-both common `semantic_mix` and in-domain probes. At 01:20 all trainers were
-running on A40; do not submit the 486-job phase while this gate is active.
+The bounded trajectory gate `3833013`-`3833147` completed all 135 jobs `0:0`.
+Reconstruction explains static count/map/attention gains at least as well as
+EMA, global-random/interleaved beat object-blocked/frontier on in-domain count,
+and full-grid EMA loses `.484-.624` common grid mIoU. EMA uniquely improves
+rollout-count transfer, but not semantic object factors. Do not submit the
+486-job phase; the next experiment must change the data/objective/planner
+contract rather than scale this matrix.
 
 Prestage comes before T1/T2/etc. It calibrates LR and train length on the
 `semantic_mix` dataset. T1 itself is the `object_blocked` trajectory regime.

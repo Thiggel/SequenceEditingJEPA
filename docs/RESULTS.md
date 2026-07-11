@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-11 01:20 CEST
+Last updated: 2026-07-11 02:04 CEST
 
 ## Object Dynamics Prestage Result
 
@@ -61,9 +61,9 @@ Implementation verification:
 | Full-grid A40 smoke | job `3831536`, batch 64, `0:0`, about 3.1 GiB peak GPU allocation |
 | Current v4 GPU gates | `3832316`-`3832318`, all `0:0`; H16/grid/reconstruction peak 8376/5372/2798 MiB |
 | Completed calibrations | length `3832365`-`3832400`; seed-1707 HWM `3832401`-`3832414`, all `0:0` |
-| Active bounded wave | macro-d4 seed confirmation `3832932`-`3832943` |
+| HWM d4 confirmation | `3832932`-`3832943`, all `0:0` |
 | Corrected probe refresh | length/HWM jobs `3832957`-`3832981`, all `0:0` |
-| Active trajectory gate | 45 train + 90 dual probes, `3833013`-`3833147` |
+| Trajectory gate | 45 train + 90 dual probes, `3833013`-`3833147`, all `0:0` |
 | Phase wrapper | 486 dry-run commands; real submission guarded |
 
 The audit corrected material semantics before submission: LDAD uses encoded
@@ -142,8 +142,25 @@ The evaluator now accepts an explicit probe trajectory and the analyzer keeps
 one result per probe distribution rather than dropping or pooling them. The
 bounded 5k trajectory gate crosses five regimes with CLS-EMA, reconstruction,
 and full-grid EMA controls at three seeds. Each `3833013`-`3833147` unit is
-train/common-`semantic_mix`/in-domain. All 45 trainers started on A40; the
-broad 486-job phase remains unsubmitted.
+train/common-`semantic_mix`/in-domain. All 135 jobs completed `0:0`.
+
+The trajectory gate rejects the current temporal-abstraction claim. On common
+`semantic_mix`, reconstruction beats EMA on balanced count for object-blocked,
+frontier, and interleaved (`+.081/.067/.056` versus `+.037/-.001/.036`) and
+improves object-map mIoU by about `+.025` while EMA stays near zero. EMA's
+consistent advantage is rollout-count transfer (`+.413-.469` versus
+`+.242-.264`). In-domain count is strongest for interleaved/global-random under
+both EMA and reconstruction, not the more coherent object-blocked/frontier
+orders. Semantic shape and shape/color/completion NN factors do not improve.
+Full-grid EMA loses `.484-.624` common grid foreground mIoU on every regime.
+The data contains useful static object structure, but there is no JEPA-specific
+temporal object-emergence result.
+
+Three-seed HWM d4 confirmation also fails planning. Staging reduces endpoint
+MSE/model bias to `.000045/.0049` versus joint `.000825/.0550`; joint retrieved
+exact execution is slightly higher (`.154` versus `.133`). Both schedules have
+zero CEM exact success and about `.060` Hamming on every seed. Hierarchy should
+not be scaled without a planner/objective redesign.
 
 ## ARC First-Pass Training Results
 
