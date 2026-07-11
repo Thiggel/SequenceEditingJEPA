@@ -51,6 +51,8 @@ three seeds.
 Selection must use v4 color-indexed binding metrics in addition to bags:
 bound shape, position, velocity/angular direction, completion, raw controls,
 and one-step rollout transfer.
+Run the matched reconstruction-only control at z4/z32 and N4/N8 so any object
+factor gain can be tested for JEPA specificity rather than generic compression.
 
 ## Strategic Reframing
 

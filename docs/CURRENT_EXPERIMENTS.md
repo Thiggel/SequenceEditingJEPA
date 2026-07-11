@@ -100,6 +100,9 @@ diagnostics are dependency-held jobs `3836351`-`3836404`.
 Full duplicate v4 reprobes `3836450`-`3836453` are exact. At 500 steps, bound
 shape is near chance and bound velocity/position R2 are negative; raw position
 R2 is positive. The 5k result remains pending.
+A reconstruction-only single-CLS control is implemented and CPU-smoked. Its
+36 prepared rows match reflect/wrap/rotate, z4/z32, N4/N8, and three seeds;
+the pixel decoder does not introduce a grid latent.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

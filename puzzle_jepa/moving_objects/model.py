@@ -16,6 +16,7 @@ class MovingObjectOutput:
     prediction_loss: torch.Tensor
     regularizer_loss: torch.Tensor
     temporal_delta_loss: torch.Tensor
+    reconstruction_loss: torch.Tensor
     predictions: torch.Tensor
     targets: torch.Tensor
 
@@ -81,6 +82,8 @@ class MovingObjectJEPA(nn.Module):
         regularizer_weight: float = 0.05,
         temporal_delta_weight: float = 0.0,
         temporal_delta_target_std: float = 0.1,
+        prediction_weight: float = 1.0,
+        reconstruction_weight: float = 0.0,
     ):
         super().__init__()
         if latent_dim <= 0:
@@ -91,8 +94,12 @@ class MovingObjectJEPA(nn.Module):
         self.regularizer_weight = float(regularizer_weight)
         self.temporal_delta_weight = float(temporal_delta_weight)
         self.temporal_delta_target_std = float(temporal_delta_target_std)
-        if self.temporal_delta_weight < 0.0 or self.temporal_delta_target_std <= 0.0:
-            raise ValueError("Temporal-delta weight must be nonnegative and target std positive.")
+        self.prediction_weight = float(prediction_weight)
+        self.reconstruction_weight = float(reconstruction_weight)
+        if min(self.temporal_delta_weight, self.prediction_weight, self.reconstruction_weight) < 0.0:
+            raise ValueError("Objective weights must be nonnegative.")
+        if self.temporal_delta_target_std <= 0.0:
+            raise ValueError("Temporal-delta target std must be positive.")
         encoder_args = dict(
             grid_size=grid_size,
             num_colors=num_colors,
@@ -111,6 +118,13 @@ class MovingObjectJEPA(nn.Module):
             nn.GELU(),
             nn.Linear(4 * latent_dim, latent_dim),
         )
+        self.reconstruction_decoder = (
+            nn.Linear(latent_dim, grid_size * grid_size * num_colors)
+            if self.reconstruction_weight > 0.0
+            else None
+        )
+        self.grid_size = int(grid_size)
+        self.num_colors = int(num_colors)
 
     def encode(self, contexts: torch.Tensor, *, target: bool = False) -> torch.Tensor:
         return (self.target_encoder if target else self.encoder)(contexts)
@@ -142,15 +156,26 @@ class MovingObjectJEPA(nn.Module):
             ) + 0.04 * covariance_loss(temporal_delta)
         else:
             temporal_delta_loss = prediction_loss.detach() * 0.0
+        if self.reconstruction_decoder is not None:
+            reconstruction_logits = self.reconstruction_decoder(current).reshape(
+                len(current), self.grid_size * self.grid_size, self.num_colors
+            )
+            reconstruction_loss = F.cross_entropy(
+                reconstruction_logits.flatten(0, 1), batch.current_grid.flatten()
+            )
+        else:
+            reconstruction_loss = prediction_loss.detach() * 0.0
         return MovingObjectOutput(
             loss=(
-                prediction_loss
+                self.prediction_weight * prediction_loss
                 + self.regularizer_weight * regularizer_loss
                 + self.temporal_delta_weight * temporal_delta_loss
+                + self.reconstruction_weight * reconstruction_loss
             ),
             prediction_loss=prediction_loss,
             regularizer_loss=regularizer_loss,
             temporal_delta_loss=temporal_delta_loss,
+            reconstruction_loss=reconstruction_loss,
             predictions=predicted,
             targets=targets,
         )

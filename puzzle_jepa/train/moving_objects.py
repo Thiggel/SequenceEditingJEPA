@@ -112,6 +112,7 @@ def run_moving_object_training(config: dict[str, Any]) -> dict[str, Any]:
             "train_prediction_loss": float(output.prediction_loss.detach().cpu()),
             "train_regularizer_loss": float(output.regularizer_loss.detach().cpu()),
             "train_temporal_delta_loss": float(output.temporal_delta_loss.detach().cpu()),
+            "train_reconstruction_loss": float(output.reconstruction_loss.detach().cpu()),
             "grad_norm_pre_clip": float(grad_norm.detach().cpu()),
         }
         if step % eval_every == 0 or step == max_steps:

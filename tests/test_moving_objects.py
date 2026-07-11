@@ -326,6 +326,36 @@ def test_temporal_delta_objective_forces_nonconstant_online_differences() -> Non
     assert model.encoder.project[1].weight.grad is not None
 
 
+def test_reconstruction_control_trains_same_single_cls_without_jepa_gradient() -> None:
+    generator = MovingObjectGenerator(
+        MovingObjectSpec(grid_size=8, min_objects=2, max_objects=2, sequence_length=7)
+    )
+    batch = sample_moving_object_batch(
+        generator, np.random.default_rng(47), batch_size=4, horizon=1
+    )
+    model = MovingObjectJEPA(
+        grid_size=8,
+        token_dim=16,
+        latent_dim=4,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=1,
+        regularizer_weight=0.0,
+        prediction_weight=0.0,
+        reconstruction_weight=1.0,
+    )
+    output = model(batch)
+    output.loss.backward()
+    assert float(output.reconstruction_loss.detach()) > 0.0
+    assert model.reconstruction_decoder is not None
+    assert model.reconstruction_decoder.weight.grad is not None
+    assert model.encoder.project[1].weight.grad is not None
+    assert all(
+        parameter.grad is None or torch.count_nonzero(parameter.grad) == 0
+        for parameter in model.predictor.parameters()
+    )
+
+
 def test_new_sweep_is_single_cls_only_and_crosses_requested_axes() -> None:
     submit = (ROOT / "scripts/experiments/submit_moving_objects_bottleneck.sh").read_text()
     slurm = (ROOT / "scripts/slurm/run_moving_objects_train.slurm").read_text()
@@ -438,6 +468,19 @@ def test_deterministic_confirmation_crosses_selected_capacity_and_load_rows() ->
     assert '"32 8 ema_vicreg"' in script
     assert "SEEDS=(1707 2707 3707)" in script
     assert "54 deterministic single-CLS jobs" in script
+    assert "grid" not in script.lower()
+
+
+def test_reconstruction_confirmation_matches_selected_capacity_and_load_rows() -> None:
+    script = (
+        ROOT / "scripts/experiments/submit_moving_objects_reconstruction_confirmation.sh"
+    ).read_text()
+    assert "DATASETS=(reflected_motion wrapped_motion rotating_motion)" in script
+    assert "LATENT_DIMS=(4 32)" in script
+    assert "MAX_OBJECT_COUNTS=(4 8)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "OBJECTIVE_CONFIG=reconstruction" in script
+    assert "36 deterministic single-CLS controls" in script
     assert "grid" not in script.lower()
 
 
