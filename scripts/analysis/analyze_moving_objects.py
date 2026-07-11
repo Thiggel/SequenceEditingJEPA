@@ -64,6 +64,7 @@ KEYS = (
     "probe_latent_std_mean",
     "probe_latent_effective_rank",
     "train_prediction_loss",
+    "train_reconstruction_loss",
 )
 DYNAMICS_KEYS = (
     "dynamics_pixel_change_rate",
@@ -100,13 +101,18 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "step": int(final["step"]),
             "probe_source": "probe_eval_v4.json" if probe_payload is not None else "metrics.jsonl",
             "absolute": {
-                key: probe_final.get(key, final.get(key)) if key != "train_prediction_loss" else final.get(key)
+                key: (
+                    probe_final.get(key, final.get(key))
+                    if key not in {"train_prediction_loss", "train_reconstruction_loss"}
+                    else final.get(key)
+                )
                 for key in KEYS
             },
             "delta": {
                 key: (
                     _delta(probe_final.get(key), probe_initial.get(key))
-                    if key != "train_prediction_loss" and key in probe_final
+                    if key not in {"train_prediction_loss", "train_reconstruction_loss"}
+                    and key in probe_final
                     else _delta(final.get(key), initial.get(key))
                 )
                 for key in KEYS

@@ -545,6 +545,8 @@ def test_analyzer_prefers_matched_v4_reprobe_metrics(tmp_path: Path) -> None:
         "probe_bound_shape_acc": 0.1,
     }
     final = {**initial, "step": 5000, "probe_bound_shape_acc": 0.2}
+    initial["train_reconstruction_loss"] = 1.2
+    final["train_reconstruction_loss"] = 0.4
     (run / "metrics.jsonl").write_text("\n".join((json.dumps(initial), json.dumps(final))))
     (run / "probe_eval_v4.json").write_text(
         json.dumps(
@@ -562,6 +564,7 @@ def test_analyzer_prefers_matched_v4_reprobe_metrics(tmp_path: Path) -> None:
     assert summary["aggregates"][0]["probe_v4_n"] == 1
     assert summary["runs"][0]["absolute"]["probe_bound_shape_acc"] == 0.8
     assert summary["runs"][0]["delta"]["probe_bound_shape_acc"] == 0.5
+    assert summary["runs"][0]["absolute"]["train_reconstruction_loss"] == 0.4
 
 
 def test_analyzer_unions_explicit_manifests_without_root_scanning(tmp_path: Path) -> None:
