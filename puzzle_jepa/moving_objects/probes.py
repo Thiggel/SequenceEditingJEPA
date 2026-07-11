@@ -434,6 +434,9 @@ def _fit_slot_regressor(
     head = nn.Linear(train_x.shape[1], slots * dimensions).to(train_x.device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=learning_rate, weight_decay=1.0e-4)
     expanded_train_mask = train_mask.unsqueeze(-1).expand_as(train_y)
+    observed_train_targets = train_y[train_mask]
+    lower = observed_train_targets.min(dim=0).values
+    upper = observed_train_targets.max(dim=0).values
     for _ in range(steps):
         optimizer.zero_grad(set_to_none=True)
         predicted = head(train_x).reshape(-1, slots, dimensions)
@@ -441,11 +444,13 @@ def _fit_slot_regressor(
         loss.backward()
         optimizer.step()
     with torch.no_grad():
-        predicted = head(eval_x).reshape(-1, slots, dimensions)
+        predicted = head(eval_x).reshape(-1, slots, dimensions).clamp(lower, upper)
         metrics = _bound_metrics(predicted, eval_y, eval_mask)
         transfer_metrics = {}
         if transfer_x is not None and transfer_y is not None and transfer_mask is not None:
-            transfer_predicted = head(transfer_x).reshape(-1, slots, dimensions)
+            transfer_predicted = head(transfer_x).reshape(-1, slots, dimensions).clamp(
+                lower, upper
+            )
             transfer_metrics = _bound_metrics(transfer_predicted, transfer_y, transfer_mask)
     return metrics, transfer_metrics
 

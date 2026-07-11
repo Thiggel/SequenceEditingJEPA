@@ -11,6 +11,7 @@ from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingOb
 from puzzle_jepa.moving_objects.model import MovingObjectJEPA
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
 from puzzle_jepa.moving_objects.probes import run_moving_object_dynamics_diagnostics
+from puzzle_jepa.moving_objects.probes import _fit_slot_regressor
 from scripts.analysis.analyze_moving_objects import KEYS, analyze
 
 
@@ -272,6 +273,37 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
     )
     assert diagnostics["dynamics_pixel_change_rate"] > 0.0
     assert np.isfinite(diagnostics["dynamics_prediction_gain_fraction"])
+
+
+def test_bound_rollout_probe_clamps_predictions_to_observed_factor_ranges() -> None:
+    torch.manual_seed(41)
+    train_x = torch.randn(6, 3)
+    train_y = torch.zeros(6, 2, 11)
+    for sample in range(6):
+        train_y[sample, :, sample % 5] = 1.0
+        train_y[sample, :, 5:7] = -1.0 if sample % 2 == 0 else 1.0
+        train_y[sample, :, 7] = -1.0 if sample % 2 == 0 else 1.0
+        train_y[sample, :, 8:11] = float(sample % 2)
+    mask = torch.ones(6, 2, dtype=torch.bool)
+    _, transfer = _fit_slot_regressor(
+        train_x,
+        train_y,
+        mask,
+        train_x,
+        train_y,
+        mask,
+        steps=1,
+        learning_rate=1.0e-2,
+        standardize=False,
+        transfer_x=torch.full_like(train_x, 1.0e6),
+        transfer_y=train_y,
+        transfer_mask=mask,
+    )
+    assert transfer["shape_mae"] <= 1.0
+    assert transfer["velocity_mae"] <= 2.0
+    assert transfer["angular_velocity_mae"] <= 2.0
+    assert transfer["position_mae"] <= 1.0
+    assert transfer["completion_mae"] <= 1.0
 
 
 def test_temporal_delta_objective_forces_nonconstant_online_differences() -> None:
