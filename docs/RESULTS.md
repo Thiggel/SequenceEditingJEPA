@@ -60,6 +60,9 @@ step zero throughout, so absolute static readout is not uniformly learned.
 
 Identical z4/N8 reruns disagree despite matching configs. Results are
 provisional until deterministic exact reruns pass.
+The exact 500-step v4 duplicate reprobes show no binding: shape is near chance,
+bound velocity/position R2 are negative, and raw pixels decode position much
+better. This is an early checkpoint result; the deterministic 5k gate is active.
 
 ## Object Dynamics Prestage Result
 
