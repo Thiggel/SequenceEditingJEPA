@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-11 16:07 CEST
+Last updated: 2026-07-11 16:55 CEST
 
 ## Moving-Object Bottleneck Smoke
 
@@ -47,6 +47,19 @@ from `2/3` to `3/3` but lowers count `.429 -> .317`, shape R2
 identity `3/3`, but angular R2 remains negative. This rejects z4/N8 temporal
 as a general semantic recipe; the next run restores latent-size and load axes
 for wrap and rotation.
+
+## Moving-Object Capacity Transfer
+
+All 228 wrap/rotation capacity trainers `3835525`-`3835752` and diagnostics
+`3835930`-`3836157` completed `0:0`. Increasing load hurts count at fixed z;
+increasing z recovers count/color/relations but loses motion. At N8, wrap count
+rises `.273 -> .627` from z2 to z64 while velocity falls to `-.044`; no z>=8
+base row beats identity. Only temporal z4/N8 passes velocity+identity in every
+wrap seed, and no rotating row learns angular direction. Color declines from
+step zero throughout, so absolute static readout is not uniformly learned.
+
+Identical z4/N8 reruns disagree despite matching configs. Results are
+provisional until deterministic exact reruns pass.
 
 ## Object Dynamics Prestage Result
 

@@ -291,6 +291,16 @@ def test_new_sweep_is_single_cls_only_and_crosses_requested_axes() -> None:
     assert "Retired:" in (ROOT / "scripts/experiments/submit_object_dynamics_trajectory_gate.sh").read_text()
 
 
+def test_moving_training_defaults_to_deterministic_gpu_kernels() -> None:
+    config = (ROOT / "configs/moving_objects/train.yaml").read_text()
+    trainer = (ROOT / "puzzle_jepa/train/moving_objects.py").read_text()
+    assert "deterministic: true" in config
+    assert 'CUBLAS_WORKSPACE_CONFIG", ":4096:8"' in trainer
+    assert "torch.use_deterministic_algorithms(deterministic)" in trainer
+    assert "enable_flash_sdp(not deterministic)" in trainer
+    assert "enable_mem_efficient_sdp(not deterministic)" in trainer
+
+
 def test_six_hour_watcher_is_configured() -> None:
     watcher = (ROOT / "scripts/experiments/submit_moving_objects_oversight.sh").read_text()
     assert 'CADENCE_HOURS="${CADENCE_HOURS:-6}"' in watcher

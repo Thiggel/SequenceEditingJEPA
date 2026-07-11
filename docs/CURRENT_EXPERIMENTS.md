@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 16:49 CEST
+Last updated: 2026-07-11 16:55 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -68,15 +68,22 @@ is therefore not a general semantic transfer. Next, recover the bottleneck and
 object-load axes within wrap and rotation before construction/repair adapters.
 The prepared follow-up contains 228 single-CLS rows; largest rotating base
 smoke `3835521` (`z=64,N=8`) completed `0:0` on A40 in 21s.
-All trainers `3835525`-`3835752` started; six-hour watchers are
-`3835753`-`3835772`. Manifest: `capacity_transfer_v1_steps5000.tsv`.
+All trainers `3835525`-`3835752` and diagnostics `3835930`-`3836157`
+completed `0:0`; six-hour watchers are `3835753`-`3835772`. At N8, larger z
+recovers count/color/relations but loses dynamics; color declines from step
+zero throughout, and only wrap temporal z4 passes velocity+identity in all
+seeds. Rotation direction is never decoded reliably.
+
+Nominal duplicate z4/N8 runs differ materially despite identical configs, so
+capacity conclusions are provisional. Deterministic cuBLAS/PyTorch/attention
+is now the default; exact paired reruns gate the next submission.
 
 Construction/completion/repair adapters are implemented for seven ordering
 families with visible-only semantic labels, explicit scene count, rollout
 count, completion probes, and zeroed stationary motion targets. All 19 focused
 tests and the full suite pass; 40 eight-object stress samples per family and a
 one-step CPU Hydra smoke pass. The 420-row launcher is dry-run only and stages
-families 60 jobs at a time; submission waits for the active capacity result.
+families 60 jobs at a time; submission waits for deterministic confirmation.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

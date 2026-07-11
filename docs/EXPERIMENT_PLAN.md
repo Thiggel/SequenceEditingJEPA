@@ -41,6 +41,11 @@ prepared ceiling, not an automatic submission: use the active capacity result
 to select latent sizes/object loads, then submit dependency-staged 60-job
 families.
 
+Capacity duplicates exposed GPU nondeterminism. Before selecting those rows,
+run two identical deterministic jobs for wrap-temporal z4/N8 and a rotating
+control; require exact model tensors and metrics. Then rerun selected 5k rows
+under deterministic kernels before submitting any sequence-family stage.
+
 ## Strategic Reframing
 
 The current Sudoku evidence should not be read as JEPA reasoning. Oracle
