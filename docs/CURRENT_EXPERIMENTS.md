@@ -2,12 +2,12 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 10:29 CEST
+Last updated: 2026-07-11 10:39 CEST
 
 ## Moving-Object Bottleneck Grid
 
-Status: implementation and largest-cell A40 smoke complete; the 90 training
-jobs are prepared but not yet submitted. This is now the active object
+Status: implementation and largest-cell A40 smoke complete; all 90 training
+jobs `3834593`-`3834682` are running on A40. This is now the active object
 abstraction experiment. It uses only one learned CLS latent and never a grid of
 latent states.
 
@@ -24,6 +24,10 @@ raw-frame controls, and matched step-zero deltas. GPU smoke `3834574`
 completed `0:0` on A40 in 22s at 1482 MiB peak GPU memory. It validates
 execution only. Output root:
 `/home/vault/c107fa/c107fa12/sequence-editing/runs/moving_objects`.
+
+Manifest: `manifests/bottleneck_v1_steps5000.tsv`. Six-hour watcher jobs are
+`3834684`-`3834703`; watcher `3834684` completed `0:0`. Aggregation is
+manifest-scoped so the separate smoke run cannot enter learning summaries.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -21,9 +22,11 @@ KEYS = (
 )
 
 
-def analyze(root: Path) -> dict[str, Any]:
+def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
     runs = []
     for metrics_path in sorted(root.glob("motion_*/metrics.jsonl")):
+        if run_names is not None and metrics_path.parent.name not in run_names:
+            continue
         rows = [json.loads(line) for line in metrics_path.read_text().splitlines() if line.strip()]
         if len(rows) < 2:
             continue
@@ -107,8 +110,13 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--json-output", type=Path, required=True)
     parser.add_argument("--markdown-output", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
-    summary = analyze(args.root)
+    run_names = None
+    if args.manifest is not None:
+        with args.manifest.open(newline="") as handle:
+            run_names = {row["run_name"] for row in csv.DictReader(handle, delimiter="\t")}
+    summary = analyze(args.root, run_names)
     args.json_output.parent.mkdir(parents=True, exist_ok=True)
     args.markdown_output.parent.mkdir(parents=True, exist_ok=True)
     args.json_output.write_text(json.dumps(summary, indent=2, sort_keys=True))

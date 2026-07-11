@@ -22,7 +22,7 @@ def main() -> None:
         rows = list(csv.DictReader(handle, delimiter="\t"))
     job_ids = [row["job_id"] for row in rows]
     states = _job_states(job_ids)
-    summary = analyze(args.run_root)
+    summary = analyze(args.run_root, {row["run_name"] for row in rows})
     payload = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "manifest": str(args.manifest),

@@ -131,9 +131,10 @@ def test_analyzer_keeps_bottleneck_and_object_axes_separate(tmp_path: Path) -> N
         final[key] = float(index) + 0.25
     (run / "metrics.jsonl").write_text("\n".join((json.dumps(initial), json.dumps(final))))
 
-    summary = analyze(tmp_path)
+    summary = analyze(tmp_path, {run.name})
 
     assert len(summary["runs"]) == 1
     assert summary["aggregates"][0]["latent_dim"] == 8
     assert summary["aggregates"][0]["max_objects"] == 4
     assert summary["aggregates"][0]["delta"][KEYS[0]]["mean"] == 0.25
+    assert analyze(tmp_path, {"another_run"})["runs"] == []
