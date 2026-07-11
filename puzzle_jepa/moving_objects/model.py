@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from puzzle_jepa.moving_objects.batching import MovingObjectBatch
-from puzzle_jepa.object_dynamics.losses import vicreg_regularizer
+from puzzle_jepa.object_dynamics.losses import covariance_loss, variance_loss, vicreg_regularizer
 
 
 @dataclass(slots=True)
@@ -15,6 +15,7 @@ class MovingObjectOutput:
     loss: torch.Tensor
     prediction_loss: torch.Tensor
     regularizer_loss: torch.Tensor
+    temporal_delta_loss: torch.Tensor
     predictions: torch.Tensor
     targets: torch.Tensor
 
@@ -78,6 +79,8 @@ class MovingObjectJEPA(nn.Module):
         rollout_horizon: int = 4,
         ema_decay: float = 0.99,
         regularizer_weight: float = 0.05,
+        temporal_delta_weight: float = 0.0,
+        temporal_delta_target_std: float = 0.1,
     ):
         super().__init__()
         if latent_dim <= 0:
@@ -86,6 +89,10 @@ class MovingObjectJEPA(nn.Module):
         self.rollout_horizon = int(rollout_horizon)
         self.ema_decay = float(ema_decay)
         self.regularizer_weight = float(regularizer_weight)
+        self.temporal_delta_weight = float(temporal_delta_weight)
+        self.temporal_delta_target_std = float(temporal_delta_target_std)
+        if self.temporal_delta_weight < 0.0 or self.temporal_delta_target_std <= 0.0:
+            raise ValueError("Temporal-delta weight must be nonnegative and target std positive.")
         encoder_args = dict(
             grid_size=grid_size,
             num_colors=num_colors,
@@ -127,10 +134,23 @@ class MovingObjectJEPA(nn.Module):
         predicted = torch.stack(predictions, dim=1)
         prediction_loss = F.mse_loss(predicted, targets)
         regularizer_loss = vicreg_regularizer(torch.cat([current, predicted[:, 0]], dim=0))
+        if self.temporal_delta_weight > 0.0:
+            online_future = self.encoder(batch.future_contexts[:, 0])
+            temporal_delta = online_future - current
+            temporal_delta_loss = variance_loss(
+                temporal_delta, target_std=self.temporal_delta_target_std
+            ) + 0.04 * covariance_loss(temporal_delta)
+        else:
+            temporal_delta_loss = prediction_loss.detach() * 0.0
         return MovingObjectOutput(
-            loss=prediction_loss + self.regularizer_weight * regularizer_loss,
+            loss=(
+                prediction_loss
+                + self.regularizer_weight * regularizer_loss
+                + self.temporal_delta_weight * temporal_delta_loss
+            ),
             prediction_loss=prediction_loss,
             regularizer_loss=regularizer_loss,
+            temporal_delta_loss=temporal_delta_loss,
             predictions=predicted,
             targets=targets,
         )

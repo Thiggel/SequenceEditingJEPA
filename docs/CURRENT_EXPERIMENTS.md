@@ -2,12 +2,12 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 10:39 CEST
+Last updated: 2026-07-11 11:14 CEST
 
 ## Moving-Object Bottleneck Grid
 
-Status: implementation and largest-cell A40 smoke complete; all 90 training
-jobs `3834593`-`3834682` are running on A40. This is now the active object
+Status: all 90 training jobs `3834593`-`3834682` and dynamics diagnostics
+`3834739`-`3834828` completed `0:0`. This is now the active object
 abstraction experiment. It uses only one learned CLS latent and never a grid of
 latent states.
 
@@ -28,6 +28,20 @@ execution only. Output root:
 Manifest: `manifests/bottleneck_v1_steps5000.tsv`. Six-hour watcher jobs are
 `3834684`-`3834703`; watcher `3834684` completed `0:0`. Aggregation is
 manifest-scoped so the separate smoke run cannot enter learning summaries.
+
+At maximum load `N=8`, final learned/raw count accuracy rises from
+`.249/.234` at `z=2` to `.644/.232` at `z=64`; shape R2 peaks at `.191` for
+`z=32`, color R2 reaches `.794` at `z=64`, and relation R2 reaches `.133` at
+`z=16`. Foreground pixel IoU stays at `.000-.005`. This is evidence for a
+compact static object summary rather than a pixel map. Velocity R2 is never
+positive reliably, and the predictor does not beat identity persistence in a
+majority of `N=8` seeds at any z. The next gate must force temporal deltas into
+the latent before transfer to other trajectory families.
+
+The metadata-free temporal-delta variance gate is implemented for
+`z={4,8,16,32}` x `N={4,8}` x three seeds (24 jobs). Largest-cell smoke
+`3834839` completed `0:0` on A40 in 12s. The grid is prepared but not yet
+submitted.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

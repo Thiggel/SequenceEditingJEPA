@@ -20,6 +20,12 @@ After identifying a reproducible capacity transition, repeat the selected
 bottlenecks on other trajectory families. Do not submit any full-grid latent
 experiment.
 
+The first grid found static object summaries but no reliable velocity or
+predictor advantage over identity. Before transfer, add a metadata-free
+temporal-delta variance objective and gate it at `N={4,8}` and
+`z={4,8,16,32}`. Require positive held-out velocity R2 and predictor wins in
+all three seeds; static semantics alone do not pass the motion-world gate.
+
 ## Strategic Reframing
 
 The current Sudoku evidence should not be read as JEPA reasoning. Oracle

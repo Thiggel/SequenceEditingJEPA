@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-11 10:39 CEST
+Last updated: 2026-07-11 11:14 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -15,6 +15,10 @@ and running `scripts/experiments/submit_moving_objects_oversight.sh`.
 Aggregate with `scripts/analysis/analyze_moving_objects.py`. Historical
 `submit_object_dynamics_{phase1,trajectory_gate}.sh` launchers are retired and
 exit nonzero because they contain prohibited full-grid latent rows.
+
+The follow-up temporal-delta grid is dry-run by default at
+`scripts/experiments/submit_moving_objects_temporal.sh`; set `SUBMIT=1` only
+after the temporal objective smoke and full suite pass.
 
 ## Historical Object-Edit Surface
 

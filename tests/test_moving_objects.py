@@ -114,6 +114,26 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
     assert np.isfinite(diagnostics["dynamics_prediction_gain_fraction"])
 
 
+def test_temporal_delta_objective_forces_nonconstant_online_differences() -> None:
+    generator = MovingObjectGenerator(
+        MovingObjectSpec(grid_size=8, min_objects=2, max_objects=2, sequence_length=7)
+    )
+    batch = sample_moving_object_batch(generator, np.random.default_rng(23), batch_size=8, horizon=1)
+    model = MovingObjectJEPA(
+        grid_size=8,
+        token_dim=16,
+        latent_dim=4,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=1,
+        temporal_delta_weight=0.1,
+    )
+    output = model(batch)
+    output.loss.backward()
+    assert float(output.temporal_delta_loss.detach()) > 0.0
+    assert model.encoder.project[1].weight.grad is not None
+
+
 def test_new_sweep_is_single_cls_only_and_crosses_requested_axes() -> None:
     submit = (ROOT / "scripts/experiments/submit_moving_objects_bottleneck.sh").read_text()
     slurm = (ROOT / "scripts/slurm/run_moving_objects_train.slurm").read_text()
@@ -131,6 +151,15 @@ def test_six_hour_watcher_is_configured() -> None:
     watcher = (ROOT / "scripts/experiments/submit_moving_objects_oversight.sh").read_text()
     assert 'CADENCE_HOURS="${CADENCE_HOURS:-6}"' in watcher
     assert "--begin=" in watcher
+
+
+def test_temporal_gate_keeps_single_cls_and_selected_axes() -> None:
+    script = (ROOT / "scripts/experiments/submit_moving_objects_temporal.sh").read_text()
+    assert "LATENT_DIMS=(4 8 16 32)" in script
+    assert "MAX_OBJECT_COUNTS=(4 8)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "ema_vicreg_temporal" in script
+    assert "grid" not in script.lower()
 
 
 def test_analyzer_keeps_bottleneck_and_object_axes_separate(tmp_path: Path) -> None:

@@ -33,6 +33,14 @@ KEYS = (
     "probe_latent_effective_rank",
     "train_prediction_loss",
 )
+DYNAMICS_KEYS = (
+    "dynamics_pixel_change_rate",
+    "dynamics_prediction_squared_error",
+    "dynamics_identity_squared_error",
+    "dynamics_prediction_gain",
+    "dynamics_predictor_win",
+    "dynamics_transition_to_variance_ratio",
+)
 
 
 def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
@@ -46,17 +54,26 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
         initial, final = rows[0], rows[-1]
         if int(final.get("step", 0)) <= 0:
             continue
-        runs.append(
-            {
-                "run": metrics_path.parent.name,
-                "latent_dim": int(final["latent_dim"]),
-                "max_objects": int(final["max_objects"]),
-                "seed": int(final["seed"]),
-                "step": int(final["step"]),
-                "absolute": {key: final.get(key) for key in KEYS},
-                "delta": {key: _delta(final.get(key), initial.get(key)) for key in KEYS},
-            }
-        )
+        run = {
+            "run": metrics_path.parent.name,
+            "latent_dim": int(final["latent_dim"]),
+            "max_objects": int(final["max_objects"]),
+            "seed": int(final["seed"]),
+            "step": int(final["step"]),
+            "absolute": {key: final.get(key) for key in KEYS},
+            "delta": {key: _delta(final.get(key), initial.get(key)) for key in KEYS},
+        }
+        dynamics_path = metrics_path.parent / "dynamics_eval_v1.json"
+        if dynamics_path.exists():
+            dynamics = json.loads(dynamics_path.read_text())
+            final_dynamics = dict(dynamics["final"])
+            final_dynamics["dynamics_predictor_win"] = float(
+                final_dynamics["dynamics_prediction_squared_error"]
+                < final_dynamics["dynamics_identity_squared_error"]
+            )
+            run["dynamics_final"] = {key: final_dynamics.get(key) for key in DYNAMICS_KEYS}
+            run["dynamics_delta"] = {key: dynamics["delta"].get(key) for key in DYNAMICS_KEYS}
+        runs.append(run)
     groups: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
     for run in runs:
         groups[(run["latent_dim"], run["max_objects"])].append(run)
@@ -72,6 +89,14 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             aggregate[mode] = {}
             for key in KEYS:
                 values = [member[mode][key] for member in members if member[mode][key] is not None]
+                aggregate[mode][key] = {
+                    "mean": mean(values) if values else None,
+                    "std": pstdev(values) if values else None,
+                }
+        for mode in ("dynamics_final", "dynamics_delta"):
+            aggregate[mode] = {}
+            for key in DYNAMICS_KEYS:
+                values = [member[mode][key] for member in members if mode in member and member[mode][key] is not None]
                 aggregate[mode][key] = {
                     "mean": mean(values) if values else None,
                     "std": pstdev(values) if values else None,
@@ -126,6 +151,28 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 rank=_mean(absolute["probe_latent_effective_rank"]),
             )
         )
+    lines.extend(
+        [
+            "",
+            "Final latent dynamics. Positive gain means the predictor beats identity persistence.",
+            "",
+            "| z | max objects | pixel change | predictor MSE | identity MSE | identity-predictor | wins | transition/variance |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summary["aggregates"]:
+        dynamics = row["dynamics_final"]
+        lines.append(
+            "| {z} | {objects} | {pixel} | {prediction} | {identity} | {gain} | {wins} | {ratio} |".format(
+                z=row["latent_dim"], objects=row["max_objects"],
+                pixel=_mean(dynamics["dynamics_pixel_change_rate"]),
+                prediction=_scientific(dynamics["dynamics_prediction_squared_error"]),
+                identity=_scientific(dynamics["dynamics_identity_squared_error"]),
+                gain=_scientific(dynamics["dynamics_prediction_gain"]),
+                wins=_mean(dynamics["dynamics_predictor_win"]),
+                ratio=_mean(dynamics["dynamics_transition_to_variance_ratio"]),
+            )
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -143,6 +190,10 @@ def _format(value: dict[str, float | None]) -> str:
 
 def _mean(value: dict[str, float | None]) -> str:
     return "" if value["mean"] is None else f"{value['mean']:.3f}"
+
+
+def _scientific(value: dict[str, float | None]) -> str:
+    return "" if value["mean"] is None else f"{value['mean']:.2e}"
 
 
 def _pair(values: dict[str, dict[str, float | None]], learned: str, raw: str) -> str:

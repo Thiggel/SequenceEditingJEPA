@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-11 10:29 CEST
+Last updated: 2026-07-11 11:14 CEST
 
 ## Moving-Object Bottleneck Smoke
 
@@ -9,6 +9,28 @@ step: job `3834574`, A40, completed `0:0` in 22s with 1482 MiB peak GPU memory.
 This validates generator/model/probe execution only. The corrected sampler
 keeps the chosen object count fixed across collision retries; an earlier local
 stress test exposed and removed a severe bias toward low-count scenes.
+
+## Moving-Object Bottleneck Result
+
+All 90 trainers `3834593`-`3834682` and 90 identity diagnostics
+`3834739`-`3834828` completed `0:0`. At `N=8`:
+
+| z | Count learned/raw | Shape R2 | Color R2 | Velocity R2 | Relation R2 | fg IoU | Predictor wins |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2 | `.249/.234` | `-.072` | `.057` | `-.008` | `-.234` | `.000` | `1/3` |
+| 4 | `.380/.241` | `.077` | `.209` | `.012` | `-.003` | `.000` | `1/3` |
+| 8 | `.424/.242` | `.082` | `.230` | `.003` | `.102` | `.000` | `1/3` |
+| 16 | `.548/.251` | `.163` | `.487` | `.002` | `.133` | `.000` | `0/3` |
+| 32 | `.580/.230` | `.191` | `.703` | `-.025` | `.116` | `.001` | `0/3` |
+| 64 | `.644/.232` | `.169` | `.794` | `-.050` | `.106` | `.005` | `0/3` |
+
+The model learns non-pixel static summaries, with different capacity optima for
+shape/relations versus count/color. It does not learn velocity or robustly
+outperform an identity latent rollout. Full tables are in the report repo at
+`assets/moving_objects/bottleneck_v1_summary.md`.
+
+Temporal-delta objective smoke `3834839` (`z=32`, `N=8`, one step) completed
+`0:0` on A40 in 12s. This validates the extra online-future encoder path only.
 
 ## Object Dynamics Prestage Result
 

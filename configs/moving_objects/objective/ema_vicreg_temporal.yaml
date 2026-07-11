@@ -1,5 +1,5 @@
-name: ema_vicreg
+name: ema_vicreg_temporal
 ema_decay: 0.99
 regularizer_weight: 0.05
-temporal_delta_weight: 0.0
+temporal_delta_weight: 0.1
 temporal_delta_target_std: 0.1
