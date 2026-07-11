@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-11 11:20 CEST
+Last updated: 2026-07-11 11:45 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -42,9 +42,15 @@ The metadata-free temporal-delta variance gate is implemented for
 `z={4,8,16,32}` x `N={4,8}` x three seeds (24 jobs). Largest-cell smoke
 `3834839` completed `0:0` on A40 in 12s.
 
-Update: all 24 temporal-delta jobs `3834849`-`3834872` are running on A40.
+The 24 temporal-delta jobs were submitted as `3834849`-`3834872`.
 Their manifest is `manifests/temporal_delta_v1_steps5000.tsv`; dedicated
 six-hour watchers are `3834873`-`3834892`.
+
+All 24 trainers and diagnostics `3834947`-`3834970` completed `0:0`. Only
+`z=4,N=8` passes the temporal gate: velocity R2 is positive in all seeds
+`.021/.013/.008`, and predictor MSE beats identity in all three. It retains
+count `.371`, shape R2 `.068`, relation R2 `.068`, and foreground IoU `.000`.
+This narrow high-load/small-state recipe is selected for trajectory transfer.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.

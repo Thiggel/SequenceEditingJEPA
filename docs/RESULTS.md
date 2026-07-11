@@ -32,6 +32,12 @@ outperform an identity latent rollout. Full tables are in the report repo at
 Temporal-delta objective smoke `3834839` (`z=32`, `N=8`, one step) completed
 `0:0` on A40 in 12s. This validates the extra online-future encoder path only.
 
+All temporal trainers `3834849`-`3834872` and diagnostics
+`3834947`-`3834970` completed `0:0`. `z=4,N=8` is the sole gate winner:
+velocity R2 `.021/.013/.008` and predictor-over-identity wins in all seeds.
+Larger z rows do not recover velocity and usually lose to identity. Full tables
+are in `assets/moving_objects/temporal_delta_v1_summary.md` in the report repo.
+
 ## Object Dynamics Prestage Result
 
 The 12-job `semantic_mix` base-objective prestage completed successfully on
