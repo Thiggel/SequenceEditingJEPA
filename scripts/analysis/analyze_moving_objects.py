@@ -59,6 +59,8 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             continue
         run = {
             "run": metrics_path.parent.name,
+            "data": str(final.get("data", "unknown")),
+            "objective": str(final.get("objective", "unknown")),
             "latent_dim": int(final["latent_dim"]),
             "max_objects": int(final["max_objects"]),
             "seed": int(final["seed"]),
@@ -77,12 +79,14 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             run["dynamics_final"] = {key: final_dynamics.get(key) for key in DYNAMICS_KEYS}
             run["dynamics_delta"] = {key: dynamics["delta"].get(key) for key in DYNAMICS_KEYS}
         runs.append(run)
-    groups: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    groups: dict[tuple[str, str, int, int], list[dict[str, Any]]] = defaultdict(list)
     for run in runs:
-        groups[(run["latent_dim"], run["max_objects"])].append(run)
+        groups[(run["data"], run["objective"], run["latent_dim"], run["max_objects"])].append(run)
     aggregates = []
-    for (latent_dim, max_objects), members in sorted(groups.items()):
+    for (data, objective, latent_dim, max_objects), members in sorted(groups.items()):
         aggregate: dict[str, Any] = {
+            "data": data,
+            "objective": objective,
             "latent_dim": latent_dim,
             "max_objects": max_objects,
             "n": len(members),
@@ -114,14 +118,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "Trained-minus-initial metrics; lower is better for MAE columns.",
         "",
-        "| z | max objects | n | dCount bal | dShape R2 | dVelocity R2 | dRelation MAE | dGrid fg IoU | rank |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| data | objective | z | max objects | n | dCount bal | dShape R2 | dVelocity R2 | dRelation MAE | dGrid fg IoU | rank |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summary["aggregates"]:
         delta = row["delta"]
         absolute = row["absolute"]
         lines.append(
-            "| {z} | {objects} | {n} | {count} | {shape} | {velocity} | {relation} | {grid} | {rank} |".format(
+            "| {data} | {objective} | {z} | {objects} | {n} | {count} | {shape} | {velocity} | {relation} | {grid} | {rank} |".format(
+                data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=row["max_objects"], n=row["n"],
                 count=_format(delta["probe_object_count_balanced_acc"]),
                 shape=_format(delta["probe_shape_count_r2"]),
@@ -136,14 +141,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final absolute learned/raw/one-step-rollout R2; count is learned/raw balanced accuracy.",
             "",
-            "| z | max objects | Count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | fg IoU | rank |",
-            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| data | objective | z | max objects | Count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | fg IoU | rank |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         absolute = row["absolute"]
         lines.append(
-            "| {z} | {objects} | {count} | {shape} | {color} | {velocity} | {angular} | {relation} | {grid} | {rank} |".format(
+            "| {data} | {objective} | {z} | {objects} | {count} | {shape} | {color} | {velocity} | {angular} | {relation} | {grid} | {rank} |".format(
+                data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=row["max_objects"],
                 count=_pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc"),
                 shape=_triple(absolute, "shape_count"),
@@ -160,14 +166,15 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final latent dynamics. Positive gain means the predictor beats identity persistence.",
             "",
-            "| z | max objects | pixel change | predictor MSE | identity MSE | identity-predictor | wins | transition/variance |",
-            "|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| data | objective | z | max objects | pixel change | predictor MSE | identity MSE | identity-predictor | wins | transition/variance |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         dynamics = row["dynamics_final"]
         lines.append(
-            "| {z} | {objects} | {pixel} | {prediction} | {identity} | {gain} | {wins} | {ratio} |".format(
+            "| {data} | {objective} | {z} | {objects} | {pixel} | {prediction} | {identity} | {gain} | {wins} | {ratio} |".format(
+                data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=row["max_objects"],
                 pixel=_mean(dynamics["dynamics_pixel_change_rate"]),
                 prediction=_scientific(dynamics["dynamics_prediction_squared_error"]),

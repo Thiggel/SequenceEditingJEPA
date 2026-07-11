@@ -199,19 +199,35 @@ def test_transfer_gate_pairs_base_and_temporal_single_cls_rows() -> None:
     assert "grid" not in script.lower()
 
 
-def test_analyzer_keeps_bottleneck_and_object_axes_separate(tmp_path: Path) -> None:
+def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_path: Path) -> None:
     run = tmp_path / "motion_n4_z8_test_seed1707"
     run.mkdir()
-    initial = {"step": 0, "latent_dim": 8, "max_objects": 4, "seed": 1707}
-    final = {"step": 5000, "latent_dim": 8, "max_objects": 4, "seed": 1707}
+    initial = {
+        "step": 0, "data": "reflected_motion", "objective": "ema_vicreg",
+        "latent_dim": 8, "max_objects": 4, "seed": 1707,
+    }
+    final = {**initial, "step": 5000}
     for index, key in enumerate(KEYS):
         initial[key] = float(index)
         final[key] = float(index) + 0.25
     (run / "metrics.jsonl").write_text("\n".join((json.dumps(initial), json.dumps(final))))
 
-    summary = analyze(tmp_path, {run.name})
+    transfer = tmp_path / "motion_n4_z8_transfer_seed1707"
+    transfer.mkdir()
+    transfer_initial = {**initial, "data": "wrapped_motion", "objective": "ema_vicreg_temporal"}
+    transfer_final = {**final, "data": "wrapped_motion", "objective": "ema_vicreg_temporal"}
+    (transfer / "metrics.jsonl").write_text(
+        "\n".join((json.dumps(transfer_initial), json.dumps(transfer_final)))
+    )
 
-    assert len(summary["runs"]) == 1
+    summary = analyze(tmp_path, {run.name, transfer.name})
+
+    assert len(summary["runs"]) == 2
+    assert len(summary["aggregates"]) == 2
+    assert {(row["data"], row["objective"]) for row in summary["aggregates"]} == {
+        ("reflected_motion", "ema_vicreg"),
+        ("wrapped_motion", "ema_vicreg_temporal"),
+    }
     assert summary["aggregates"][0]["latent_dim"] == 8
     assert summary["aggregates"][0]["max_objects"] == 4
     assert summary["aggregates"][0]["delta"][KEYS[0]]["mean"] == 0.25
