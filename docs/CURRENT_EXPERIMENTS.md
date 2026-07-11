@@ -95,6 +95,8 @@ Largest noisy-repair temporal smoke `3836318` (z32/N8, one step) completed
 Schema v4 adds color-indexed bound shape/position/velocity/angular/completion
 for latent, raw-frame, and rollout controls. Existing checkpoints can be
 reprobed through a manifest-driven matched-initialization evaluator.
+GPU v4 reprobe smoke `3836346` completed `0:0` in 14s; confirmation dynamics
+diagnostics are dependency-held jobs `3836351`-`3836404`.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.
