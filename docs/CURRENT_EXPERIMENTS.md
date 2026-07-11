@@ -81,6 +81,8 @@ Determinism pairs `3836199`-`3836202` completed `0:0`; both have exact model
 tensors (`max diff 0.0`), final metrics, and metric histories. Six-hour
 watchers are `3836203`-`3836206`. A 54-row deterministic confirmation across
 reflect/wrap/rotate, z4/z32, N4/N8, and paired z4 objectives is prepared.
+All trainers `3836223`-`3836276` started; six-hour watchers are
+`3836277`-`3836296`.
 
 Construction/completion/repair adapters are implemented for seven ordering
 families with visible-only semantic labels, explicit scene count, rollout

@@ -36,6 +36,8 @@ Capacity rankings are provisional because identical configs did not reproduce.
 New training defaults to deterministic cuBLAS, attention, and PyTorch kernels.
 Exactness jobs `3836199`-`3836202` pass; artifact:
 `../sequence-editing-report/assets/moving_objects/determinism_v1.json`.
+Confirmation manifest: `deterministic_confirmation_v1_steps5000.tsv`;
+trainers `3836223`-`3836276`, watchers `3836277`-`3836296`.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row
