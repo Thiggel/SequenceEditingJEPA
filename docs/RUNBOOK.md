@@ -42,6 +42,8 @@ Dependent diagnostics are `3836351`-`3836404`.
 The matched reconstruction-control launcher is
 `scripts/experiments/submit_moving_objects_reconstruction_confirmation.sh`
 and is dry-run by default (36 rows).
+Submitted controls are `3836464`-`3836499`, diagnostics `3836522`-`3836557`,
+and watchers `3836502`-`3836521`.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row

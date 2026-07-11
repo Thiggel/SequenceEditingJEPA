@@ -103,6 +103,8 @@ R2 is positive. The 5k result remains pending.
 A reconstruction-only single-CLS control is implemented and CPU-smoked. Its
 36 prepared rows match reflect/wrap/rotate, z4/z32, N4/N8, and three seeds;
 the pixel decoder does not introduce a grid latent.
+Smoke `3836463` completed `0:0`; trainers `3836464`-`3836499` are running,
+diagnostics are `3836522`-`3836557`, and watchers are `3836502`-`3836521`.
 
 The historical 486-job object phase remains unsubmitted, and its two launchers
 now exit as retired because they contain full-grid latent rows.
