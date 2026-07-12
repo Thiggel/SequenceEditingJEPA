@@ -98,12 +98,19 @@ all-seed predictor-below-identity. The matched 16-bit pair selects different
 factors: z4/q16 shape versus z8/q4 position. Bottleneck factorization matters,
 not just total bits.
 
-Hard occupancy/reconstruction controls use trainers `3844831`-`3844842`,
-dynamics `3845007`-`3845018`, probes `3845019`-`3845030`, and watchers
-`3845031`-`3845050`. Selected hard-rate transfer trainers
-`3844843`-`3845004` cross wrap, rotation, and seven sequence families; dynamics
-are `3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
-`3845376`-`3845395`. Eighteen wrapped rows run; later families are staged.
+Hard occupancy/reconstruction controls completed 12/12 trainers, dynamics, and
+probes `0:0`; artifact `rate_controls_v1_summary` has four groups. Neither
+control learns shape. Z8 reconstruction instead learns position (`.064`) and
+foreground (`.046` model IoU), so q16 shape survives both controls.
+
+Wrapped transfer completed 18/18 trainers/dynamics/probes `0:0`; partial
+artifact has six groups. Z4/q16, z8/q4, and z8/q16 learn shape at
+`.244/.261/.258`, while z8/q4 loses its reflected position signal. No hard
+wrapped row learns position, velocity, relations, or dynamics. Selected
+transfer trainers `3844843`-`3845004` continue with all 18 rotating rows
+running; seven sequence families remain staged. Dynamics are
+`3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
+`3845376`-`3845395`.
 
 Barrier watcher `3841802` completed `0:0`. V1 rate trainers are
 `3841787`-`3841798` and `3841803`-`3841898`. Dynamics are

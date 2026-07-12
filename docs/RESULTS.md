@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-12 23:43 CEST
+Last updated: 2026-07-13 00:54 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -13,6 +13,13 @@ velocity/relations or beats identity dynamics across seeds. Matched 16-bit
 z4/q16 selects shape while z8/q4 selects position, so bottleneck factorization
 matters beyond nominal capacity. Occupancy/reconstruction and nine-family
 trajectory controls are active; unique colors still limit the identity claim.
+
+Occupancy-only and hard reconstruction do not reproduce q16 shape. Hard
+reconstruction instead learns z8 position (`.064`) and foreground (`.046`
+model IoU), supporting a JEPA-specific shape effect within tested controls.
+Under wrapped motion, z4/q16 and z8/q16 retain shape, while z8/q4 changes from
+reflected position to wrapped shape (`.261`, minimum gain `+.0279`). No hard
+wrapped cell learns position, velocity, relations, or predictive dynamics.
 
 ## Corrected Sequence Result
 
