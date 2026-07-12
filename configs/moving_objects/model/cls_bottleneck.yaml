@@ -1,6 +1,7 @@
 name: cls_bottleneck
 token_dim: 64
 latent_dim: 16
+latent_quantization_levels: 0
 encoder_layers: 2
 encoder_heads: 4
 rollout_horizon: 4

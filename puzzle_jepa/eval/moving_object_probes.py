@@ -46,7 +46,7 @@ def evaluate_checkpoint_probes(
         **objective_cfg,
     ).to(device)
 
-    def probe() -> dict[str, float | int | str]:
+    def probe() -> dict[str, float | int | str | None]:
         torch.manual_seed(probe_seed)
         return run_moving_object_probes(
             model,
@@ -69,6 +69,8 @@ def evaluate_checkpoint_probes(
         "step": int(checkpoint["step"]),
         "seed": seed,
         "latent_dim": int(model.latent_dim),
+        "latent_quantization_levels": int(model.latent_quantization_levels),
+        "latent_capacity_bits": model.latent_capacity_bits,
         "max_objects": int(generator.spec.max_objects),
         "probe_seed": probe_seed,
         "initial": initial,

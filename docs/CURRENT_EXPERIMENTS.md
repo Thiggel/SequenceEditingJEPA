@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-12 10:39 CEST
+Last updated: 2026-07-12 11:14 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -36,7 +36,30 @@ The exact-N sequence confirmation is submitted: trainers
 probes `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
 `3841603`-`3841622`. Manifest `sequence_fixed_selected_v1_steps5000.tsv` has
 168 selected single-CLS rows, 24 per family across all seven trajectory
-orders. Later families are dependency-staged.
+orders. In the first object-blocked family, 3 trainers completed `0:0` and 21
+are running; the remaining 144 rows are dependency-staged.
+
+The true-rate control is also implemented and dependency-held behind the final
+trajectory stage. It applies straight-through hard quantization to the single
+CLS encoding, EMA targets, and every rollout state; matched continuous rows use
+the same strong-VICReg objective. The 108 rows cross
+`z={2,4,8}` x quantization levels `{0,2,4,16}` x exact
+`N={2,4,8}` x three seeds, giving hard capacities
+`{2,4,8,16,32}` bits plus continuous controls. Probe schema v6 now reports
+capacity, joint/coordinate entropy, unique codes, and usage.
+
+Naive hard quantization collapsed: weak one-step smoke `3841640` and
+strong-VICReg 500-step smoke `3841646` ended on one code. An explicit
+soft-assignment usage term fixed the training gate without exposing continuous
+states to prediction or probes. Corrected z8/q16/N8 smoke `3841658` completed
+`0:0` in 2m19s and reached 229/256 observable codes, joint entropy `7.75`
+bits, and coordinate entropy `29.93/32` bits after 200 steps.
+
+Rate trainers are `3841787`-`3841798` and `3841803`-`3841898`, held behind
+the final trajectory stage through barrier watcher `3841802`. Dynamics are
+`3841899`-`3842006`, v6 probes `3842007`-`3842114`, and six-hour watchers
+`3842115`-`3842134`. Manifest: `rate_bottleneck_v1_steps5000.tsv`. No rate
+row uses a grid of latent states.
 
 Latest decision: the complete deterministic reflected z x N matrix and
 balanced controls have 168 runs, 56 groups, three seeds, and complete v4 and

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean, pstdev
@@ -103,7 +104,13 @@ KEYS = (
     "model_reconstruction_foreground_iou",
     "probe_latent_std_mean",
     "probe_latent_effective_rank",
+    "probe_latent_capacity_bits",
+    "probe_latent_joint_entropy_bits",
+    "probe_latent_coordinate_entropy_bits",
+    "probe_latent_unique_codes",
+    "probe_latent_codebook_usage_fraction",
     "train_prediction_loss",
+    "train_quantization_usage_loss",
     "train_reconstruction_loss",
 )
 DYNAMICS_KEYS = (
@@ -145,8 +152,13 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
         run = {
             "run": metrics_path.parent.name,
             "data": str(final.get("data", "unknown")),
+            "model": str(final.get("model", "unknown")),
             "objective": str(final.get("objective", "unknown")),
             "latent_dim": int(final["latent_dim"]),
+            "latent_quantization_levels": int(
+                final.get("latent_quantization_levels", 0)
+            ),
+            "latent_capacity_bits": final.get("latent_capacity_bits"),
             "min_objects": int(final.get("min_objects", 1)),
             "max_objects": int(final["max_objects"]),
             "count_probe_informative": int(final.get("min_objects", 1))
@@ -183,23 +195,43 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             run["dynamics_final"] = {key: final_dynamics.get(key) for key in DYNAMICS_KEYS}
             run["dynamics_delta"] = {key: dynamics["delta"].get(key) for key in DYNAMICS_KEYS}
         runs.append(run)
-    groups: dict[tuple[str, str, int, int, int], list[dict[str, Any]]] = defaultdict(list)
+    groups: dict[
+        tuple[str, str, str, int, int, int, int], list[dict[str, Any]]
+    ] = defaultdict(list)
     for run in runs:
         groups[
             (
                 run["data"],
+                run["model"],
                 run["objective"],
                 run["latent_dim"],
+                run["latent_quantization_levels"],
                 run["min_objects"],
                 run["max_objects"],
             )
         ].append(run)
     aggregates = []
-    for (data, objective, latent_dim, min_objects, max_objects), members in sorted(groups.items()):
+    for (
+        data,
+        model,
+        objective,
+        latent_dim,
+        quantization_levels,
+        min_objects,
+        max_objects,
+    ), members in sorted(groups.items()):
+        capacity_bits = (
+            None
+            if quantization_levels == 0
+            else latent_dim * math.log2(quantization_levels)
+        )
         aggregate: dict[str, Any] = {
             "data": data,
+            "model": model,
             "objective": objective,
             "latent_dim": latent_dim,
+            "latent_quantization_levels": quantization_levels,
+            "latent_capacity_bits": capacity_bits,
             "min_objects": min_objects,
             "max_objects": max_objects,
             "count_probe_informative": min_objects < max_objects,
@@ -226,7 +258,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
                     "std": pstdev(values) if values else None,
                 }
         aggregates.append(aggregate)
-    return {"schema": "moving_objects_summary_v4", "runs": runs, "aggregates": aggregates}
+    return {"schema": "moving_objects_summary_v5", "runs": runs, "aggregates": aggregates}
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
@@ -235,16 +267,16 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "Trained-minus-initial metrics; lower is better for MAE columns.",
         "",
-        "| data | objective | z | object range | n | dCount bal | dShape R2 | dVelocity R2 | dRelation MAE | dGrid fg IoU | rank |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| data | objective | z/rate | object range | n | dCount bal | dShape R2 | dVelocity R2 | dRelation MAE | dGrid fg IoU | rank | joint H | codes |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summary["aggregates"]:
         delta = row["delta"]
         absolute = row["absolute"]
         lines.append(
-            "| {data} | {objective} | {z} | {objects} | {n} | {count} | {shape} | {velocity} | {relation} | {grid} | {rank} |".format(
+            "| {data} | {objective} | {z} | {objects} | {n} | {count} | {shape} | {velocity} | {relation} | {grid} | {rank} | {entropy} | {codes} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=_object_range(row), n=row["n"],
+                z=_latent_label(row), objects=_object_range(row), n=row["n"],
                 count=(
                     _format(delta["probe_object_count_balanced_acc"])
                     if row["count_probe_informative"]
@@ -255,6 +287,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 relation=_format(delta["probe_relations_mae"]),
                 grid=_format(delta["probe_grid_foreground_iou"]),
                 rank=_format(absolute["probe_latent_effective_rank"]),
+                entropy=_mean(absolute["probe_latent_joint_entropy_bits"]),
+                codes=_mean(absolute["probe_latent_unique_codes"]),
             )
         )
     lines.extend(
@@ -271,7 +305,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {probe_v6_n}/{probe_v5_n} | {shape_acc} | {shape_balanced} | {shape_majority} | {shape} | {velocity} | {observed_velocity} | {angular} | {position} | {completion} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=_object_range(row),
+                z=_latent_label(row), objects=_object_range(row),
                 probe_v5_n=row["probe_v5_n"],
                 probe_v6_n=row["probe_v6_n"],
                 shape_acc=_triple_suffix(absolute, "bound_shape", "acc"),
@@ -299,7 +333,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {half_slots} | {half_shape} | {half_balanced}/{half_majority} | {half_position} | {complete_slots} | {complete_shape} | {complete_balanced}/{complete_majority} | {complete_position} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=_object_range(row),
+                z=_latent_label(row), objects=_object_range(row),
                 half_slots=_mean(absolute["probe_bound_half_complete_slots"]),
                 half_shape=_triple_suffix(
                     absolute, "bound_shape", "acc_half_complete"
@@ -342,7 +376,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {count} | {scene} | {shape} | {color} | {velocity} | {angular} | {relation} | {completion} | {grid} | {model_grid} | {rank} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=_object_range(row),
+                z=_latent_label(row), objects=_object_range(row),
                 count=(
                     _pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc")
                     if row["count_probe_informative"]
@@ -382,7 +416,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {pixel} | {prediction} | {identity} | {gain} | {wins} | {ratio} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=_object_range(row),
+                z=_latent_label(row), objects=_object_range(row),
                 pixel=_mean(dynamics["dynamics_pixel_change_rate"]),
                 prediction=_scientific(dynamics["dynamics_prediction_squared_error"]),
                 identity=_scientific(dynamics["dynamics_identity_squared_error"]),
@@ -418,6 +452,15 @@ def _object_range(row: dict[str, Any]) -> str:
     minimum = int(row["min_objects"])
     maximum = int(row["max_objects"])
     return str(maximum) if minimum == maximum else f"{minimum}-{maximum}"
+
+
+def _latent_label(row: dict[str, Any]) -> str:
+    latent_dim = int(row["latent_dim"])
+    levels = int(row["latent_quantization_levels"])
+    if levels == 0:
+        return str(latent_dim)
+    bits = float(row["latent_capacity_bits"])
+    return f"{latent_dim}/q{levels}/{bits:g}b"
 
 
 def _pair(values: dict[str, dict[str, float | None]], learned: str, raw: str) -> str:

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-12 10:39 CEST
+Last updated: 2026-07-12 11:14 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -85,6 +85,14 @@ Submitted manifest `sequence_fixed_selected_v1_steps5000.tsv` has trainers
 `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
 `3841603`-`3841622`. It contains 168 exact-load single-CLS rows staged 24 per
 trajectory family.
+The rate-constrained launcher is
+`scripts/experiments/submit_moving_objects_rate_bottleneck.sh`. Manifest
+`rate_bottleneck_v1_steps5000.tsv` has trainers `3841787`-`3841798` and
+`3841803`-`3841898`, barrier `3841802`, dynamics
+`3841899`-`3842006`, probes `3842007`-`3842114`, and watchers
+`3842115`-`3842134`. All trainers are dependency-held behind the final exact
+trajectory stage. Use `RESUME=1` to append missing rows after interrupted
+submission without duplicating accepted jobs.
 Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
 completed `0:0` in 29s.
 Reprobe a manifest with `scripts/experiments/submit_moving_objects_probe_eval.sh`;

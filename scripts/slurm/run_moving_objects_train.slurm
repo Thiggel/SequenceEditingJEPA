@@ -20,12 +20,19 @@ RUN_SUFFIX="${RUN_SUFFIX:-bottleneck_grid}"
 OBJECTIVE_CONFIG="${OBJECTIVE_CONFIG:-ema_vicreg}"
 DATA_CONFIG="${DATA_CONFIG:-reflected_motion}"
 RUN_NAME="motion_n${MAX_OBJECTS}_z${LATENT_DIM}_${RUN_SUFFIX}_seed${SEED}"
+QUANTIZATION_ARGS=()
+if [[ -n "${LATENT_QUANTIZATION_LEVELS:-}" ]]; then
+  QUANTIZATION_ARGS=(
+    "model.latent_quantization_levels=${LATENT_QUANTIZATION_LEVELS}"
+  )
+fi
 
 python -m puzzle_jepa.train.moving_objects \
   "data=${DATA_CONFIG}" \
   "objective=${OBJECTIVE_CONFIG}" \
   "seed=${SEED}" \
   "model.latent_dim=${LATENT_DIM}" \
+  "${QUANTIZATION_ARGS[@]}" \
   "data.min_objects=${MIN_OBJECTS}" \
   "data.max_objects=${MAX_OBJECTS}" \
   "training.max_steps=${MAX_STEPS:-5000}" \

@@ -6,14 +6,20 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from puzzle_jepa.object_dynamics.losses import vicreg_regularizer
 from puzzle_jepa.moving_objects.batching import _pair_distance, sample_moving_object_batch
 from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingObjectSpec
-from puzzle_jepa.moving_objects.model import MovingObjectJEPA, balanced_reconstruction_loss
+from puzzle_jepa.moving_objects.model import (
+    MovingObjectJEPA,
+    balanced_reconstruction_loss,
+    latent_quantization_usage_loss,
+)
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
 from puzzle_jepa.moving_objects.probes import run_moving_object_dynamics_diagnostics
 from puzzle_jepa.moving_objects.probes import (
     _bound_metrics,
     _fit_slot_regressor,
+    _latent_code_metrics,
     _observed_color_velocity,
 )
 from scripts.analysis.analyze_moving_objects import KEYS, _manifest_run_names, analyze
@@ -221,6 +227,102 @@ def test_latent_dim_is_a_projection_not_the_visual_token_width() -> None:
     assert wide.encode(contexts).shape == (3, 16)
     assert small.encoder.token_dim == wide.encoder.token_dim == 32
     assert not hasattr(small, "latent_representation")
+
+
+def test_quantized_single_cls_is_discrete_through_encoding_and_rollout() -> None:
+    generator = MovingObjectGenerator(
+        MovingObjectSpec(grid_size=8, min_objects=2, max_objects=2, sequence_length=7)
+    )
+    batch = sample_moving_object_batch(
+        generator, np.random.default_rng(61), batch_size=4, horizon=2
+    )
+    model = MovingObjectJEPA(
+        grid_size=8,
+        token_dim=16,
+        latent_dim=4,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=2,
+        latent_quantization_levels=4,
+    )
+
+    output = model(batch)
+    current = model.encode(batch.contexts)
+    for values in (current, output.predictions, output.targets):
+        lattice_index = (values + 1.0) * 1.5
+        assert torch.allclose(lattice_index, lattice_index.round())
+        assert torch.all(values >= -1.0)
+        assert torch.all(values <= 1.0)
+
+    continuous_current = model.encoder(batch.contexts)
+    continuous_prediction = torch.tanh(
+        current + model.predictor(current)
+    )
+    expected_regularizer = vicreg_regularizer(
+        torch.cat([continuous_current, continuous_prediction], dim=0)
+    )
+    assert torch.allclose(output.regularizer_loss, expected_regularizer)
+
+    output.loss.backward()
+    assert model.encoder.project[1].weight.grad is not None
+    assert torch.count_nonzero(model.encoder.project[1].weight.grad) > 0
+    assert model.latent_capacity_bits == 8.0
+
+
+def test_zero_quantization_levels_is_an_exact_continuous_noop() -> None:
+    torch.manual_seed(67)
+    baseline = MovingObjectJEPA(
+        grid_size=8,
+        token_dim=16,
+        latent_dim=4,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=1,
+    )
+    explicit = MovingObjectJEPA(
+        grid_size=8,
+        token_dim=16,
+        latent_dim=4,
+        encoder_layers=1,
+        encoder_heads=4,
+        rollout_horizon=1,
+        latent_quantization_levels=0,
+    )
+    explicit.load_state_dict(baseline.state_dict())
+    contexts = torch.randint(0, 10, (3, 2, 8, 8))
+
+    assert torch.equal(baseline.encode(contexts), explicit.encode(contexts))
+    assert baseline.latent_capacity_bits is None
+
+
+def test_quantized_probe_reports_empirical_code_usage() -> None:
+    latents = torch.tensor(
+        [[-1.0, -1.0], [-1.0, 1.0], [1.0, -1.0], [1.0, 1.0]]
+    )
+    metrics = _latent_code_metrics(latents, quantization_levels=2)
+
+    assert metrics["probe_latent_capacity_bits"] == 2.0
+    assert metrics["probe_latent_joint_entropy_bits"] == 2.0
+    assert metrics["probe_latent_coordinate_entropy_bits"] == 2.0
+    assert metrics["probe_latent_unique_codes"] == 4
+    assert metrics["probe_latent_codebook_usage_fraction"] == 1.0
+
+
+def test_quantization_usage_loss_prefers_balanced_confident_codes() -> None:
+    collapsed = torch.full((16, 2), -0.9)
+    balanced = torch.tensor(
+        [[-1.0, -1.0], [-1.0, 1.0], [1.0, -1.0], [1.0, 1.0]]
+    ).repeat(4, 1)
+
+    collapsed_loss = latent_quantization_usage_loss(
+        collapsed, levels=2, temperature=0.5
+    )
+    balanced_loss = latent_quantization_usage_loss(
+        balanced, levels=2, temperature=0.5
+    )
+
+    assert float(balanced_loss) < 0.6
+    assert float(collapsed_loss) > float(balanced_loss) + 0.4
 
 
 def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
@@ -683,6 +785,46 @@ def test_fixed_sequence_confirmation_is_exact_load_and_evidence_selected() -> No
     assert "grid" not in script.lower()
 
 
+def test_rate_bottleneck_sweep_is_exact_load_and_single_cls_only() -> None:
+    script = (
+        ROOT / "scripts/experiments/submit_moving_objects_rate_bottleneck.sh"
+    ).read_text()
+    slurm = (ROOT / "scripts/slurm/run_moving_objects_train.slurm").read_text()
+    config = (ROOT / "configs/moving_objects/model/cls_bottleneck.yaml").read_text()
+    objective = (
+        ROOT / "configs/moving_objects/objective/ema_vicreg_strong.yaml"
+    ).read_text()
+    for row in (
+        '"2 0"',
+        '"2 2"',
+        '"2 4"',
+        '"2 16"',
+        '"4 0"',
+        '"4 2"',
+        '"4 4"',
+        '"4 16"',
+        '"8 0"',
+        '"8 2"',
+        '"8 4"',
+        '"8 16"',
+    ):
+        assert row in script
+    assert "OBJECT_COUNTS=(2 4 8)" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert 'MIN_OBJECTS="${object_count}" MAX_OBJECTS="${object_count}"' in script
+    assert 'LATENT_QUANTIZATION_LEVELS="${levels}"' in script
+    assert 'dependency_args=(--dependency="${DEPENDENCY}")' in script
+    assert 'RESUME:-0' in script
+    assert 'EXISTING_RUNS["${run_name}"]=1' in script
+    assert "OBJECTIVE_CONFIG=ema_vicreg_strong" in script
+    assert "regularizer_weight: 1.0" in objective
+    assert "quantization_usage_weight: 1.0" in objective
+    assert "108 rate-constrained exact-load single-CLS jobs" in script
+    assert "latent_quantization_levels: 0" in config
+    assert '"model.latent_quantization_levels=${LATENT_QUANTIZATION_LEVELS}"' in slurm
+    assert "grid" not in script.lower()
+
+
 def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_path: Path) -> None:
     run = tmp_path / "motion_n4_z8_test_seed1707"
     run.mkdir()
@@ -716,6 +858,40 @@ def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_pa
     assert summary["aggregates"][0]["max_objects"] == 4
     assert summary["aggregates"][0]["delta"][KEYS[0]]["mean"] == 0.25
     assert analyze(tmp_path, {"another_run"})["runs"] == []
+
+
+def test_analyzer_keeps_quantized_and_continuous_latents_separate(tmp_path: Path) -> None:
+    for levels in (0, 2, 4):
+        run = tmp_path / f"motion_n8_z4_q{levels}_seed1707"
+        run.mkdir()
+        initial = {
+            "step": 0,
+            "data": "reflected_motion",
+            "model": "cls_bottleneck",
+            "objective": "ema_vicreg",
+            "latent_dim": 4,
+            "latent_quantization_levels": levels,
+            "latent_capacity_bits": None if levels == 0 else 4 * np.log2(levels),
+            "min_objects": 8,
+            "max_objects": 8,
+            "seed": 1707,
+        }
+        final = {**initial, "step": 5000}
+        (run / "metrics.jsonl").write_text(
+            "\n".join((json.dumps(initial), json.dumps(final)))
+        )
+
+    summary = analyze(tmp_path)
+
+    assert len(summary["aggregates"]) == 3
+    assert {row["latent_quantization_levels"] for row in summary["aggregates"]} == {
+        0,
+        2,
+        4,
+    }
+    assert {
+        row["latent_capacity_bits"] for row in summary["aggregates"]
+    } == {None, 4.0, 8.0}
 
 
 def test_analyzer_keeps_exact_and_variable_object_loads_separate(tmp_path: Path) -> None:

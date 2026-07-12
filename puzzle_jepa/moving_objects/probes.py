@@ -42,7 +42,7 @@ def run_moving_object_probes(
     device: torch.device,
     steps: int,
     learning_rate: float,
-) -> dict[str, float | int | str]:
+) -> dict[str, float | int | str | None]:
     was_training = model.training
     model.eval()
     train = _collect(model, generator, rng, train_samples, batch_size, device)
@@ -165,8 +165,11 @@ def run_moving_object_probes(
     covariance = torch.cov(evaluate.latents.T) if len(evaluate.latents) > 1 else torch.zeros(1, device=device)
     eigenvalues = torch.linalg.eigvalsh(covariance.float()).clamp_min(0.0)
     effective_rank = _effective_rank(eigenvalues)
+    code_metrics = _latent_code_metrics(
+        evaluate.latents, model.latent_quantization_levels
+    )
     splits = _semantic_splits(shape_dim, generator.spec.num_colors - 1)
-    metrics: dict[str, float | int | str] = {
+    metrics: dict[str, float | int | str | None] = {
         "probe_schema": "moving_objects_v6",
         "probe_object_count_acc": latent_visible_count[0],
         "probe_object_count_balanced_acc": latent_visible_count[1],
@@ -188,6 +191,7 @@ def run_moving_object_probes(
         "probe_latent_std_mean": float(latent_std.mean()),
         "probe_latent_std_min": float(latent_std.min()),
         "probe_latent_effective_rank": effective_rank,
+        **code_metrics,
         **{f"probe_bound_{key}": value for key, value in bound_metrics.items()},
         **{f"raw_probe_bound_{key}": value for key, value in raw_bound_metrics.items()},
         **{f"probe_rollout_bound_{key}": value for key, value in rollout_bound_metrics.items()},
@@ -659,6 +663,49 @@ def _effective_rank(eigenvalues: torch.Tensor) -> float:
     probabilities = eigenvalues / total
     entropy = -(probabilities * probabilities.clamp_min(1.0e-12).log()).sum()
     return float(entropy.exp())
+
+
+def _latent_code_metrics(
+    latents: torch.Tensor, quantization_levels: int
+) -> dict[str, float | int | None]:
+    if quantization_levels == 0:
+        return {
+            "probe_latent_capacity_bits": None,
+            "probe_latent_joint_entropy_bits": None,
+            "probe_latent_coordinate_entropy_bits": None,
+            "probe_latent_unique_codes": None,
+            "probe_latent_codebook_usage_fraction": None,
+        }
+    codes = torch.round(
+        (latents + 1.0) * (quantization_levels - 1) / 2.0
+    ).long()
+    _, joint_counts = torch.unique(codes, dim=0, return_counts=True)
+    joint_entropy = _count_entropy_bits(joint_counts)
+    coordinate_entropy = sum(
+        _count_entropy_bits(
+            torch.bincount(codes[:, index], minlength=quantization_levels)
+        )
+        for index in range(codes.shape[1])
+    )
+    unique_codes = int(len(joint_counts))
+    possible_codes = quantization_levels ** codes.shape[1]
+    observable_codes = min(len(codes), possible_codes)
+    return {
+        "probe_latent_capacity_bits": float(
+            codes.shape[1] * np.log2(quantization_levels)
+        ),
+        "probe_latent_joint_entropy_bits": joint_entropy,
+        "probe_latent_coordinate_entropy_bits": coordinate_entropy,
+        "probe_latent_unique_codes": unique_codes,
+        "probe_latent_codebook_usage_fraction": unique_codes / observable_codes,
+    }
+
+
+def _count_entropy_bits(counts: torch.Tensor) -> float:
+    probabilities = counts.float()
+    probabilities = probabilities[probabilities > 0]
+    probabilities = probabilities / probabilities.sum()
+    return float(-(probabilities * probabilities.log2()).sum())
 
 
 def _r2_by_dimension(predicted: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -25,6 +26,7 @@ class MovingObjectOutput:
     prediction_loss: torch.Tensor
     regularizer_loss: torch.Tensor
     temporal_delta_loss: torch.Tensor
+    quantization_usage_loss: torch.Tensor
     reconstruction_loss: torch.Tensor
     predictions: torch.Tensor
     targets: torch.Tensor
@@ -93,6 +95,9 @@ class MovingObjectJEPA(nn.Module):
         temporal_delta_target_std: float = 0.1,
         prediction_weight: float = 1.0,
         reconstruction_weight: float = 0.0,
+        latent_quantization_levels: int = 0,
+        quantization_usage_weight: float = 0.0,
+        quantization_temperature: float = 0.5,
     ):
         super().__init__()
         if latent_dim <= 0:
@@ -105,10 +110,19 @@ class MovingObjectJEPA(nn.Module):
         self.temporal_delta_target_std = float(temporal_delta_target_std)
         self.prediction_weight = float(prediction_weight)
         self.reconstruction_weight = float(reconstruction_weight)
+        self.latent_quantization_levels = int(latent_quantization_levels)
+        self.quantization_usage_weight = float(quantization_usage_weight)
+        self.quantization_temperature = float(quantization_temperature)
         if min(self.temporal_delta_weight, self.prediction_weight, self.reconstruction_weight) < 0.0:
             raise ValueError("Objective weights must be nonnegative.")
+        if self.quantization_usage_weight < 0.0:
+            raise ValueError("Quantization usage weight must be nonnegative.")
+        if self.quantization_temperature <= 0.0:
+            raise ValueError("Quantization temperature must be positive.")
         if self.temporal_delta_target_std <= 0.0:
             raise ValueError("Temporal-delta target std must be positive.")
+        if self.latent_quantization_levels == 1 or self.latent_quantization_levels < 0:
+            raise ValueError("Latent quantization levels must be zero or at least two.")
         encoder_args = dict(
             grid_size=grid_size,
             num_colors=num_colors,
@@ -136,7 +150,28 @@ class MovingObjectJEPA(nn.Module):
         self.num_colors = int(num_colors)
 
     def encode(self, contexts: torch.Tensor, *, target: bool = False) -> torch.Tensor:
+        return self._apply_latent_bottleneck(
+            self._encode_continuous(contexts, target=target)
+        )
+
+    def _encode_continuous(
+        self, contexts: torch.Tensor, *, target: bool = False
+    ) -> torch.Tensor:
         return (self.target_encoder if target else self.encoder)(contexts)
+
+    @property
+    def latent_capacity_bits(self) -> float | None:
+        if self.latent_quantization_levels == 0:
+            return None
+        return self.latent_dim * math.log2(self.latent_quantization_levels)
+
+    def _apply_latent_bottleneck(self, latent: torch.Tensor) -> torch.Tensor:
+        levels = self.latent_quantization_levels
+        if levels == 0:
+            return latent
+        lattice = torch.round((latent + 1.0) * (levels - 1) / 2.0)
+        quantized = lattice * 2.0 / (levels - 1) - 1.0
+        return latent + (quantized - latent).detach()
 
     @torch.no_grad()
     def update_target_encoder(self) -> None:
@@ -145,21 +180,40 @@ class MovingObjectJEPA(nn.Module):
 
     def forward(self, batch: MovingObjectBatch) -> MovingObjectOutput:
         horizon = min(self.rollout_horizon, batch.future_contexts.shape[1])
-        current = self.encoder(batch.contexts)
+        continuous_current = self._encode_continuous(batch.contexts)
+        current = self._apply_latent_bottleneck(continuous_current)
         state = current
         with torch.no_grad():
             flat = batch.future_contexts[:, :horizon].flatten(0, 1)
-            targets = self.target_encoder(flat).reshape(len(state), horizon, self.latent_dim)
+            targets = self.encode(flat, target=True).reshape(
+                len(state), horizon, self.latent_dim
+            )
         predictions = []
+        continuous_predictions = []
         for _ in range(horizon):
-            state = torch.tanh(state + self.predictor(state))
+            continuous_state = torch.tanh(state + self.predictor(state))
+            state = self._apply_latent_bottleneck(continuous_state)
+            continuous_predictions.append(continuous_state)
             predictions.append(state)
         predicted = torch.stack(predictions, dim=1)
         prediction_loss = F.mse_loss(predicted, targets)
-        regularizer_loss = vicreg_regularizer(torch.cat([current, predicted[:, 0]], dim=0))
+        regularizer_loss = vicreg_regularizer(
+            torch.cat([continuous_current, continuous_predictions[0]], dim=0)
+        )
+        if (
+            self.latent_quantization_levels > 0
+            and self.quantization_usage_weight > 0.0
+        ):
+            quantization_usage_loss = latent_quantization_usage_loss(
+                continuous_current,
+                levels=self.latent_quantization_levels,
+                temperature=self.quantization_temperature,
+            )
+        else:
+            quantization_usage_loss = prediction_loss.detach() * 0.0
         if self.temporal_delta_weight > 0.0:
-            online_future = self.encoder(batch.future_contexts[:, 0])
-            temporal_delta = online_future - current
+            continuous_future = self._encode_continuous(batch.future_contexts[:, 0])
+            temporal_delta = continuous_future - continuous_current
             temporal_delta_loss = variance_loss(
                 temporal_delta, target_std=self.temporal_delta_target_std
             ) + 0.04 * covariance_loss(temporal_delta)
@@ -179,12 +233,38 @@ class MovingObjectJEPA(nn.Module):
                 self.prediction_weight * prediction_loss
                 + self.regularizer_weight * regularizer_loss
                 + self.temporal_delta_weight * temporal_delta_loss
+                + self.quantization_usage_weight * quantization_usage_loss
                 + self.reconstruction_weight * reconstruction_loss
             ),
             prediction_loss=prediction_loss,
             regularizer_loss=regularizer_loss,
             temporal_delta_loss=temporal_delta_loss,
+            quantization_usage_loss=quantization_usage_loss,
             reconstruction_loss=reconstruction_loss,
             predictions=predicted,
             targets=targets,
         )
+
+
+def latent_quantization_usage_loss(
+    latent: torch.Tensor, *, levels: int, temperature: float
+) -> torch.Tensor:
+    if latent.ndim != 2:
+        raise ValueError("Quantization usage loss expects [samples, features].")
+    if levels < 2:
+        raise ValueError("Quantization usage loss requires at least two levels.")
+    if temperature <= 0.0:
+        raise ValueError("Quantization temperature must be positive.")
+    scaled = (latent + 1.0) * (levels - 1) / 2.0
+    centers = torch.arange(levels, device=latent.device, dtype=latent.dtype)
+    logits = -(scaled.unsqueeze(-1) - centers).square() / temperature
+    assignments = logits.softmax(dim=-1)
+    marginal = assignments.mean(dim=0)
+    normalizer = math.log(levels)
+    marginal_entropy = -(
+        marginal * marginal.clamp_min(1.0e-12).log()
+    ).sum(dim=-1) / normalizer
+    conditional_entropy = -(
+        assignments * assignments.clamp_min(1.0e-12).log()
+    ).sum(dim=-1).mean(dim=0) / normalizer
+    return (1.0 - marginal_entropy + conditional_entropy).mean()

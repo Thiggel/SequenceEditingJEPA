@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-12 10:39 CEST
+Last updated: 2026-07-12 11:14 CEST
 
 ## Corrected Sequence Result
 
@@ -41,6 +41,20 @@ v5 probes `3840034`-`3840348`. The exact-load confirmation is active:
 trainers `3841078`-`3841245`, dynamics `3841266`-`3841433`, v6 probes
 `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
 `3841603`-`3841622`.
+
+## Rate-Constrained Bottleneck Gate
+
+Hard quantization is implemented on the single CLS encoding, EMA targets, and
+all rollout states. A naive 32-bit z8/q16 smoke collapsed to one code even with
+strong VICReg. The corrected objective adds a soft-assignment usage term while
+prediction and probes still consume only hard codes. GPU smoke `3841658`
+completed `0:0` and reached 229/256 observable codes, `7.75` bits joint
+entropy, and `29.93/32` summed coordinate entropy after 200 steps.
+
+The dependency-held 108-row matrix pairs quantized levels `2/4/16` with
+continuous level-0 controls under the same objective across z2/z4/z8, exact
+N2/N4/N8, and three seeds. Trainers are `3841787`-`3841798` and
+`3841803`-`3841898`; no row uses a grid latent.
 
 ## Deterministic Moving-Object Binding Result
 

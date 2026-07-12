@@ -21,11 +21,14 @@ After identifying a reproducible capacity transition, repeat the selected
 bottlenecks on other trajectory families. Do not submit any full-grid latent
 experiment.
 
-Dimension is not a literal information-rate constraint. If the exact-N grid
-still rejects the bottleneck hypothesis, test selected z2/z4/z8 cells with
-quantization/noise or an explicit rate penalty. Treat current relation probes
-as aggregate summaries; pair-specific relations and same-color identity need
-a permutation-aware extension before an object-level relation claim.
+Dimension is not a literal information-rate constraint. The active rate
+control hard-quantizes every encoded, target, and rollout CLS state. It crosses
+`z={2,4,8}`, levels `{2,4,16}`, exact `N={2,4,8}`, and three seeds, with
+matched level-0 continuous rows under the same strong-VICReg objective. This
+yields capacities from 2 to 32 bits. Require noncollapsed held-out joint and
+coordinate entropy before interpreting semantic probes. Treat current relation
+probes as aggregate summaries; pair-specific relations and same-color identity
+need a permutation-aware extension before an object-level relation claim.
 
 The first grid found static object summaries but no reliable velocity or
 predictor advantage over identity. Before transfer, add a metadata-free
