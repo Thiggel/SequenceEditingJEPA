@@ -665,6 +665,30 @@ def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_pa
     assert analyze(tmp_path, {"another_run"})["runs"] == []
 
 
+def test_analyzer_keeps_exact_and_variable_object_loads_separate(tmp_path: Path) -> None:
+    for name, minimum in (("variable", 1), ("fixed", 4)):
+        run = tmp_path / f"motion_n4_z8_{name}_seed1707"
+        run.mkdir()
+        initial = {
+            "step": 0,
+            "data": "reflected_motion",
+            "objective": "ema_vicreg",
+            "latent_dim": 8,
+            "min_objects": minimum,
+            "max_objects": 4,
+            "seed": 1707,
+        }
+        final = {**initial, "step": 5000}
+        (run / "metrics.jsonl").write_text(
+            "\n".join((json.dumps(initial), json.dumps(final)))
+        )
+
+    summary = analyze(tmp_path)
+
+    assert len(summary["aggregates"]) == 2
+    assert {row["min_objects"] for row in summary["aggregates"]} == {1, 4}
+
+
 def test_analyzer_prefers_matched_v5_reprobe_metrics(tmp_path: Path) -> None:
     run = tmp_path / "motion_n8_z4_reprobe_seed1707"
     run.mkdir()

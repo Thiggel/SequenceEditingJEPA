@@ -142,6 +142,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "data": str(final.get("data", "unknown")),
             "objective": str(final.get("objective", "unknown")),
             "latent_dim": int(final["latent_dim"]),
+            "min_objects": int(final.get("min_objects", 1)),
             "max_objects": int(final["max_objects"]),
             "seed": int(final["seed"]),
             "step": int(final["step"]),
@@ -175,15 +176,24 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             run["dynamics_final"] = {key: final_dynamics.get(key) for key in DYNAMICS_KEYS}
             run["dynamics_delta"] = {key: dynamics["delta"].get(key) for key in DYNAMICS_KEYS}
         runs.append(run)
-    groups: dict[tuple[str, str, int, int], list[dict[str, Any]]] = defaultdict(list)
+    groups: dict[tuple[str, str, int, int, int], list[dict[str, Any]]] = defaultdict(list)
     for run in runs:
-        groups[(run["data"], run["objective"], run["latent_dim"], run["max_objects"])].append(run)
+        groups[
+            (
+                run["data"],
+                run["objective"],
+                run["latent_dim"],
+                run["min_objects"],
+                run["max_objects"],
+            )
+        ].append(run)
     aggregates = []
-    for (data, objective, latent_dim, max_objects), members in sorted(groups.items()):
+    for (data, objective, latent_dim, min_objects, max_objects), members in sorted(groups.items()):
         aggregate: dict[str, Any] = {
             "data": data,
             "objective": objective,
             "latent_dim": latent_dim,
+            "min_objects": min_objects,
             "max_objects": max_objects,
             "n": len(members),
             "probe_v4_n": sum(member["probe_source"] == "probe_eval_v4.json" for member in members),
@@ -207,7 +217,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
                     "std": pstdev(values) if values else None,
                 }
         aggregates.append(aggregate)
-    return {"schema": "moving_objects_summary_v2", "runs": runs, "aggregates": aggregates}
+    return {"schema": "moving_objects_summary_v3", "runs": runs, "aggregates": aggregates}
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
@@ -216,7 +226,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "Trained-minus-initial metrics; lower is better for MAE columns.",
         "",
-        "| data | objective | z | max objects | n | dCount bal | dShape R2 | dVelocity R2 | dRelation MAE | dGrid fg IoU | rank |",
+        "| data | objective | z | object range | n | dCount bal | dShape R2 | dVelocity R2 | dRelation MAE | dGrid fg IoU | rank |",
         "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summary["aggregates"]:
@@ -225,7 +235,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {n} | {count} | {shape} | {velocity} | {relation} | {grid} | {rank} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=row["max_objects"], n=row["n"],
+                z=row["latent_dim"], objects=_object_range(row), n=row["n"],
                 count=_format(delta["probe_object_count_balanced_acc"]),
                 shape=_format(delta["probe_shape_count_r2"]),
                 velocity=_format(delta["probe_velocity_count_r2"]),
@@ -239,7 +249,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final color-indexed object binding, learned/raw/one-step-rollout.",
             "",
-            "| data | objective | z | max objects | v5 n | Shape acc | Shape balanced | Shape majority | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
+            "| data | objective | z | object range | v5 n | Shape acc | Shape balanced | Shape majority | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
@@ -248,7 +258,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {probe_v5_n} | {shape_acc} | {shape_balanced} | {shape_majority} | {shape} | {velocity} | {angular} | {position} | {completion} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=row["max_objects"],
+                z=row["latent_dim"], objects=_object_range(row),
                 probe_v5_n=row["probe_v5_n"],
                 shape_acc=_triple_suffix(absolute, "bound_shape", "acc"),
                 shape_balanced=_triple_suffix(absolute, "bound_shape", "balanced_acc"),
@@ -265,7 +275,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Completion-conditioned color-indexed binding, learned/raw/one-step-rollout.",
             "",
-            "| data | objective | z | max objects | >=50% slots | >=50% shape acc | >=50% balanced/majority | >=50% position R2 | complete slots | complete shape acc | complete balanced/majority | complete position R2 |",
+            "| data | objective | z | object range | >=50% slots | >=50% shape acc | >=50% balanced/majority | >=50% position R2 | complete slots | complete shape acc | complete balanced/majority | complete position R2 |",
             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
@@ -274,7 +284,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {half_slots} | {half_shape} | {half_balanced}/{half_majority} | {half_position} | {complete_slots} | {complete_shape} | {complete_balanced}/{complete_majority} | {complete_position} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=row["max_objects"],
+                z=row["latent_dim"], objects=_object_range(row),
                 half_slots=_mean(absolute["probe_bound_half_complete_slots"]),
                 half_shape=_triple_suffix(
                     absolute, "bound_shape", "acc_half_complete"
@@ -308,7 +318,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final absolute learned/raw/one-step-rollout R2; count is learned/raw balanced accuracy.",
             "",
-            "| data | objective | z | max objects | Visible count | Scene count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | Completion R2 | probe fg IoU | model recon fg IoU | rank |",
+            "| data | objective | z | object range | Visible count | Scene count | Shape R2 | Color R2 | Velocity R2 | Angular R2 | Relation R2 | Completion R2 | probe fg IoU | model recon fg IoU | rank |",
             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
@@ -317,7 +327,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {count} | {scene} | {shape} | {color} | {velocity} | {angular} | {relation} | {completion} | {grid} | {model_grid} | {rank} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=row["max_objects"],
+                z=row["latent_dim"], objects=_object_range(row),
                 count=_pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc"),
                 scene=_pair(
                     absolute,
@@ -340,7 +350,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final latent dynamics. Positive gain means the predictor beats identity persistence.",
             "",
-            "| data | objective | z | max objects | pixel change | predictor MSE | identity MSE | identity-predictor | wins | transition/variance |",
+            "| data | objective | z | object range | pixel change | predictor MSE | identity MSE | identity-predictor | wins | transition/variance |",
             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
@@ -349,7 +359,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
         lines.append(
             "| {data} | {objective} | {z} | {objects} | {pixel} | {prediction} | {identity} | {gain} | {wins} | {ratio} |".format(
                 data=row["data"], objective=row["objective"],
-                z=row["latent_dim"], objects=row["max_objects"],
+                z=row["latent_dim"], objects=_object_range(row),
                 pixel=_mean(dynamics["dynamics_pixel_change_rate"]),
                 prediction=_scientific(dynamics["dynamics_prediction_squared_error"]),
                 identity=_scientific(dynamics["dynamics_identity_squared_error"]),
@@ -379,6 +389,12 @@ def _mean(value: dict[str, float | None]) -> str:
 
 def _scientific(value: dict[str, float | None]) -> str:
     return "" if value["mean"] is None else f"{value['mean']:.2e}"
+
+
+def _object_range(row: dict[str, Any]) -> str:
+    minimum = int(row["min_objects"])
+    maximum = int(row["max_objects"])
+    return str(maximum) if minimum == maximum else f"{minimum}-{maximum}"
 
 
 def _pair(values: dict[str, dict[str, float | None]], learned: str, raw: str) -> str:

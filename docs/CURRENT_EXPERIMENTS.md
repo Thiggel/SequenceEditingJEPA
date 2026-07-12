@@ -20,7 +20,11 @@ Fixed `min_objects=max_objects=N` trainers are `3840351`-`3840440`, dependent
 dynamics `3840442`-`3840531`, v5 probes `3840532`-`3840621`, and six-hour
 watchers `3840622`-`3840641`. The 90 rows cross
 `z={2,4,8,16,32,64}` with exact `N={1,2,4,6,8}` at three seeds. No row uses a
-grid of latent states.
+grid of latent states. Count is constant and non-evidence in these rows; the
+analyzer groups by minimum and maximum count so exact and mixed loads cannot
+be pooled. Raw linear velocity controls are also negative, so current motion
+claims are limited to lack of linearly exposed velocity pending a direct
+displacement/nonlinear control.
 
 Latest decision: the complete deterministic reflected z x N matrix and
 balanced controls have 168 runs, 56 groups, three seeds, and complete v4 and
