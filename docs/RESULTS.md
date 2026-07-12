@@ -13,8 +13,8 @@ aggregate count/relations at z16/z32, while coherent blocked trajectories
 usually lose count. Some z32 JEPA rows gain weak complete-object position, but
 reconstruction is much stronger and shape remains at baseline. Exact fixed-N
 motion runs are active because the completed `N` axis was a `1..N` mixture.
-Raw linear velocity controls fail too, so absence of velocity information is
-not yet established.
+Raw linear velocity probes fail, while v6 color-centroid displacement reaches
+R2 `.74-.85`; the result is lack of linear latent exposure, not absent velocity.
 
 ## Full Bottleneck Result
 

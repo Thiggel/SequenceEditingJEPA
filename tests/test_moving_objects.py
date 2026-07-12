@@ -11,7 +11,11 @@ from puzzle_jepa.moving_objects.generator import MovingObjectGenerator, MovingOb
 from puzzle_jepa.moving_objects.model import MovingObjectJEPA, balanced_reconstruction_loss
 from puzzle_jepa.moving_objects.probes import run_moving_object_probes
 from puzzle_jepa.moving_objects.probes import run_moving_object_dynamics_diagnostics
-from puzzle_jepa.moving_objects.probes import _bound_metrics, _fit_slot_regressor
+from puzzle_jepa.moving_objects.probes import (
+    _bound_metrics,
+    _fit_slot_regressor,
+    _observed_color_velocity,
+)
 from scripts.analysis.analyze_moving_objects import KEYS, _manifest_run_names, analyze
 
 
@@ -271,6 +275,10 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
         "probe_bound_position_r2_complete",
         "raw_probe_bound_shape_acc",
         "probe_rollout_bound_shape_acc",
+        "raw_observed_bound_velocity_mae",
+        "raw_observed_bound_velocity_r2",
+        "raw_observed_bound_velocity_slots",
+        "raw_observed_stationary_fraction",
         "probe_grid_foreground_iou",
     ):
         assert np.isfinite(metrics[key])
@@ -419,6 +427,19 @@ def test_bound_shape_metrics_expose_imbalanced_completion_baseline() -> None:
     assert np.isclose(metrics["shape_majority_acc_complete"], 0.8)
 
 
+def test_observed_color_velocity_unwraps_boundary_motion() -> None:
+    contexts = torch.zeros(1, 2, 8, 8, dtype=torch.long)
+    contexts[0, 0, 2:4, 5:7] = 1
+    contexts[0, 1, 2:4, 0:2] = 1
+
+    velocity, present = _observed_color_velocity(
+        contexts, num_colors=3, boundary_mode="wrap", max_speed=2.0
+    )
+
+    assert present.tolist() == [[True, False]]
+    assert torch.allclose(velocity[0, 0], torch.tensor([0.0, 1.0]))
+
+
 def test_reconstruction_loss_balances_sparse_foreground_against_background() -> None:
     logits = torch.tensor(
         [
@@ -480,8 +501,8 @@ def test_bound_object_reprobe_is_manifest_driven_and_dependency_safe() -> None:
     slurm = (ROOT / "scripts/slurm/run_moving_objects_probe_eval.slurm").read_text()
     evaluator = (ROOT / "puzzle_jepa/eval/moving_object_probes.py").read_text()
     assert 'dependency_args=(--dependency="afterany:${job_id}")' in submit
-    assert "probe_eval_v5.json" in slurm
-    assert '"schema": "moving_objects_probe_eval_v5"' in evaluator
+    assert "probe_eval_v6.json" in slurm
+    assert '"schema": "moving_objects_probe_eval_v6"' in evaluator
     assert "run_moving_object_probes" in evaluator
 
 
@@ -689,7 +710,7 @@ def test_analyzer_keeps_exact_and_variable_object_loads_separate(tmp_path: Path)
     assert {row["min_objects"] for row in summary["aggregates"]} == {1, 4}
 
 
-def test_analyzer_prefers_matched_v5_reprobe_metrics(tmp_path: Path) -> None:
+def test_analyzer_prefers_latest_matched_reprobe_metrics(tmp_path: Path) -> None:
     run = tmp_path / "motion_n8_z4_reprobe_seed1707"
     run.mkdir()
     initial = {
@@ -723,14 +744,24 @@ def test_analyzer_prefers_matched_v5_reprobe_metrics(tmp_path: Path) -> None:
             }
         )
     )
+    (run / "probe_eval_v6.json").write_text(
+        json.dumps(
+            {
+                "schema": "moving_objects_probe_eval_v6",
+                "initial": {"probe_bound_shape_acc": 0.45},
+                "final": {"probe_bound_shape_acc": 0.95},
+            }
+        )
+    )
 
     summary = analyze(tmp_path, {run.name})
 
-    assert summary["runs"][0]["probe_source"] == "probe_eval_v5.json"
+    assert summary["runs"][0]["probe_source"] == "probe_eval_v6.json"
     assert summary["aggregates"][0]["probe_v4_n"] == 0
-    assert summary["aggregates"][0]["probe_v5_n"] == 1
-    assert summary["runs"][0]["absolute"]["probe_bound_shape_acc"] == 0.9
-    assert summary["runs"][0]["delta"]["probe_bound_shape_acc"] == 0.5
+    assert summary["aggregates"][0]["probe_v5_n"] == 0
+    assert summary["aggregates"][0]["probe_v6_n"] == 1
+    assert summary["runs"][0]["absolute"]["probe_bound_shape_acc"] == 0.95
+    assert np.isclose(summary["runs"][0]["delta"]["probe_bound_shape_acc"], 0.5)
     assert summary["runs"][0]["absolute"]["train_reconstruction_loss"] == 0.4
 
 

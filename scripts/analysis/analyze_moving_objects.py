@@ -94,6 +94,10 @@ KEYS = (
     "probe_bound_position_r2_complete",
     "raw_probe_bound_position_r2_complete",
     "probe_rollout_bound_position_r2_complete",
+    "raw_observed_bound_velocity_mae",
+    "raw_observed_bound_velocity_r2",
+    "raw_observed_bound_velocity_slots",
+    "raw_observed_stationary_fraction",
     "probe_grid_foreground_iou",
     "model_reconstruction_grid_acc",
     "model_reconstruction_foreground_iou",
@@ -127,6 +131,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             (
                 path
                 for path in (
+                    metrics_path.parent / "probe_eval_v6.json",
                     metrics_path.parent / "probe_eval_v5.json",
                     metrics_path.parent / "probe_eval_v4.json",
                 )
@@ -198,6 +203,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "n": len(members),
             "probe_v4_n": sum(member["probe_source"] == "probe_eval_v4.json" for member in members),
             "probe_v5_n": sum(member["probe_source"] == "probe_eval_v5.json" for member in members),
+            "probe_v6_n": sum(member["probe_source"] == "probe_eval_v6.json" for member in members),
             "seeds": sorted(member["seed"] for member in members),
         }
         for mode in ("absolute", "delta"):
@@ -217,7 +223,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
                     "std": pstdev(values) if values else None,
                 }
         aggregates.append(aggregate)
-    return {"schema": "moving_objects_summary_v3", "runs": runs, "aggregates": aggregates}
+    return {"schema": "moving_objects_summary_v4", "runs": runs, "aggregates": aggregates}
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
@@ -249,22 +255,24 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final color-indexed object binding, learned/raw/one-step-rollout.",
             "",
-            "| data | objective | z | object range | v5 n | Shape acc | Shape balanced | Shape majority | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| data | objective | z | object range | v6/v5 n | Shape acc | Shape balanced | Shape majority | Shape R2 | Velocity R2 | observed velocity R2 | Angular R2 | Position R2 | Completion R2 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         absolute = row["absolute"]
         lines.append(
-            "| {data} | {objective} | {z} | {objects} | {probe_v5_n} | {shape_acc} | {shape_balanced} | {shape_majority} | {shape} | {velocity} | {angular} | {position} | {completion} |".format(
+            "| {data} | {objective} | {z} | {objects} | {probe_v6_n}/{probe_v5_n} | {shape_acc} | {shape_balanced} | {shape_majority} | {shape} | {velocity} | {observed_velocity} | {angular} | {position} | {completion} |".format(
                 data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=_object_range(row),
                 probe_v5_n=row["probe_v5_n"],
+                probe_v6_n=row["probe_v6_n"],
                 shape_acc=_triple_suffix(absolute, "bound_shape", "acc"),
                 shape_balanced=_triple_suffix(absolute, "bound_shape", "balanced_acc"),
                 shape_majority=_triple_suffix(absolute, "bound_shape", "majority_acc"),
                 shape=_triple(absolute, "bound_shape"),
                 velocity=_triple(absolute, "bound_velocity"),
+                observed_velocity=_mean(absolute["raw_observed_bound_velocity_r2"]),
                 angular=_triple(absolute, "bound_angular_velocity"),
                 position=_triple(absolute, "bound_position"),
                 completion=_triple(absolute, "bound_completion"),

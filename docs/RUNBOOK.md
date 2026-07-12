@@ -65,7 +65,7 @@ empirical majority baselines. Artifact:
 The exact-load launcher is
 `scripts/experiments/submit_moving_objects_fixed_bottleneck.sh`. Active manifest
 `fixed_load_reflected_v1_steps5000.tsv` has trainers `3840351`-`3840440`,
-dynamics `3840442`-`3840531`, v5 probes `3840532`-`3840621`, and watchers
+dynamics `3840442`-`3840531`, probes `3840532`-`3840621`, and watchers
 `3840622`-`3840641`. It sets `min_objects=max_objects=N`.
 
 The unsubmitted sequence-family launcher is
@@ -76,7 +76,7 @@ matrix until capacity-transfer results select rows.
 Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
 completed `0:0` in 29s.
 Reprobe a manifest with `scripts/experiments/submit_moving_objects_probe_eval.sh`;
-each job writes `probe_eval_v5.json` beside its checkpoint and can depend on
+each job writes `probe_eval_v6.json` beside its checkpoint and can depend on
 its corresponding trainer with `DEPEND_ON_TRAIN=1`.
 
 ## Historical Object-Edit Surface

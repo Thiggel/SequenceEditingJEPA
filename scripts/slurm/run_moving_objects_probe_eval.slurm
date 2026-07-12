@@ -16,7 +16,7 @@ RUN_NAME="${RUN_NAME:?RUN_NAME is required}"
 RUN_ROOT="${PUZZLE_JEPA_WORK_ROOT}/runs/moving_objects/${RUN_NAME}"
 python -m puzzle_jepa.eval.moving_object_probes \
   --checkpoint "${RUN_ROOT}/checkpoint.pt" \
-  --output "${RUN_ROOT}/probe_eval_v5.json" \
+  --output "${RUN_ROOT}/probe_eval_v6.json" \
   --train-samples "${PROBE_TRAIN_SAMPLES:-512}" \
   --eval-samples "${PROBE_EVAL_SAMPLES:-256}" \
   --batch-size "${PROBE_BATCH_SIZE:-64}" \

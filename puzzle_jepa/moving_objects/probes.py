@@ -27,6 +27,8 @@ class _ProbeData:
     object_slot_present: torch.Tensor
     future_object_slots: torch.Tensor
     future_object_slot_present: torch.Tensor
+    observed_velocity: torch.Tensor
+    observed_velocity_present: torch.Tensor
 
 
 def run_moving_object_probes(
@@ -144,13 +146,28 @@ def run_moving_object_probes(
         learning_rate=learning_rate,
         standardize=False,
     )
+    observed_mask = evaluate.object_slot_present & evaluate.observed_velocity_present
+    observed_target = evaluate.object_slots[..., shape_dim : shape_dim + 2][observed_mask]
+    observed_velocity = evaluate.observed_velocity[observed_mask]
+    if observed_mask.any():
+        observed_velocity_mae = float((observed_velocity - observed_target).abs().mean())
+        observed_velocity_r2 = float(
+            _r2_by_dimension(observed_velocity, observed_target).mean()
+        )
+        observed_stationary_fraction = float(
+            observed_velocity.abs().sum(dim=1).eq(0).float().mean()
+        )
+    else:
+        observed_velocity_mae = 0.0
+        observed_velocity_r2 = 0.0
+        observed_stationary_fraction = 0.0
     latent_std = evaluate.latents.std(dim=0)
     covariance = torch.cov(evaluate.latents.T) if len(evaluate.latents) > 1 else torch.zeros(1, device=device)
     eigenvalues = torch.linalg.eigvalsh(covariance.float()).clamp_min(0.0)
     effective_rank = _effective_rank(eigenvalues)
     splits = _semantic_splits(shape_dim, generator.spec.num_colors - 1)
     metrics: dict[str, float | int | str] = {
-        "probe_schema": "moving_objects_v5",
+        "probe_schema": "moving_objects_v6",
         "probe_object_count_acc": latent_visible_count[0],
         "probe_object_count_balanced_acc": latent_visible_count[1],
         "raw_probe_object_count_acc": raw_visible_count[0],
@@ -174,6 +191,10 @@ def run_moving_object_probes(
         **{f"probe_bound_{key}": value for key, value in bound_metrics.items()},
         **{f"raw_probe_bound_{key}": value for key, value in raw_bound_metrics.items()},
         **{f"probe_rollout_bound_{key}": value for key, value in rollout_bound_metrics.items()},
+        "raw_observed_bound_velocity_mae": observed_velocity_mae,
+        "raw_observed_bound_velocity_r2": observed_velocity_r2,
+        "raw_observed_bound_velocity_slots": int(observed_mask.sum()),
+        "raw_observed_stationary_fraction": observed_stationary_fraction,
     }
     for name, index in splits.items():
         metrics[f"probe_{name}_mae"] = float(semantic_mae[index].mean())
@@ -252,7 +273,8 @@ def _collect(
         "semantic": [], "future_semantic": [],
         "grid": [], "rollout_latents": [], "object_slots": [],
         "object_slot_present": [], "future_object_slots": [],
-        "future_object_slot_present": []
+        "future_object_slot_present": [], "observed_velocity": [],
+        "observed_velocity_present": [],
     }
     remaining = samples
     while remaining:
@@ -297,8 +319,69 @@ def _collect(
         parts["object_slot_present"].append(batch.object_slot_present)
         parts["future_object_slots"].append(batch.future_object_slot_features)
         parts["future_object_slot_present"].append(batch.future_object_slot_present)
+        observed_velocity, observed_present = _observed_color_velocity(
+            batch.contexts,
+            num_colors=generator.spec.num_colors,
+            boundary_mode=generator.spec.boundary_mode,
+            max_speed=2.0,
+        )
+        parts["observed_velocity"].append(observed_velocity)
+        parts["observed_velocity_present"].append(observed_present)
         remaining -= size
     return _ProbeData(**{name: torch.cat(values) for name, values in parts.items()})
+
+
+def _observed_color_velocity(
+    contexts: torch.Tensor,
+    *,
+    num_colors: int,
+    boundary_mode: str,
+    max_speed: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if contexts.ndim != 4 or contexts.shape[1] != 2:
+        raise ValueError("Observed color velocity expects [B,2,H,W] contexts.")
+    if boundary_mode not in {"reflect", "wrap"}:
+        raise ValueError("boundary_mode must be 'reflect' or 'wrap'.")
+    if max_speed <= 0.0:
+        raise ValueError("max_speed must be positive.")
+    batch, _, height, width = contexts.shape
+    velocity = torch.zeros(batch, num_colors - 1, 2, device=contexts.device)
+    present = torch.zeros(batch, num_colors - 1, dtype=torch.bool, device=contexts.device)
+    row_coordinates = torch.arange(height, device=contexts.device).view(1, height, 1)
+    col_coordinates = torch.arange(width, device=contexts.device).view(1, 1, width)
+    for color in range(1, num_colors):
+        first = contexts[:, 0].eq(color)
+        second = contexts[:, 1].eq(color)
+        selected = first.flatten(1).any(dim=1) & second.flatten(1).any(dim=1)
+        if not selected.any():
+            continue
+        first_count = first.sum(dim=(1, 2)).clamp_min(1)
+        second_count = second.sum(dim=(1, 2)).clamp_min(1)
+        first_center = torch.stack(
+            (
+                (first * row_coordinates).sum(dim=(1, 2)) / first_count,
+                (first * col_coordinates).sum(dim=(1, 2)) / first_count,
+            ),
+            dim=1,
+        )
+        second_center = torch.stack(
+            (
+                (second * row_coordinates).sum(dim=(1, 2)) / second_count,
+                (second * col_coordinates).sum(dim=(1, 2)) / second_count,
+            ),
+            dim=1,
+        )
+        displacement = second_center - first_center
+        if boundary_mode == "wrap":
+            first_rows = first.any(dim=2).sum(dim=1)
+            first_cols = first.any(dim=1).sum(dim=1)
+            periods = torch.stack(
+                (height - first_rows + 1, width - first_cols + 1), dim=1
+            ).to(displacement.dtype)
+            displacement = torch.remainder(displacement + periods / 2.0, periods) - periods / 2.0
+        velocity[selected, color - 1] = displacement[selected] / max_speed
+        present[selected, color - 1] = True
+    return velocity, present
 
 
 def _fit_classifier(
