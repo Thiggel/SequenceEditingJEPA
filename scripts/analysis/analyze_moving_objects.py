@@ -149,6 +149,8 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "latent_dim": int(final["latent_dim"]),
             "min_objects": int(final.get("min_objects", 1)),
             "max_objects": int(final["max_objects"]),
+            "count_probe_informative": int(final.get("min_objects", 1))
+            < int(final["max_objects"]),
             "seed": int(final["seed"]),
             "step": int(final["step"]),
             "probe_source": probe_path.name if probe_path is not None else "metrics.jsonl",
@@ -200,6 +202,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "latent_dim": latent_dim,
             "min_objects": min_objects,
             "max_objects": max_objects,
+            "count_probe_informative": min_objects < max_objects,
             "n": len(members),
             "probe_v4_n": sum(member["probe_source"] == "probe_eval_v4.json" for member in members),
             "probe_v5_n": sum(member["probe_source"] == "probe_eval_v5.json" for member in members),
@@ -242,7 +245,11 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "| {data} | {objective} | {z} | {objects} | {n} | {count} | {shape} | {velocity} | {relation} | {grid} | {rank} |".format(
                 data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=_object_range(row), n=row["n"],
-                count=_format(delta["probe_object_count_balanced_acc"]),
+                count=(
+                    _format(delta["probe_object_count_balanced_acc"])
+                    if row["count_probe_informative"]
+                    else "constant"
+                ),
                 shape=_format(delta["probe_shape_count_r2"]),
                 velocity=_format(delta["probe_velocity_count_r2"]),
                 relation=_format(delta["probe_relations_mae"]),
@@ -336,11 +343,19 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "| {data} | {objective} | {z} | {objects} | {count} | {scene} | {shape} | {color} | {velocity} | {angular} | {relation} | {completion} | {grid} | {model_grid} | {rank} |".format(
                 data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=_object_range(row),
-                count=_pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc"),
-                scene=_pair(
-                    absolute,
-                    "probe_scene_object_count_balanced_acc",
-                    "raw_probe_scene_object_count_balanced_acc",
+                count=(
+                    _pair(absolute, "probe_object_count_balanced_acc", "raw_probe_object_count_balanced_acc")
+                    if row["count_probe_informative"]
+                    else "constant"
+                ),
+                scene=(
+                    _pair(
+                        absolute,
+                        "probe_scene_object_count_balanced_acc",
+                        "raw_probe_scene_object_count_balanced_acc",
+                    )
+                    if row["count_probe_informative"]
+                    else "constant"
                 ),
                 shape=_triple(absolute, "shape_count"),
                 color=_triple(absolute, "color_count"),

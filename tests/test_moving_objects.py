@@ -708,6 +708,10 @@ def test_analyzer_keeps_exact_and_variable_object_loads_separate(tmp_path: Path)
 
     assert len(summary["aggregates"]) == 2
     assert {row["min_objects"] for row in summary["aggregates"]} == {1, 4}
+    assert {
+        (row["min_objects"], row["count_probe_informative"])
+        for row in summary["aggregates"]
+    } == {(1, True), (4, False)}
 
 
 def test_analyzer_prefers_latest_matched_reprobe_metrics(tmp_path: Path) -> None:
