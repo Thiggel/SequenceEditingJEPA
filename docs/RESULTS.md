@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-12 09:34 CEST
+Last updated: 2026-07-12 10:39 CEST
 
 ## Corrected Sequence Result
 
@@ -11,10 +11,15 @@ majority baselines. No JEPA group passes balanced chance, trained gain, and
 majority in every seed. Interleaved/global-random trajectories improve
 aggregate count/relations at z16/z32, while coherent blocked trajectories
 usually lose count. Some z32 JEPA rows gain weak complete-object position, but
-reconstruction is much stronger and shape remains at baseline. Exact fixed-N
-motion runs are active because the completed `N` axis was a `1..N` mixture.
-Raw linear velocity probes fail, while v6 color-centroid displacement reaches
-R2 `.74-.85`; the result is lack of linear latent exposure, not absent velocity.
+reconstruction is much stronger and shape remains at baseline.
+
+The exact fixed-N reflected matrix is complete with 90 runs/30 groups and v6
+probes. z64/mixed `1..2` shape gain `+.081` falls to `+.001` at exact N=2
+with inconsistent seed signs. No exact-load group passes an all-seed learned
+shape, position, velocity, or relation gate; at exact N=8 every width loses
+balanced shape from initialization. Raw linear velocity probes fail, while v6
+color-centroid displacement reaches R2 `.768` at exact N=8, so velocity is
+observable but not linearly exposed in the CLS.
 
 ## Full Bottleneck Result
 
@@ -30,9 +35,12 @@ bound-position R2 `.389-.452` in every group/seed; z4 remains background-
 dominated. The capacity can encode layout, but JEPA discards it. Full artifact:
 `../sequence-editing-report/assets/moving_objects/deterministic_full_v2_summary.md`.
 
-The revised seven-family trajectory matrix is active: 315 trainers
-`3838208`-`3838522`, diagnostics `3838543`-`3838857`, bound probes
-`3838858`-`3839172`, and watchers `3838523`-`3838542`.
+The revised variable-load seven-family trajectory matrix is complete: 315
+trainers `3838208`-`3838522`, diagnostics `3838543`-`3838857`, and corrected
+v5 probes `3840034`-`3840348`. The exact-load confirmation is active:
+trainers `3841078`-`3841245`, dynamics `3841266`-`3841433`, v6 probes
+`3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
+`3841603`-`3841622`.
 
 ## Deterministic Moving-Object Binding Result
 

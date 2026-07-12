@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-12 09:34 CEST
+Last updated: 2026-07-12 10:39 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -15,27 +15,28 @@ shape win. Trajectory order changes count/relation and weak z32 position
 readout, but no family yields reliable factorized objects. Artifact:
 `../sequence-editing-report/assets/moving_objects/sequence_selected_v2_summary.md`.
 
-The prior `N` axis sampled `1..N`, so an exact-load correction is active.
-Fixed `min_objects=max_objects=N` trainers are `3840351`-`3840440`, dependent
-dynamics `3840442`-`3840531`, v5 probes `3840532`-`3840621`, and six-hour
-watchers `3840622`-`3840641`. The 90 rows cross
-`z={2,4,8,16,32,64}` with exact `N={1,2,4,6,8}` at three seeds. No row uses a
-grid of latent states. Count is constant and non-evidence in these rows; the
-analyzer groups by minimum and maximum count so exact and mixed loads cannot
-be pooled. Probe v6 adds a metadata-free color-centroid displacement control:
-reflected velocity R2 is `.74-.85`, so velocity is observable even though raw
-and latent linear probes fail. A bounded nonlinear probe remains open.
-V6 mixed-load reflected reprobes `3840816`-`3840905` completed `90/90` `0:0`.
-Artifact `../sequence-editing-report/assets/moving_objects/reflected_mixed_v6_summary.md`
-preserves only z64/N<=2 balanced shape (`.442`); position/velocity stay
-negative. Fixed-load v6 replacements for N=1,2,4 are
-`3840803`-`3840814`, `3840907`-`3840930`, and `3840934`-`3840951`; N=6,8
-follow their trainers because original dependency scripts were spooled as v5.
+The prior `N` axis sampled `1..N`. The exact
+`min_objects=max_objects=N` reflected correction is complete: all 90 trainers
+`3840351`-`3840440`, dynamics `3840442`-`3840531`, original probes
+`3840532`-`3840621`, and 90 v6 replacements completed `0:0`. Artifact
+`../sequence-editing-report/assets/moving_objects/fixed_load_reflected_v1_summary.md`
+has 90 runs/30 groups and three v6 seeds throughout. No row uses a grid of
+latent states; fixed-count accuracy is constant and non-evidence.
 
-The dry-run-only exact-N sequence confirmation is
-`scripts/experiments/submit_moving_objects_sequence_fixed_selected.sh`: 168
-selected single-CLS rows, 24 per family. Do not submit until the complete
-exact-motion matrix establishes additional trajectory-specific value.
+The exact comparison removes the mixed-load shape signal. z64/mixed `1..2`
+has balanced shape `.442` and trained gain `+.081`; z64/exact N=2 has `.394`
+but only `+.001` mean gain with inconsistent seed signs. No exact-load group
+passes an all-seed learned shape, position, velocity, or relation gate. At
+exact N=8 every z loses balanced shape from initialization; z64 has weak
+absolute position `.063` but delta `-.093` and velocity `-.045`. Direct
+color-centroid velocity remains observable at `R2=.768` for N=8.
+
+The exact-N sequence confirmation is submitted: trainers
+`3841078`-`3841245`, dependent dynamics `3841266`-`3841433`, dependent v6
+probes `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
+`3841603`-`3841622`. Manifest `sequence_fixed_selected_v1_steps5000.tsv` has
+168 selected single-CLS rows, 24 per family across all seven trajectory
+orders. Later families are dependency-staged.
 
 Latest decision: the complete deterministic reflected z x N matrix and
 balanced controls have 168 runs, 56 groups, three seeds, and complete v4 and

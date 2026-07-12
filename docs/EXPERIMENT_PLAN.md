@@ -70,10 +70,13 @@ relations, z32 JEPA versus valid reconstruction at N4/N6/N8, and z64/N2 shape
 across all seven construction/completion/repair trajectories. Do not submit the
 older 420-row ceiling.
 
-An exact-N selected confirmation is prepared as 168 dry-run rows, 24 per
-family. It keeps only z2/z4/z16 high-load, z4 temporal, z32 N4/N8 with a
-reconstruction control, and z64/N2. Submit it only if the completed exact
-motion gate leaves a trajectory-order question worth the added compute.
+The exact reflected matrix rejects bottleneck-pressure abstraction: no
+all-seed learned bound factor passes, and the mixed z64/`1..2` shape gain
+vanishes at exact N=2. This leaves trajectory order as the controlled question.
+The exact-N selected confirmation is submitted as 168 rows, 24 per family. It
+keeps z2/z4/z16 high-load, z4 temporal, z32 N4/N8 with a reconstruction
+control, and z64/N2. Interpret only all-seed trained-minus-initial gains against
+the correct empirical baselines.
 
 ## Strategic Reframing
 
