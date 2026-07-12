@@ -21,6 +21,12 @@ After identifying a reproducible capacity transition, repeat the selected
 bottlenecks on other trajectory families. Do not submit any full-grid latent
 experiment.
 
+Dimension is not a literal information-rate constraint. If the exact-N grid
+still rejects the bottleneck hypothesis, test selected z2/z4/z8 cells with
+quantization/noise or an explicit rate penalty. Treat current relation probes
+as aggregate summaries; pair-specific relations and same-color identity need
+a permutation-aware extension before an object-level relation claim.
+
 The first grid found static object summaries but no reliable velocity or
 predictor advantage over identity. Before transfer, add a metadata-free
 temporal-delta variance objective and gate it at `N={4,8}` and
@@ -63,6 +69,11 @@ family. It tests tight high-load, z4 count/relation and temporal rows, z16
 relations, z32 JEPA versus valid reconstruction at N4/N6/N8, and z64/N2 shape
 across all seven construction/completion/repair trajectories. Do not submit the
 older 420-row ceiling.
+
+An exact-N selected confirmation is prepared as 168 dry-run rows, 24 per
+family. It keeps only z2/z4/z16 high-load, z4 temporal, z32 N4/N8 with a
+reconstruction control, and z64/N2. Submit it only if the completed exact
+motion gate leaves a trajectory-order question worth the added compute.
 
 ## Strategic Reframing
 

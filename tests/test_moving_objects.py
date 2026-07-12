@@ -651,6 +651,38 @@ def test_selected_sequence_matrix_keeps_binding_load_and_control_axes() -> None:
     assert "grid" not in script.lower()
 
 
+def test_fixed_sequence_confirmation_is_exact_load_and_evidence_selected() -> None:
+    script = (
+        ROOT / "scripts/experiments/submit_moving_objects_sequence_fixed_selected.sh"
+    ).read_text()
+    for data in (
+        "object_blocked_build",
+        "frontier_build",
+        "random_within_object_build",
+        "interleaved_build",
+        "global_random_build",
+        "completion",
+        "noisy_repair",
+    ):
+        assert data in script
+    for row in (
+        '"2 8 ema_vicreg"',
+        '"4 8 ema_vicreg"',
+        '"4 8 ema_vicreg_temporal"',
+        '"16 8 ema_vicreg"',
+        '"32 4 ema_vicreg"',
+        '"32 8 ema_vicreg"',
+        '"32 8 reconstruction"',
+        '"64 2 ema_vicreg"',
+    ):
+        assert row in script
+    assert 'MIN_OBJECTS="${object_count}" MAX_OBJECTS="${object_count}"' in script
+    assert 'dependency_args=(--dependency="afterany:${previous_stage_ids}")' in script
+    assert "168 exact-load deterministic single-CLS jobs" in script
+    assert "24 jobs each" in script
+    assert "grid" not in script.lower()
+
+
 def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_path: Path) -> None:
     run = tmp_path / "motion_n4_z8_test_seed1707"
     run.mkdir()

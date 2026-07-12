@@ -28,8 +28,14 @@ and latent linear probes fail. A bounded nonlinear probe remains open.
 V6 mixed-load reflected reprobes `3840816`-`3840905` completed `90/90` `0:0`.
 Artifact `../sequence-editing-report/assets/moving_objects/reflected_mixed_v6_summary.md`
 preserves only z64/N<=2 balanced shape (`.442`); position/velocity stay
-negative. Early fixed-load v5 outputs are superseded by v6 jobs
-`3840803`-`3840814`.
+negative. Fixed-load v6 replacements for N=1,2,4 are
+`3840803`-`3840814`, `3840907`-`3840930`, and `3840934`-`3840951`; N=6,8
+follow their trainers because original dependency scripts were spooled as v5.
+
+The dry-run-only exact-N sequence confirmation is
+`scripts/experiments/submit_moving_objects_sequence_fixed_selected.sh`: 168
+selected single-CLS rows, 24 per family. Do not submit until the complete
+exact-motion matrix establishes additional trajectory-specific value.
 
 Latest decision: the complete deterministic reflected z x N matrix and
 balanced controls have 168 runs, 56 groups, three seeds, and complete v4 and

@@ -69,13 +69,18 @@ dynamics `3840442`-`3840531`, probes `3840532`-`3840621`, and watchers
 `3840622`-`3840641`. It sets `min_objects=max_objects=N`.
 Mixed-load reflected v6 reprobes `3840816`-`3840905` completed `0:0`; artifact
 `../sequence-editing-report/assets/moving_objects/reflected_mixed_v6_summary.md`.
-Early fixed-load v6 reprobes are `3840803`-`3840814`.
+Fixed-load v6 replacements for N=1,2,4 are `3840803`-`3840814`,
+`3840907`-`3840930`, and `3840934`-`3840951`. Original dependency probes were
+spooled as v5; submit N=6,8 replacements after their checkpoints complete.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row
 dry run covers seven construction/completion/repair families and stages each
 60-job family after the previous family completes. Do not submit the ceiling
 matrix until capacity-transfer results select rows.
+The smaller exact-N launcher is
+`scripts/experiments/submit_moving_objects_sequence_fixed_selected.sh`; it is
+dry-run only with 168 rows and must remain held until the exact-motion gate.
 Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
 completed `0:0` in 29s.
 Reprobe a manifest with `scripts/experiments/submit_moving_objects_probe_eval.sh`;
