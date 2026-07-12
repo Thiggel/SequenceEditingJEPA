@@ -849,6 +849,48 @@ def test_rate_bottleneck_sweep_is_exact_load_and_single_cls_only() -> None:
     assert "grid" not in script.lower()
 
 
+def test_rate_controls_isolate_occupancy_and_reconstruction_at_shape_cells() -> None:
+    script = (
+        ROOT / "scripts/experiments/submit_moving_objects_rate_controls.sh"
+    ).read_text()
+    for row in (
+        '"4 16 occupancy_rate_balanced"',
+        '"4 16 reconstruction_rate_balanced"',
+        '"8 16 occupancy_rate_balanced"',
+        '"8 16 reconstruction_rate_balanced"',
+    ):
+        assert row in script
+    assert "MIN_OBJECTS=8 MAX_OBJECTS=8" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert "12 hard-rate causal controls" in script
+    assert "grid" not in script.lower()
+
+
+def test_rate_transfer_crosses_selected_factors_and_all_other_trajectories() -> None:
+    script = (
+        ROOT / "scripts/experiments/submit_moving_objects_rate_transfer.sh"
+    ).read_text()
+    for data in (
+        "wrapped_motion",
+        "rotating_motion",
+        "object_blocked_build",
+        "frontier_build",
+        "random_within_object_build",
+        "interleaved_build",
+        "global_random_build",
+        "completion",
+        "noisy_repair",
+    ):
+        assert data in script
+    for row in ('"4 0"', '"4 16"', '"8 0"', '"8 2"', '"8 4"', '"8 16"'):
+        assert row in script
+    assert "MIN_OBJECTS=8 MAX_OBJECTS=8" in script
+    assert "SEEDS=(1707 2707 3707)" in script
+    assert 'dependency_args=(--dependency="afterany:${previous_stage_ids}")' in script
+    assert "162 selected hard-rate single-CLS jobs" in script
+    assert "grid" not in script.lower()
+
+
 def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_path: Path) -> None:
     run = tmp_path / "motion_n4_z8_test_seed1707"
     run.mkdir()

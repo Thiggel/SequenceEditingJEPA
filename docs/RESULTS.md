@@ -1,6 +1,18 @@
 # Results
 
-Last updated: 2026-07-12 22:11 CEST
+Last updated: 2026-07-12 23:43 CEST
+
+## Corrected Hard-Rate Result
+
+All 108 corrected reflected trainers, dynamics jobs, and v6 probes completed
+`0:0`; `rate_bottleneck_v2_summary` has 36 three-seed groups. Exact N8
+z4/q16 and z8/q16 learn color-indexed shape at balanced `.251/.254` versus
+`.212` majority, with positive trained and rollout gains in every seed. Z8/q2
+and z8/q4 instead learn weak position at R2 `.049/.063`. No hard cell learns
+velocity/relations or beats identity dynamics across seeds. Matched 16-bit
+z4/q16 selects shape while z8/q4 selects position, so bottleneck factorization
+matters beyond nominal capacity. Occupancy/reconstruction and nine-family
+trajectory controls are active; unique colors still limit the identity claim.
 
 ## Corrected Sequence Result
 

@@ -78,17 +78,32 @@ pooled-time VICReg leaked temporal shift into its variance estimate. V1 cannot
 answer the rate question.
 
 The repaired objective computes VICReg separately per state and adds balanced
-quantile occupancy with nonzero collapsed gradients. All 379 tests pass.
+quantile occupancy with nonzero collapsed gradients. All 381 tests pass.
 Validation jobs `3844323`-`3844334` cover z2/q2, z2/q4, z2/q16, and z8/q16,
 exact N8, three seeds, for 1k steps. All 12 completed `0:0` without collapse;
 minimum joint entropy is `.9996`, `2.094`, `4.229`, and `7.855` bits. Lower
 joint than coordinate entropy at z2 shows redundancy, so empirical entropy is
 part of the final capacity comparison.
 
-Matched v2 trainers are `3844346`-`3844453`, dynamics
-`3844454`-`3844561`, v6 probes `3844562`-`3844669`, and six-hour watchers
-`3844670`-`3844689`. Manifest `rate_bottleneck_v2_steps5000.tsv` has 108
-unique rows; 60 trainers run and 48 are resource-pending at 22:11 CEST.
+Matched v2 trainers `3844346`-`3844453`, dynamics
+`3844454`-`3844561`, and v6 probes `3844562`-`3844669` all completed 108/108
+`0:0`. Artifact `rate_bottleneck_v2_summary` has 108 runs/36 groups and
+regenerates byte-identically. No quantized seed collapses.
+
+At exact N8, z4/q16 and z8/q16 pass strict shape gates: balanced `.251/.254`
+versus `.212` majority, with minimum trained gains `+.0385/+.0107` and
+positive rollout gain in all seeds. Z8/q2 and z8/q4 instead pass weak position
+gates at mean R2 `.049/.063`. No hard cell passes velocity, relations, or
+all-seed predictor-below-identity. The matched 16-bit pair selects different
+factors: z4/q16 shape versus z8/q4 position. Bottleneck factorization matters,
+not just total bits.
+
+Hard occupancy/reconstruction controls use trainers `3844831`-`3844842`,
+dynamics `3845007`-`3845018`, probes `3845019`-`3845030`, and watchers
+`3845031`-`3845050`. Selected hard-rate transfer trainers
+`3844843`-`3845004` cross wrap, rotation, and seven sequence families; dynamics
+are `3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
+`3845376`-`3845395`. Eighteen wrapped rows run; later families are staged.
 
 Barrier watcher `3841802` completed `0:0`. V1 rate trainers are
 `3841787`-`3841798` and `3841803`-`3841898`. Dynamics are

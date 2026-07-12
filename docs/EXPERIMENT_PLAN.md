@@ -29,8 +29,10 @@ yields capacities from 2 to 32 bits. Require noncollapsed held-out joint and
 coordinate entropy before interpreting semantic probes. The v1
 marginal/conditional-entropy objective fails this gate because low-level rows
 collapse. The replacement computes VICReg per state and directly matches
-balanced pre-quantized coordinate quantiles; validate all seeds before the v2
-matrix. Treat current relation
+balanced pre-quantized coordinate quantiles. V2 selects q16 shape and z8 q2/q4
+position only at exact N8. Before calling shape JEPA-specific, compare hard
+occupancy-only and reconstruction controls. Repeat the selected factorization
+rows across wrap, rotation, and all seven sequence families. Treat current relation
 probes as aggregate summaries; pair-specific relations and same-color identity
 need a permutation-aware extension before an object-level relation claim.
 

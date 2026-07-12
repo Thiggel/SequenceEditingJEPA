@@ -1,0 +1,9 @@
+name: reconstruction_rate_balanced
+ema_decay: 0.99
+regularizer_weight: 1.0
+quantization_usage_weight: 1.0
+quantization_temperature: 0.5
+temporal_delta_weight: 0.0
+temporal_delta_target_std: 0.1
+prediction_weight: 0.0
+reconstruction_weight: 1.0
