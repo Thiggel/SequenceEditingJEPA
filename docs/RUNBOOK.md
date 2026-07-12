@@ -84,7 +84,8 @@ Submitted manifest `sequence_fixed_selected_v1_steps5000.tsv` has trainers
 `3841078`-`3841245`, dynamics `3841266`-`3841433`, v6 probes
 `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
 `3841603`-`3841622`. It contains 168 exact-load single-CLS rows staged 24 per
-trajectory family.
+trajectory family. Currently 150 trainers/dynamics/probes completed `0:0` and
+18 noisy-repair trainers are running.
 The rate-constrained launcher is
 `scripts/experiments/submit_moving_objects_rate_bottleneck.sh`. Manifest
 `rate_bottleneck_v1_steps5000.tsv` has trainers `3841787`-`3841798` and

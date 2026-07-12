@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-12 11:14 CEST
+Last updated: 2026-07-12 21:20 CEST
 
 ## Corrected Sequence Result
 
@@ -41,6 +41,16 @@ v5 probes `3840034`-`3840348`. The exact-load confirmation is active:
 trainers `3841078`-`3841245`, dynamics `3841266`-`3841433`, v6 probes
 `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
 `3841603`-`3841622`.
+
+At 150/168 complete rows, all six non-repair exact-load families are final.
+No configuration learns bound shape across all seeds. Position is different:
+z16/N8 passes the learned complete-position gate in 5/6 families, z32/N4 in
+5/6, and z32/N8 in 6/6. The matched variable-load counts were 0/6, 1/6, and
+4/6. Exact z64/N2 averages complete-position R2 `.367` versus `.061` for
+mixed `1..2`. Coherent object-blocked z32/N8 reaches `.203`, compared with
+`.052` for global-random pixels. Shape remains 0/6 everywhere and tight
+z2/z4 position stays negative. This is color-indexed compact geometry, not a
+factorized or permutation-invariant object representation.
 
 ## Rate-Constrained Bottleneck Gate
 

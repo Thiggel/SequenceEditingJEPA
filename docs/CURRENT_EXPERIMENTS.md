@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-12 11:14 CEST
+Last updated: 2026-07-12 21:20 CEST
 
 ## Moving-Object Bottleneck Grid
 
@@ -36,8 +36,20 @@ The exact-N sequence confirmation is submitted: trainers
 probes `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
 `3841603`-`3841622`. Manifest `sequence_fixed_selected_v1_steps5000.tsv` has
 168 selected single-CLS rows, 24 per family across all seven trajectory
-orders. In the first object-blocked family, 3 trainers completed `0:0` and 21
-are running; the remaining 144 rows are dependency-staged.
+orders. Trainers, dynamics, and v6 probes are complete for 150/168 rows:
+all six non-repair families plus two three-seed noisy-repair groups. The
+remaining 18 noisy-repair trainers are running, with no failures.
+
+The 150-run partial artifact has 50 complete three-seed groups. No JEPA group
+passes the all-seed learned shape gate. Exact load does, however, strengthen
+color-bound position: z16/N8 passes in 5/6 complete families, z32/N4 in 5/6,
+and z32/N8 in 6/6, versus 0/6, 1/6, and 4/6 in the matched prior `1..N`
+mixtures. Averaged over six families, z64/N2 complete-position R2 rises
+`.061 -> .367` and z32/N4 `.057 -> .190`. At z32/N8, object-blocked reaches
+`.203` while global-random reaches only `.052`. Foreground IoU remains low
+(`.061` average at z32/N8), so this is compact color-bound spatial coding, not
+a decoded pixel map. Tight z2/z4 states remain negative; unique colors still
+supply identity, so this is not permutation-invariant object abstraction.
 
 The true-rate control is also implemented and dependency-held behind the final
 trajectory stage. It applies straight-through hard quantization to the single
