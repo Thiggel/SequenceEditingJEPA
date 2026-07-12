@@ -67,6 +67,9 @@ The exact-load launcher is
 `fixed_load_reflected_v1_steps5000.tsv` has trainers `3840351`-`3840440`,
 dynamics `3840442`-`3840531`, probes `3840532`-`3840621`, and watchers
 `3840622`-`3840641`. It sets `min_objects=max_objects=N`.
+Mixed-load reflected v6 reprobes `3840816`-`3840905` completed `0:0`; artifact
+`../sequence-editing-report/assets/moving_objects/reflected_mixed_v6_summary.md`.
+Early fixed-load v6 reprobes are `3840803`-`3840814`.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row

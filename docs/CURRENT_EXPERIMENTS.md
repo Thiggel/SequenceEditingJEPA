@@ -25,6 +25,11 @@ analyzer groups by minimum and maximum count so exact and mixed loads cannot
 be pooled. Probe v6 adds a metadata-free color-centroid displacement control:
 reflected velocity R2 is `.74-.85`, so velocity is observable even though raw
 and latent linear probes fail. A bounded nonlinear probe remains open.
+V6 mixed-load reflected reprobes `3840816`-`3840905` completed `90/90` `0:0`.
+Artifact `../sequence-editing-report/assets/moving_objects/reflected_mixed_v6_summary.md`
+preserves only z64/N<=2 balanced shape (`.442`); position/velocity stay
+negative. Early fixed-load v5 outputs are superseded by v6 jobs
+`3840803`-`3840814`.
 
 Latest decision: the complete deterministic reflected z x N matrix and
 balanced controls have 168 runs, 56 groups, three seeds, and complete v4 and
