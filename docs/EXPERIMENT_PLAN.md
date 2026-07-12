@@ -80,7 +80,7 @@ The exact-N selected confirmation is submitted as 168 rows, 24 per family. It
 keeps z2/z4/z16 high-load, z4 temporal, z32 N4/N8 with a reconstruction
 control, and z64/N2. Interpret only all-seed trained-minus-initial gains against
 the correct empirical baselines.
-The six completed non-repair families already select a trajectory-dependent
+All seven completed families select a trajectory-dependent
 position effect rather than shape abstraction: wider exact-load rows learn
 color-bound position, strongest under coherent object construction and weakest
 under global-random pixels. Keep the same-color/permutation-aware probe as a
