@@ -57,10 +57,8 @@ averages only `.059` at z32/N8, so this is compact color-bound spatial coding,
 not a decoded pixel map. Tight z2/z4 states remain negative; unique colors
 still supply identity, so this is not permutation-invariant object abstraction.
 
-The true-rate control is also implemented and dependency-held behind the final
-trajectory stage. It applies straight-through hard quantization to the single
-CLS encoding, EMA targets, and every rollout state; matched continuous rows use
-the same strong-VICReg objective. The 108 rows cross
+The true-rate control applies straight-through hard quantization to the single
+CLS encoding, EMA targets, and every rollout state. The 108 rows cross
 `z={2,4,8}` x quantization levels `{0,2,4,16}` x exact
 `N={2,4,8}` x three seeds, giving hard capacities
 `{2,4,8,16,32}` bits plus continuous controls. Probe schema v6 now reports
@@ -68,14 +66,32 @@ capacity, joint/coordinate entropy, unique codes, and usage.
 
 Naive hard quantization collapsed: weak one-step smoke `3841640` and
 strong-VICReg 500-step smoke `3841646` ended on one code. An explicit
-soft-assignment usage term fixed the training gate without exposing continuous
-states to prediction or probes. Corrected z8/q16/N8 smoke `3841658` completed
+soft-assignment usage term passed a short gate without exposing continuous
+states to prediction or probes. Z8/q16/N8 smoke `3841658` completed
 `0:0` in 2m19s and reached 229/256 observable codes, joint entropy `7.75`
 bits, and coordinate entropy `29.93/32` bits after 200 steps.
 
-Barrier watcher `3841802` completed `0:0`. Of the rate trainers
-`3841787`-`3841798` and `3841803`-`3841898`, 102 are running and 6 are
-priority-pending. Dynamics are
+The 5k v1 rows invalidate that short smoke as a general gate: every completed
+z8/q2 and z8/q4 seed uses one code, and every inspected q2/q4 cell has a
+collapsed seed. Mutual-information usage is stationary at exact collapse, and
+pooled-time VICReg leaked temporal shift into its variance estimate. V1 cannot
+answer the rate question.
+
+The repaired objective computes VICReg separately per state and adds balanced
+quantile occupancy with nonzero collapsed gradients. All 379 tests pass.
+Validation jobs `3844323`-`3844334` cover z2/q2, z2/q4, z2/q16, and z8/q16,
+exact N8, three seeds, for 1k steps. All 12 completed `0:0` without collapse;
+minimum joint entropy is `.9996`, `2.094`, `4.229`, and `7.855` bits. Lower
+joint than coordinate entropy at z2 shows redundancy, so empirical entropy is
+part of the final capacity comparison.
+
+Matched v2 trainers are `3844346`-`3844453`, dynamics
+`3844454`-`3844561`, v6 probes `3844562`-`3844669`, and six-hour watchers
+`3844670`-`3844689`. Manifest `rate_bottleneck_v2_steps5000.tsv` has 108
+unique rows; 60 trainers run and 48 are resource-pending at 22:11 CEST.
+
+Barrier watcher `3841802` completed `0:0`. V1 rate trainers are
+`3841787`-`3841798` and `3841803`-`3841898`. Dynamics are
 `3841899`-`3842006`, v6 probes `3842007`-`3842114`, and six-hour watchers
 `3842115`-`3842134`. Manifest: `rate_bottleneck_v1_steps5000.tsv`. No rate
 row uses a grid of latent states.

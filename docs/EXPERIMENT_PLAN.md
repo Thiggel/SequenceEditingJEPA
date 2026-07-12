@@ -26,7 +26,11 @@ control hard-quantizes every encoded, target, and rollout CLS state. It crosses
 `z={2,4,8}`, levels `{2,4,16}`, exact `N={2,4,8}`, and three seeds, with
 matched level-0 continuous rows under the same strong-VICReg objective. This
 yields capacities from 2 to 32 bits. Require noncollapsed held-out joint and
-coordinate entropy before interpreting semantic probes. Treat current relation
+coordinate entropy before interpreting semantic probes. The v1
+marginal/conditional-entropy objective fails this gate because low-level rows
+collapse. The replacement computes VICReg per state and directly matches
+balanced pre-quantized coordinate quantiles; validate all seeds before the v2
+matrix. Treat current relation
 probes as aggregate summaries; pair-specific relations and same-color identity
 need a permutation-aware extension before an object-level relation claim.
 

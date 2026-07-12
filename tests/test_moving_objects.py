@@ -258,8 +258,9 @@ def test_quantized_single_cls_is_discrete_through_encoding_and_rollout() -> None
     continuous_prediction = torch.tanh(
         current + model.predictor(current)
     )
-    expected_regularizer = vicreg_regularizer(
-        torch.cat([continuous_current, continuous_prediction], dim=0)
+    expected_regularizer = 0.5 * (
+        vicreg_regularizer(continuous_current)
+        + vicreg_regularizer(continuous_prediction)
     )
     assert torch.allclose(output.regularizer_loss, expected_regularizer)
 
@@ -267,6 +268,18 @@ def test_quantized_single_cls_is_discrete_through_encoding_and_rollout() -> None
     assert model.encoder.project[1].weight.grad is not None
     assert torch.count_nonzero(model.encoder.project[1].weight.grad) > 0
     assert model.latent_capacity_bits == 8.0
+
+
+def test_vicreg_does_not_treat_between_time_shift_as_batch_variance() -> None:
+    current = torch.full((16, 2), -0.9)
+    predicted = torch.full((16, 2), 0.9)
+
+    pooled = vicreg_regularizer(torch.cat([current, predicted], dim=0))
+    per_state = 0.5 * (
+        vicreg_regularizer(current) + vicreg_regularizer(predicted)
+    )
+
+    assert float(per_state) > float(pooled) + 0.8
 
 
 def test_zero_quantization_levels_is_an_exact_continuous_noop() -> None:
@@ -323,6 +336,17 @@ def test_quantization_usage_loss_prefers_balanced_confident_codes() -> None:
 
     assert float(balanced_loss) < 0.6
     assert float(collapsed_loss) > float(balanced_loss) + 0.4
+
+
+def test_quantization_usage_loss_has_a_gradient_at_exact_collapse() -> None:
+    collapsed = torch.zeros(16, 2, requires_grad=True)
+
+    loss = latent_quantization_usage_loss(collapsed, levels=4, temperature=0.5)
+    loss.backward()
+
+    assert collapsed.grad is not None
+    assert torch.count_nonzero(collapsed.grad) == collapsed.numel()
+    assert torch.allclose(collapsed.grad.sum(dim=0), torch.zeros(2), atol=1.0e-7)
 
 
 def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
@@ -792,7 +816,7 @@ def test_rate_bottleneck_sweep_is_exact_load_and_single_cls_only() -> None:
     slurm = (ROOT / "scripts/slurm/run_moving_objects_train.slurm").read_text()
     config = (ROOT / "configs/moving_objects/model/cls_bottleneck.yaml").read_text()
     objective = (
-        ROOT / "configs/moving_objects/objective/ema_vicreg_strong.yaml"
+        ROOT / "configs/moving_objects/objective/ema_vicreg_rate_balanced.yaml"
     ).read_text()
     for row in (
         '"2 0"',
@@ -816,7 +840,7 @@ def test_rate_bottleneck_sweep_is_exact_load_and_single_cls_only() -> None:
     assert 'dependency_args=(--dependency="${DEPENDENCY}")' in script
     assert 'RESUME:-0' in script
     assert 'EXISTING_RUNS["${run_name}"]=1' in script
-    assert "OBJECTIVE_CONFIG=ema_vicreg_strong" in script
+    assert 'OBJECTIVE_CONFIG="${OBJECTIVE_CONFIG:-ema_vicreg_rate_balanced}"' in script
     assert "regularizer_weight: 1.0" in objective
     assert "quantization_usage_weight: 1.0" in objective
     assert "108 rate-constrained exact-load single-CLS jobs" in script

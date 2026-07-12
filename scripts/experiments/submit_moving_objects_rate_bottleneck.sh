@@ -22,6 +22,7 @@ ROWS=(
 OBJECT_COUNTS=(2 4 8)
 SEEDS=(1707 2707 3707)
 RUN_SUFFIX="${RUN_SUFFIX:-rate_bottleneck_v1_steps${MAX_STEPS:-5000}}"
+OBJECTIVE_CONFIG="${OBJECTIVE_CONFIG:-ema_vicreg_rate_balanced}"
 MANIFEST="${PUZZLE_JEPA_WORK_ROOT}/runs/moving_objects/manifests/${RUN_SUFFIX}.tsv"
 mkdir -p "$(dirname "${MANIFEST}")"
 
@@ -63,7 +64,7 @@ for row in "${ROWS[@]}"; do
           LATENT_DIM="${latent_dim}" \
           LATENT_QUANTIZATION_LEVELS="${levels}" \
           MIN_OBJECTS="${object_count}" MAX_OBJECTS="${object_count}" \
-          SEED="${seed}" DATA_CONFIG=reflected_motion OBJECTIVE_CONFIG=ema_vicreg_strong \
+          SEED="${seed}" DATA_CONFIG=reflected_motion OBJECTIVE_CONFIG="${OBJECTIVE_CONFIG}" \
           MAX_STEPS="${MAX_STEPS:-5000}" LEARNING_RATE="${LEARNING_RATE:-3.0e-4}" \
           RUN_SUFFIX="q${levels}_${RUN_SUFFIX}" \
             sbatch --parsable "${dependency_args[@]}" scripts/slurm/run_moving_objects_train.slurm

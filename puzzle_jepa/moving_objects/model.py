@@ -197,8 +197,9 @@ class MovingObjectJEPA(nn.Module):
             predictions.append(state)
         predicted = torch.stack(predictions, dim=1)
         prediction_loss = F.mse_loss(predicted, targets)
-        regularizer_loss = vicreg_regularizer(
-            torch.cat([continuous_current, continuous_predictions[0]], dim=0)
+        regularizer_loss = 0.5 * (
+            vicreg_regularizer(continuous_current)
+            + vicreg_regularizer(continuous_predictions[0])
         )
         if (
             self.latent_quantization_levels > 0
@@ -267,4 +268,30 @@ def latent_quantization_usage_loss(
     conditional_entropy = -(
         assignments * assignments.clamp_min(1.0e-12).log()
     ).sum(dim=-1).mean(dim=0) / normalizer
-    return (1.0 - marginal_entropy + conditional_entropy).mean()
+    information_loss = (1.0 - marginal_entropy + conditional_entropy).mean()
+
+    # Mutual information has zero first derivative when every sample has the
+    # same assignment. Match sorted coordinates to balanced interior lattice
+    # targets so an exactly collapsed batch still receives a separating signal.
+    sample_count = latent.shape[0]
+    target_indices = torch.div(
+        torch.arange(sample_count, device=latent.device) * levels,
+        sample_count,
+        rounding_mode="floor",
+    ).clamp_max(levels - 1)
+    target_levels = target_indices.to(latent.dtype) * 2.0 / (levels - 1) - 1.0
+    lattice_step = 2.0 / (levels - 1)
+    target_levels = torch.where(
+        target_indices == 0, target_levels + 0.25 * lattice_step, target_levels
+    )
+    target_levels = torch.where(
+        target_indices == levels - 1,
+        target_levels - 0.25 * lattice_step,
+        target_levels,
+    )
+    sorted_latent = latent.sort(dim=0).values
+    distribution_loss = F.mse_loss(
+        sorted_latent,
+        target_levels.unsqueeze(1).expand_as(sorted_latent),
+    )
+    return 0.1 * information_loss + distribution_loss

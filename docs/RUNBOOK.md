@@ -91,9 +91,13 @@ The rate-constrained launcher is
 `rate_bottleneck_v1_steps5000.tsv` has trainers `3841787`-`3841798` and
 `3841803`-`3841898`, barrier `3841802`, dynamics
 `3841899`-`3842006`, probes `3842007`-`3842114`, and watchers
-`3842115`-`3842134`. Barrier `3841802` completed; rate trainers are running or
-priority-pending. Use `RESUME=1` to append missing rows after interrupted
-submission without duplicating accepted jobs.
+`3842115`-`3842134`. Barrier `3841802` completed. V1 fails the code-usage gate
+and must not be interpreted by nominal bits. Corrected validation jobs are
+`3844323`-`3844334`, all complete `0:0` with nontrivial held-out codes.
+Replacement manifest `rate_bottleneck_v2_steps5000.tsv` has trainers
+`3844346`-`3844453`, dynamics `3844454`-`3844561`, probes
+`3844562`-`3844669`, and watchers `3844670`-`3844689`. Use `RESUME=1` to append
+missing rows after interrupted submission without duplicating accepted jobs.
 Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
 completed `0:0` in 29s.
 Reprobe a manifest with `scripts/experiments/submit_moving_objects_probe_eval.sh`;
