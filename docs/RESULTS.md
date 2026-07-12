@@ -1,6 +1,18 @@
 # Results
 
-Last updated: 2026-07-12 00:26 CEST
+Last updated: 2026-07-12 09:34 CEST
+
+## Corrected Sequence Result
+
+All 315 seven-family sequence runs have dynamics and v5 reprobes. The old
+completion-conditioned shape comparison used `.20` nominal chance despite
+empirical majority baselines `.22-.41`; v5 adds balanced accuracy and explicit
+majority baselines. No JEPA group passes balanced chance, trained gain, and
+majority in every seed. Interleaved/global-random trajectories improve
+aggregate count/relations at z16/z32, while coherent blocked trajectories
+usually lose count. Some z32 JEPA rows gain weak complete-object position, but
+reconstruction is much stronger and shape remains at baseline. Exact fixed-N
+motion runs are active because the completed `N` axis was a `1..N` mixture.
 
 ## Full Bottleneck Result
 

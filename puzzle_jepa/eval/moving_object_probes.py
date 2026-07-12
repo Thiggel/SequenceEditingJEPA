@@ -64,7 +64,7 @@ def evaluate_checkpoint_probes(
     model.load_state_dict(checkpoint["model"])
     final = probe()
     payload = {
-        "schema": "moving_objects_probe_eval_v4",
+        "schema": "moving_objects_probe_eval_v5",
         "run_name": checkpoint_path.parent.name,
         "step": int(checkpoint["step"]),
         "seed": seed,

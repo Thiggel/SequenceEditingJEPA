@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-12 00:53 CEST
+Last updated: 2026-07-12 09:34 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -56,10 +56,17 @@ The selected sequence launcher is
 `scripts/experiments/submit_moving_objects_sequence_selected.sh`. Active
 manifest `sequence_selected_v2_steps5000.tsv` has 315 trainers
 `3838208`-`3838522`, 45 dependency-staged jobs per family. Diagnostics are
-`3838543`-`3838857`, v4 probes `3838858`-`3839172`, and six-hour watchers
-`3838523`-`3838542`.
-The v4 probe payload now includes half-complete and complete-object shape and
-position metrics plus slot counts; these are required for sequence analysis.
+`3838543`-`3838857`, v4 probes `3838858`-`3839172`, and v5 correction probes
+`3840034`-`3840348`; all completed. V5 includes half-complete and
+complete-object shape/position, slot counts, balanced shape accuracy, and
+empirical majority baselines. Artifact:
+`../sequence-editing-report/assets/moving_objects/sequence_selected_v2_summary.md`.
+
+The exact-load launcher is
+`scripts/experiments/submit_moving_objects_fixed_bottleneck.sh`. Active manifest
+`fixed_load_reflected_v1_steps5000.tsv` has trainers `3840351`-`3840440`,
+dynamics `3840442`-`3840531`, v5 probes `3840532`-`3840621`, and watchers
+`3840622`-`3840641`. It sets `min_objects=max_objects=N`.
 
 The unsubmitted sequence-family launcher is
 `scripts/experiments/submit_moving_objects_sequence_transfer.sh`. Its 420-row
@@ -69,7 +76,7 @@ matrix until capacity-transfer results select rows.
 Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
 completed `0:0` in 29s.
 Reprobe a manifest with `scripts/experiments/submit_moving_objects_probe_eval.sh`;
-each job writes `probe_eval_v4.json` beside its checkpoint and can depend on
+each job writes `probe_eval_v5.json` beside its checkpoint and can depend on
 its corresponding trainer with `DEPEND_ON_TRAIN=1`.
 
 ## Historical Object-Edit Surface

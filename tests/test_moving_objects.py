@@ -255,13 +255,19 @@ def test_motion_jepa_forward_backward_and_frozen_probes() -> None:
         "probe_relations_mae",
         "probe_completion_r2",
         "probe_bound_shape_acc",
+        "probe_bound_shape_balanced_acc",
+        "probe_bound_shape_majority_acc",
         "probe_bound_velocity_r2",
         "probe_bound_position_r2",
         "probe_bound_half_complete_slots",
         "probe_bound_shape_acc_half_complete",
+        "probe_bound_shape_balanced_acc_half_complete",
+        "probe_bound_shape_majority_acc_half_complete",
         "probe_bound_position_r2_half_complete",
         "probe_bound_complete_slots",
         "probe_bound_shape_acc_complete",
+        "probe_bound_shape_balanced_acc_complete",
+        "probe_bound_shape_majority_acc_complete",
         "probe_bound_position_r2_complete",
         "raw_probe_bound_shape_acc",
         "probe_rollout_bound_shape_acc",
@@ -398,6 +404,21 @@ def test_bound_metrics_condition_shape_and_position_on_identifiable_completion()
     assert metrics["position_r2_complete"] == 0.0
 
 
+def test_bound_shape_metrics_expose_imbalanced_completion_baseline() -> None:
+    target = torch.zeros(1, 5, 11)
+    predicted = torch.zeros_like(target)
+    target[0, :4, 0] = 1.0
+    target[0, 4, 1] = 1.0
+    predicted[0, :, 0] = 1.0
+    target[0, :, 10] = 1.0
+
+    metrics = _bound_metrics(predicted, target, torch.ones(1, 5, dtype=torch.bool))
+
+    assert np.isclose(metrics["shape_acc_complete"], 0.8)
+    assert np.isclose(metrics["shape_balanced_acc_complete"], 0.5)
+    assert np.isclose(metrics["shape_majority_acc_complete"], 0.8)
+
+
 def test_reconstruction_loss_balances_sparse_foreground_against_background() -> None:
     logits = torch.tensor(
         [
@@ -427,6 +448,21 @@ def test_new_sweep_is_single_cls_only_and_crosses_requested_axes() -> None:
     assert "Retired:" in (ROOT / "scripts/experiments/submit_object_dynamics_trajectory_gate.sh").read_text()
 
 
+def test_fixed_load_sweep_sets_exact_object_count_for_every_cell() -> None:
+    submit = (
+        ROOT / "scripts/experiments/submit_moving_objects_fixed_bottleneck.sh"
+    ).read_text()
+    slurm = (ROOT / "scripts/slurm/run_moving_objects_train.slurm").read_text()
+    assert "LATENT_DIMS=(2 4 8 16 32 64)" in submit
+    assert "OBJECT_COUNTS=(1 2 4 6 8)" in submit
+    assert "SEEDS=(1707 2707 3707)" in submit
+    assert 'MIN_OBJECTS="${object_count}" MAX_OBJECTS="${object_count}"' in submit
+    assert "90 exact-load deterministic single-CLS jobs" in submit
+    assert 'MIN_OBJECTS="${MIN_OBJECTS:-1}"' in slurm
+    assert '"data.min_objects=${MIN_OBJECTS}"' in slurm
+    assert "grid" not in (submit + slurm).lower().replace("bottleneck_grid", "")
+
+
 def test_moving_training_defaults_to_deterministic_gpu_kernels() -> None:
     config = (ROOT / "configs/moving_objects/train.yaml").read_text()
     trainer = (ROOT / "puzzle_jepa/train/moving_objects.py").read_text()
@@ -444,8 +480,8 @@ def test_bound_object_reprobe_is_manifest_driven_and_dependency_safe() -> None:
     slurm = (ROOT / "scripts/slurm/run_moving_objects_probe_eval.slurm").read_text()
     evaluator = (ROOT / "puzzle_jepa/eval/moving_object_probes.py").read_text()
     assert 'dependency_args=(--dependency="afterany:${job_id}")' in submit
-    assert "probe_eval_v4.json" in slurm
-    assert '"schema": "moving_objects_probe_eval_v4"' in evaluator
+    assert "probe_eval_v5.json" in slurm
+    assert '"schema": "moving_objects_probe_eval_v5"' in evaluator
     assert "run_moving_object_probes" in evaluator
 
 
@@ -629,7 +665,7 @@ def test_analyzer_keeps_trajectory_objective_and_bottleneck_axes_separate(tmp_pa
     assert analyze(tmp_path, {"another_run"})["runs"] == []
 
 
-def test_analyzer_prefers_matched_v4_reprobe_metrics(tmp_path: Path) -> None:
+def test_analyzer_prefers_matched_v5_reprobe_metrics(tmp_path: Path) -> None:
     run = tmp_path / "motion_n8_z4_reprobe_seed1707"
     run.mkdir()
     initial = {
@@ -654,12 +690,22 @@ def test_analyzer_prefers_matched_v4_reprobe_metrics(tmp_path: Path) -> None:
             }
         )
     )
+    (run / "probe_eval_v5.json").write_text(
+        json.dumps(
+            {
+                "schema": "moving_objects_probe_eval_v5",
+                "initial": {"probe_bound_shape_acc": 0.4},
+                "final": {"probe_bound_shape_acc": 0.9},
+            }
+        )
+    )
 
     summary = analyze(tmp_path, {run.name})
 
-    assert summary["runs"][0]["probe_source"] == "probe_eval_v4.json"
-    assert summary["aggregates"][0]["probe_v4_n"] == 1
-    assert summary["runs"][0]["absolute"]["probe_bound_shape_acc"] == 0.8
+    assert summary["runs"][0]["probe_source"] == "probe_eval_v5.json"
+    assert summary["aggregates"][0]["probe_v4_n"] == 0
+    assert summary["aggregates"][0]["probe_v5_n"] == 1
+    assert summary["runs"][0]["absolute"]["probe_bound_shape_acc"] == 0.9
     assert summary["runs"][0]["delta"]["probe_bound_shape_acc"] == 0.5
     assert summary["runs"][0]["absolute"]["train_reconstruction_loss"] == 0.4
 

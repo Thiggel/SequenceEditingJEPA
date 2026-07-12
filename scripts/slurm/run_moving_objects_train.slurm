@@ -14,6 +14,7 @@ source scripts/env.sh
 
 LATENT_DIM="${LATENT_DIM:?LATENT_DIM is required}"
 MAX_OBJECTS="${MAX_OBJECTS:?MAX_OBJECTS is required}"
+MIN_OBJECTS="${MIN_OBJECTS:-1}"
 SEED="${SEED:?SEED is required}"
 RUN_SUFFIX="${RUN_SUFFIX:-bottleneck_grid}"
 OBJECTIVE_CONFIG="${OBJECTIVE_CONFIG:-ema_vicreg}"
@@ -25,7 +26,7 @@ python -m puzzle_jepa.train.moving_objects \
   "objective=${OBJECTIVE_CONFIG}" \
   "seed=${SEED}" \
   "model.latent_dim=${LATENT_DIM}" \
-  "data.min_objects=1" \
+  "data.min_objects=${MIN_OBJECTS}" \
   "data.max_objects=${MAX_OBJECTS}" \
   "training.max_steps=${MAX_STEPS:-5000}" \
   "training.learning_rate=${LEARNING_RATE:-3.0e-4}" \

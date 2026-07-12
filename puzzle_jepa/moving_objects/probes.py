@@ -150,7 +150,7 @@ def run_moving_object_probes(
     effective_rank = _effective_rank(eigenvalues)
     splits = _semantic_splits(shape_dim, generator.spec.num_colors - 1)
     metrics: dict[str, float | int | str] = {
-        "probe_schema": "moving_objects_v4",
+        "probe_schema": "moving_objects_v5",
         "probe_object_count_acc": latent_visible_count[0],
         "probe_object_count_balanced_acc": latent_visible_count[1],
         "raw_probe_object_count_acc": raw_visible_count[0],
@@ -499,20 +499,24 @@ def _bound_metrics(
         output[f"{name}_r2"] = float(r2)
     shape_prediction = predicted[..., :shape_dim][mask].argmax(dim=-1)
     shape_target = target[..., :shape_dim][mask].argmax(dim=-1)
-    output["shape_acc"] = float((shape_prediction == shape_target).float().mean())
+    output.update(_shape_classification_metrics(shape_prediction, shape_target))
     completion = target[..., shape_dim + 5]
     for name, threshold in (("half_complete", 0.5), ("complete", 1.0 - 1.0e-6)):
         selected = mask & (completion >= threshold)
         output[f"{name}_slots"] = float(selected.sum())
         if not selected.any():
             output[f"shape_acc_{name}"] = 0.0
+            output[f"shape_balanced_acc_{name}"] = 0.0
+            output[f"shape_majority_acc_{name}"] = 0.0
             output[f"position_r2_{name}"] = 0.0
             continue
         selected_shape_prediction = predicted[..., :shape_dim][selected].argmax(dim=-1)
         selected_shape_target = target[..., :shape_dim][selected].argmax(dim=-1)
-        output[f"shape_acc_{name}"] = float(
-            (selected_shape_prediction == selected_shape_target).float().mean()
+        shape_metrics = _shape_classification_metrics(
+            selected_shape_prediction, selected_shape_target
         )
+        for metric, value in shape_metrics.items():
+            output[f"{metric}_{name}"] = value
         position_slice = groups["position"]
         output[f"position_r2_{name}"] = float(
             _r2_by_dimension(
@@ -520,6 +524,22 @@ def _bound_metrics(
             ).mean()
         )
     return output
+
+
+def _shape_classification_metrics(
+    predicted: torch.Tensor, target: torch.Tensor
+) -> dict[str, float]:
+    accuracy = (predicted == target).float().mean()
+    recalls = []
+    for label in torch.unique(target):
+        selected = target == label
+        recalls.append((predicted[selected] == label).float().mean())
+    counts = torch.bincount(target, minlength=len(SHAPE_NAMES))
+    return {
+        "shape_acc": float(accuracy),
+        "shape_balanced_acc": float(torch.stack(recalls).mean()),
+        "shape_majority_acc": float(counts.max().float() / len(target)),
+    }
 
 
 def _standardize(train: torch.Tensor, evaluate: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

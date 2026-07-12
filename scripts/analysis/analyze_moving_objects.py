@@ -43,6 +43,12 @@ KEYS = (
     "probe_bound_shape_acc",
     "raw_probe_bound_shape_acc",
     "probe_rollout_bound_shape_acc",
+    "probe_bound_shape_balanced_acc",
+    "raw_probe_bound_shape_balanced_acc",
+    "probe_rollout_bound_shape_balanced_acc",
+    "probe_bound_shape_majority_acc",
+    "raw_probe_bound_shape_majority_acc",
+    "probe_rollout_bound_shape_majority_acc",
     "probe_bound_shape_r2",
     "raw_probe_bound_shape_r2",
     "probe_rollout_bound_shape_r2",
@@ -64,6 +70,12 @@ KEYS = (
     "probe_bound_shape_acc_half_complete",
     "raw_probe_bound_shape_acc_half_complete",
     "probe_rollout_bound_shape_acc_half_complete",
+    "probe_bound_shape_balanced_acc_half_complete",
+    "raw_probe_bound_shape_balanced_acc_half_complete",
+    "probe_rollout_bound_shape_balanced_acc_half_complete",
+    "probe_bound_shape_majority_acc_half_complete",
+    "raw_probe_bound_shape_majority_acc_half_complete",
+    "probe_rollout_bound_shape_majority_acc_half_complete",
     "probe_bound_position_r2_half_complete",
     "raw_probe_bound_position_r2_half_complete",
     "probe_rollout_bound_position_r2_half_complete",
@@ -73,6 +85,12 @@ KEYS = (
     "probe_bound_shape_acc_complete",
     "raw_probe_bound_shape_acc_complete",
     "probe_rollout_bound_shape_acc_complete",
+    "probe_bound_shape_balanced_acc_complete",
+    "raw_probe_bound_shape_balanced_acc_complete",
+    "probe_rollout_bound_shape_balanced_acc_complete",
+    "probe_bound_shape_majority_acc_complete",
+    "raw_probe_bound_shape_majority_acc_complete",
+    "probe_rollout_bound_shape_majority_acc_complete",
     "probe_bound_position_r2_complete",
     "raw_probe_bound_position_r2_complete",
     "probe_rollout_bound_position_r2_complete",
@@ -105,8 +123,18 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
         initial, final = rows[0], rows[-1]
         if int(final.get("step", 0)) <= 0:
             continue
-        probe_path = metrics_path.parent / "probe_eval_v4.json"
-        probe_payload = json.loads(probe_path.read_text()) if probe_path.exists() else None
+        probe_path = next(
+            (
+                path
+                for path in (
+                    metrics_path.parent / "probe_eval_v5.json",
+                    metrics_path.parent / "probe_eval_v4.json",
+                )
+                if path.exists()
+            ),
+            None,
+        )
+        probe_payload = json.loads(probe_path.read_text()) if probe_path is not None else None
         probe_initial = probe_payload["initial"] if probe_payload is not None else initial
         probe_final = probe_payload["final"] if probe_payload is not None else final
         run = {
@@ -117,7 +145,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "max_objects": int(final["max_objects"]),
             "seed": int(final["seed"]),
             "step": int(final["step"]),
-            "probe_source": "probe_eval_v4.json" if probe_payload is not None else "metrics.jsonl",
+            "probe_source": probe_path.name if probe_path is not None else "metrics.jsonl",
             "absolute": {
                 key: (
                     probe_final.get(key, final.get(key))
@@ -159,6 +187,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
             "max_objects": max_objects,
             "n": len(members),
             "probe_v4_n": sum(member["probe_source"] == "probe_eval_v4.json" for member in members),
+            "probe_v5_n": sum(member["probe_source"] == "probe_eval_v5.json" for member in members),
             "seeds": sorted(member["seed"] for member in members),
         }
         for mode in ("absolute", "delta"):
@@ -178,7 +207,7 @@ def analyze(root: Path, run_names: set[str] | None = None) -> dict[str, Any]:
                     "std": pstdev(values) if values else None,
                 }
         aggregates.append(aggregate)
-    return {"schema": "moving_objects_summary_v1", "runs": runs, "aggregates": aggregates}
+    return {"schema": "moving_objects_summary_v2", "runs": runs, "aggregates": aggregates}
 
 
 def render_markdown(summary: dict[str, Any]) -> str:
@@ -210,18 +239,20 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Final color-indexed object binding, learned/raw/one-step-rollout.",
             "",
-            "| data | objective | z | max objects | v4 n | Shape acc | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| data | objective | z | max objects | v5 n | Shape acc | Shape balanced | Shape majority | Shape R2 | Velocity R2 | Angular R2 | Position R2 | Completion R2 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         absolute = row["absolute"]
         lines.append(
-            "| {data} | {objective} | {z} | {objects} | {probe_v4_n} | {shape_acc} | {shape} | {velocity} | {angular} | {position} | {completion} |".format(
+            "| {data} | {objective} | {z} | {objects} | {probe_v5_n} | {shape_acc} | {shape_balanced} | {shape_majority} | {shape} | {velocity} | {angular} | {position} | {completion} |".format(
                 data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=row["max_objects"],
-                probe_v4_n=row["probe_v4_n"],
+                probe_v5_n=row["probe_v5_n"],
                 shape_acc=_triple_suffix(absolute, "bound_shape", "acc"),
+                shape_balanced=_triple_suffix(absolute, "bound_shape", "balanced_acc"),
+                shape_majority=_triple_suffix(absolute, "bound_shape", "majority_acc"),
                 shape=_triple(absolute, "bound_shape"),
                 velocity=_triple(absolute, "bound_velocity"),
                 angular=_triple(absolute, "bound_angular_velocity"),
@@ -234,19 +265,25 @@ def render_markdown(summary: dict[str, Any]) -> str:
             "",
             "Completion-conditioned color-indexed binding, learned/raw/one-step-rollout.",
             "",
-            "| data | objective | z | max objects | >=50% slots | >=50% shape acc | >=50% position R2 | complete slots | complete shape acc | complete position R2 |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "| data | objective | z | max objects | >=50% slots | >=50% shape acc | >=50% balanced/majority | >=50% position R2 | complete slots | complete shape acc | complete balanced/majority | complete position R2 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
     for row in summary["aggregates"]:
         absolute = row["absolute"]
         lines.append(
-            "| {data} | {objective} | {z} | {objects} | {half_slots} | {half_shape} | {half_position} | {complete_slots} | {complete_shape} | {complete_position} |".format(
+            "| {data} | {objective} | {z} | {objects} | {half_slots} | {half_shape} | {half_balanced}/{half_majority} | {half_position} | {complete_slots} | {complete_shape} | {complete_balanced}/{complete_majority} | {complete_position} |".format(
                 data=row["data"], objective=row["objective"],
                 z=row["latent_dim"], objects=row["max_objects"],
                 half_slots=_mean(absolute["probe_bound_half_complete_slots"]),
                 half_shape=_triple_suffix(
                     absolute, "bound_shape", "acc_half_complete"
+                ),
+                half_balanced=_triple_suffix(
+                    absolute, "bound_shape", "balanced_acc_half_complete"
+                ),
+                half_majority=_triple_suffix(
+                    absolute, "bound_shape", "majority_acc_half_complete"
                 ),
                 half_position=_triple_suffix(
                     absolute, "bound_position", "r2_half_complete"
@@ -254,6 +291,12 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 complete_slots=_mean(absolute["probe_bound_complete_slots"]),
                 complete_shape=_triple_suffix(
                     absolute, "bound_shape", "acc_complete"
+                ),
+                complete_balanced=_triple_suffix(
+                    absolute, "bound_shape", "balanced_acc_complete"
+                ),
+                complete_majority=_triple_suffix(
+                    absolute, "bound_shape", "majority_acc_complete"
                 ),
                 complete_position=_triple_suffix(
                     absolute, "bound_position", "r2_complete"

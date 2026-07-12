@@ -2,9 +2,25 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-12 00:53 CEST
+Last updated: 2026-07-12 09:34 CEST
 
 ## Moving-Object Bottleneck Grid
+
+The 315-run seven-family sequence matrix is complete, including dynamics and
+matched v5 reprobes. V5 jobs `3840034`-`3840348` completed `315/315` `0:0`.
+Completion-conditioned ordinary shape accuracy was confounded by shape-area
+and ordering imbalance: empirical majority baselines are `.22-.41`, not `.20`.
+Balanced accuracy plus majority baselines remove every all-seed robust JEPA
+shape win. Trajectory order changes count/relation and weak z32 position
+readout, but no family yields reliable factorized objects. Artifact:
+`../sequence-editing-report/assets/moving_objects/sequence_selected_v2_summary.md`.
+
+The prior `N` axis sampled `1..N`, so an exact-load correction is active.
+Fixed `min_objects=max_objects=N` trainers are `3840351`-`3840440`, dependent
+dynamics `3840442`-`3840531`, v5 probes `3840532`-`3840621`, and six-hour
+watchers `3840622`-`3840641`. The 90 rows cross
+`z={2,4,8,16,32,64}` with exact `N={1,2,4,6,8}` at three seeds. No row uses a
+grid of latent states.
 
 Latest decision: the complete deterministic reflected z x N matrix and
 balanced controls have 168 runs, 56 groups, three seeds, and complete v4 and
@@ -20,15 +36,11 @@ layout: direct foreground IoU is `.138-.155` and bound position R2
 reconstruct foreground. JEPA therefore discards position/dynamics rather than
 being forced into object abstraction by compression.
 
-The evidence-selected seven-family transfer is active: 315 trainers
-`3838208`-`3838522`, staged 45 per family; 45 object-blocked rows are running
-and 270 later rows are dependency-held. Dynamics jobs are
-`3838543`-`3838857`, bound probes `3838858`-`3839172`, and six-hour watchers
-`3838523`-`3838542`. Artifact:
-`../sequence-editing-report/assets/moving_objects/deterministic_full_v2_summary.md`.
-No moving-object row uses a grid of latent states.
+The evidence-selected seven-family trainers are `3838208`-`3838522`, dynamics
+jobs `3838543`-`3838857`, and original probes `3838858`-`3839172`; all
+completed. No moving-object row uses a grid of latent states.
 
-Before the dependency-held sequence probes start, v4 evaluation was extended
+Before sequence evaluation, v4 was extended
 with completion-conditioned bound shape and position metrics for objects at
 least half complete and fully complete, with explicit slot counts. This keeps
 ambiguous one-pixel objects from dominating cross-trajectory shape conclusions.

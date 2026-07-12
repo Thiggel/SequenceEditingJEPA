@@ -10,9 +10,10 @@ Transformer encodes two consecutive rendered frames into exactly one projected
 CLS state. Autonomous latent rollout predicts subsequent two-frame contexts;
 no exact pixel action and no grid-token latent are available.
 
-Cross `latent_dim={2,4,8,16,32,64}` with maximum object load
-`N={1,2,4,6,8}` and three seeds. Each N-row samples counts uniformly from
-`1..N`, because fixed-N training would make the object-count probe constant.
+Cross `latent_dim={2,4,8,16,32,64}` with object load
+`N={1,2,4,6,8}` and three seeds. Keep the completed `1..N` mixtures for a
+non-degenerate count probe, but pair them with exact-load rows setting
+`min_objects=max_objects=N` so compression pressure is measured directly.
 Objects carry shape, color, reflected velocity, and pair-relation labels used
 only by frozen probes. Gate on trained-minus-initial semantic gains, semantic
 R2 versus pixel foreground decodability, rollout transfer, and effective rank.
@@ -51,11 +52,12 @@ aggregate count/relations; z64/N2 weakly learns shape; no multi-object JEPA row
 learns bound position or velocity. Balanced z32 reconstruction proves a single
 vector can carry color-specific position, so the missing spatial state is an
 objective effect rather than an impossible capacity requirement.
-Selection must use v4 color-indexed binding metrics in addition to bags:
+Selection must use v5 color-indexed binding metrics in addition to bags:
 bound shape, position, velocity/angular direction, completion, raw controls,
 and one-step rollout transfer. For construction trajectories, report shape and
 position both over all visible objects and conditioned on at least 50%/100%
-completion so hidden labels are not scored as identifiable after one pixel.
+completion. Shape claims must pass balanced accuracy and the empirical majority
+baseline; ordinary accuracy versus nominal `.20` chance is invalid.
 The active selected sequence matrix contains 315 rows and stages 45 jobs per
 family. It tests tight high-load, z4 count/relation and temporal rows, z16
 relations, z32 JEPA versus valid reconstruction at N4/N6/N8, and z64/N2 shape
