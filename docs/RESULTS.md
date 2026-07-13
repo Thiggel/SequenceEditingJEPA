@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 06:48 CEST
+Last updated: 2026-07-13 07:57 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -30,6 +30,9 @@ which are scene summaries rather than bound-object evidence.
 Frontier z8/q4 instead learns complete-object position (R2 `.026`, minimum
 gain `+.041`) and rollout position (`.020`, minimum gain `+.036`). No hard
 frontier row learns shape, completion, relations, or predictive dynamics.
+Random-within-object z8/q4 and z8/q16 also learn complete-object position
+(`.027/.015`) and rollout position (`.016/.011`), but no hard row learns
+shape, completion, relations, or predictive dynamics.
 
 ## Corrected Sequence Result
 
