@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 18:47 CEST
+Last updated: 2026-07-13 19:15 CEST
 
 ## Single-CLS Hierarchy and Dense Rollout
 
@@ -32,6 +32,22 @@ All rows use latent width 32, `ema_vicreg_strong`, state-changing trajectories,
 20k steps, 32 planning episodes, and 64 planning candidates. Every higher
 level starts from the same-seed lower checkpoint and freezes the encoder and
 all previously trained temporal levels.
+
+Six jobs are complete and no job has failed. The first two primitive groups
+have final three-seed results:
+
+| rollout | minimum gain over all supervised steps | min action top-1 | learned planning by seed | symbolic min |
+|---:|---:|---:|---|---:|
+| 1 | `+.00379` | `.5625` | `.50/.5625/.84375` | `1.0` |
+| 2 | `+.00131` | `.5000` | `.25/.125/.34375` | `1.0` |
+
+Both pass the predictor-over-identity gate and fail the `.95` planning gate.
+The planning goals use each model's configured natural horizon, so rollout-1
+and rollout-2 success rates measure one-step and two-step tasks respectively;
+they are not an unconfounded cross-horizon comparison. Shared one-step action
+ranking and per-step prediction gains are the direct rollout comparison. The
+remaining Slurm state at this snapshot is 21 running and 27 pending, including
+released and dependency-held hierarchy stages.
 
 Two hierarchy bugs were fixed before submission. First, the nearest-support
 energy was global over macro chunks; it now measures joint current-state and

@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 18:47 CEST
+Last updated: 2026-07-13 19:15 CEST
 
 ## Controlled-HWM Fidelity Repair
 
@@ -10,6 +10,13 @@ the 54-job single-CLS hierarchy and dense-rollout sweep
 `3850619`-`3850672`; it contains no LDAD or representation axis. Results are
 pending. State-conditioned macro support and staged-loss selection were fixed
 and regression-tested before submission.
+
+Early v5 result: rollout-1 and rollout-2 have completed all three seeds. Both
+beat identity at every supervised step (minimum gains `+.00379` and `+.00131`)
+but fail planning. Rollout-1 planning is `.50/.5625/.84375`; rollout-2 is
+`.25/.125/.34375`, with symbolic planning `1.0` throughout. These plan rates
+use one-step versus two-step goals and therefore are absolute gates, not a fair
+cross-horizon effect estimate. Minimum shared action top-1 is `.5625/.5000`.
 
 All 72 v1 jobs `3849807`-`3849879` completed `0:0`. Every group fails learned
 planning, and standard EMA+VICReg loses to identity across depth, stride,

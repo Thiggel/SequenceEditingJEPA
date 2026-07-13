@@ -24,6 +24,9 @@ canonicalization and latent-scored primitive beam search.
 Historical v1-v3 results remain useful negative controls but no longer drive
 the active grid. The planner recursively descends every hierarchy level and
 compares bounded macro CEM with a joint state-and-macro support penalty.
+Natural-horizon planning is an absolute pass/fail gate; use shared one-step
+ranking and per-step gains, not raw solve-rate differences between horizons,
+to estimate the dense-rollout effect.
 
 ## Active Moving-Object Bottleneck Plan
 
