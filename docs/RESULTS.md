@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 07:57 CEST
+Last updated: 2026-07-13 10:58 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -33,6 +33,9 @@ frontier row learns shape, completion, relations, or predictive dynamics.
 Random-within-object z8/q4 and z8/q16 also learn complete-object position
 (`.027/.015`) and rollout position (`.016/.011`), but no hard row learns
 shape, completion, relations, or predictive dynamics.
+Interleaving removes the all-seed position result: z8/q4 and z8/q16 have
+positive means (`.017/.013`) but one negative seed each, and no hard
+factor/dynamics gate passes.
 
 ## Corrected Sequence Result
 

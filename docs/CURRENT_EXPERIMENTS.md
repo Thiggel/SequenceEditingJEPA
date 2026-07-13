@@ -118,8 +118,10 @@ position (`.020`, minimum gain `+.036`); no hard row learns shape, completion,
 relations, or dynamics. Random-within-object has now completed too: z8/q4 and
 z8/q16 learn complete-object position (`.027/.015`) and rollout position
 (`.016/.011`), but no hard row learns shape, completion, relations, or
-dynamics. All 18 interleaved rows run and three later families remain staged.
-Dynamics are
+dynamics. Interleaved has now completed too: q4/q16 have positive mean
+complete-position R2 (`.017/.013`) but each has one negative seed, and no hard
+factor/dynamics gate passes. All 18 global-random rows run; completion and
+repair remain staged. Dynamics are
 `3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
 `3845376`-`3845395`.
 
