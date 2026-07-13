@@ -109,8 +109,11 @@ artifact has six groups. Z4/q16, z8/q4, and z8/q16 learn shape at
 wrapped row learns position, velocity, relations, or dynamics. Selected
 transfer trainers `3844843`-`3845004` now have wrap and rotation complete.
 Rotation z4/q16 learns weak shape; z8/q2 and z8/q4 learn position; no hard row
-learns velocity/angular velocity. All 18 object-blocked rows run and six later
-families remain staged. Dynamics are
+learns velocity/angular velocity. Object-blocked also completed 18/18
+trainers/dynamics/probes: no hard row learns a complete-object factor or
+predictive dynamics; only z4/q16 visible count and z8/q2 color count pass
+narrow scene-summary gates. All 18 frontier rows run and five later families
+remain staged. Dynamics are
 `3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
 `3845376`-`3845395`.
 

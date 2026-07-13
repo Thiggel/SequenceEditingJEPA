@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 02:19 CEST
+Last updated: 2026-07-13 04:30 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -23,6 +23,10 @@ wrapped cell learns position, velocity, relations, or predictive dynamics.
 Rotation restores z8/q2 and z8/q4 position (`.040/.062`) and keeps only weak
 z4/q16 shape (`.226`). No hard cell learns velocity or angular velocity,
 despite explicit object rotation.
+Object-blocked construction has no hard complete-object shape, position,
+completion, relation, rollout-shape, or dynamics gate. Z4/q16 learns visible
+count (`.255` balanced) and z8/q2 learns aggregate color counts (R2 `.261`),
+which are scene summaries rather than bound-object evidence.
 
 ## Corrected Sequence Result
 
