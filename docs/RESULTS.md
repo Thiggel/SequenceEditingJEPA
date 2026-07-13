@@ -1,23 +1,24 @@
 # Results
 
-Last updated: 2026-07-13 16:43 CEST
+Last updated: 2026-07-13 17:18 CEST
 
-## Controlled-HWM Preflight
+## Controlled-HWM Fidelity Repair
 
-No Slurm result is available yet. The new action-controlled hierarchy passed
-15 focused tests and the full repository suite. Exact symbolic receding
-planning solved every reachable sanity episode. A small 256-trajectory CPU fit
-reduced averaged dense low/high prediction MSE from `.0862` to `.0020` after
-300 steps and beat identity at every supervised horizon. This is an
-implementation gate, not evidence that learned hierarchy plans successfully;
-that conclusion waits for jobs `3849807`-`3849879`.
+All 72 v1 jobs `3849807`-`3849879` completed `0:0`. Every group fails learned
+planning, and standard EMA+VICReg loses to identity across depth, stride,
+rollout, and lambda. Depth-4 minimum gain is `-.0880`; rollout-8 is `-.0501`.
+Canonical online LDAD CLS has only `+.0001` minimum gain and zero minimum
+planning. Full artifact:
+`../sequence-editing-report/assets/controlled_objects/controlled_hwm_v1_summary.md`.
 
-The first six Slurm endpoints do not pass the learned-model gate. H1 prediction
-is worse than identity in all seeds (gain `-.00471/-.00467/-.00451`) and
-learned receding success is `.25/.50/.75` over four episodes. Rollout-2 is
-worse than identity at both horizons in all seeds and solves `.00/.00/.25`.
-Exact receding success is `1.0` throughout, localizing the failure to learned
-latent dynamics/search rather than the environment or execution loop.
+V1 is not a faithful paper test: LDAD decoded four actions from a non-adjacent
+delta, 27% of transitions had no pixel effect, depth-3/4 planning skipped
+intermediate levels, and the exact planner injected the demonstrated action
+suffix. V2 repairs these contracts and adds bounded/support-penalized macro CEM
+plus action-ranking diagnostics. Twenty-one focused tests and the full suite pass.
+The verified 54-row fidelity gate crosses CLS dimensions `{4,8,16,32}` and all
+five paired CLS/grid LDAD variants; hierarchy remains blocked on a primitive
+winner.
 
 ## Final Hard-Rate Transfer
 

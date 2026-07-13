@@ -119,6 +119,7 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
             "trainable_param_count": trainable_param_count,
             "hierarchy_depth": model.hierarchy_depth,
             "hierarchy_stride": model.hierarchy_stride,
+            "latent_dim": model.latent_dim,
             "rollout_steps": model.rollout_steps,
             "rollout_all_levels": model.rollout_all_levels,
             "rollout_lambda": model.rollout_lambda,

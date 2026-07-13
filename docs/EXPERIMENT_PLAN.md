@@ -5,14 +5,20 @@ Source of truth: `../sequence-editing-report/BACKLOG.md` and
 
 ## Active HWM-Control Plan
 
-The submitted 72-job controlled-object sweep isolates six axes: hierarchy
-depth `{1,2,3,4}` at stride 4; depth-3 stride `{2,4,8}`; flat rollout
-`{1,2,4,8}`; primitive-only versus every-level dense rollout in a depth-3
-hierarchy; lambda `{.75,.9,.95,1}` only at flat rollout 4; and five requested
-LDAD target/regularizer variants. Every LDAD row has paired learned-CLS and
-full-grid representations. Hierarchy rows reuse and freeze the exact same-seed
-low-level checkpoint. See `docs/CURRENT_EXPERIMENTS.md` and the external report
-for job IDs, metrics, fidelity details, and gates.
+The completed 72-job controlled-object sweep crossed the requested hierarchy,
+stride, rollout, lambda, and LDAD axes, but a fidelity audit invalidated its
+paper-level interpretation. The immediate plan is the 54-row v2 primitive
+gate: CLS state dimension `{4,8,16,32}` under standard/strong EMA+VICReg, and
+all five corrected adjacent-LDAD objectives paired across learned-CLS and
+full-grid latents. Every row uses four-step dense rollout and state-changing
+actions.
+
+Require positive prediction gain at all horizons, useful action top-1/exact
+LDAD accuracy, and reproducible receding planning before selecting a same-seed
+checkpoint for hierarchy. Then rerun depth `{1,2,3,4}`, stride `{2,4,8}`, and
+primitive-only versus every-level rollout using recursive all-level planning
+and bounded/support-penalized continuous macro CEM. See
+`docs/CURRENT_EXPERIMENTS.md` for the invalidating v1 findings and exact gate.
 
 ## Active Moving-Object Bottleneck Plan
 

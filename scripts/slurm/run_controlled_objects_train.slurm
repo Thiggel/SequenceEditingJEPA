@@ -28,6 +28,10 @@ INIT_ARGS=()
 if [[ -n "${INIT_CHECKPOINT:-}" ]]; then
   INIT_ARGS+=("training.init_checkpoint=${INIT_CHECKPOINT}")
 fi
+MODEL_ARGS=()
+if [[ -n "${LATENT_DIM:-}" ]]; then
+  MODEL_ARGS+=("model.latent_dim=${LATENT_DIM}")
+fi
 
 python -m puzzle_jepa.train.controlled_objects \
   "model=${MODEL_CONFIG}" \
@@ -43,5 +47,8 @@ python -m puzzle_jepa.train.controlled_objects \
   "training.max_steps=${MAX_STEPS:-20000}" \
   "training.eval_every_steps=${EVAL_EVERY_STEPS:-5000}" \
   "training.batch_size=${BATCH_SIZE:-64}" \
+  "eval.planning_episodes=${PLANNING_EPISODES:-8}" \
+  "eval.planning_candidates=${PLANNING_CANDIDATES:-32}" \
   "output_dir=${OUTPUT_ROOT}/${RUN_NAME}" \
+  "${MODEL_ARGS[@]}" \
   "${INIT_ARGS[@]}"

@@ -10,12 +10,18 @@ from puzzle_jepa.controlled_objects.batching import (
     build_controlled_dataset,
 )
 from puzzle_jepa.controlled_objects.domain import RigidAction
-from puzzle_jepa.controlled_objects.evaluation import _exact_receding_plan
+from puzzle_jepa.controlled_objects.evaluation import (
+    _cem_macro_sequence,
+    _estimate_macro_support,
+    _recursive_on_support_action,
+    _symbolic_receding_plan,
+)
 from puzzle_jepa.controlled_objects.generator import (
     ControlledObjectGenerator,
     ControlledObjectSpec,
 )
 from puzzle_jepa.controlled_objects.model import ControlledObjectJEPA
+from scripts.analysis.analyze_controlled_objects import _summarize_group
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,18 +96,37 @@ def test_controlled_trajectories_replay_exactly_and_keep_action_labels() -> None
     assert trajectory.actions.shape == (16, 3)
 
 
-def test_exact_dynamics_receding_planner_solves_known_reachable_goals() -> None:
+def test_identifiable_trajectory_mode_samples_only_state_changing_actions() -> None:
+    generator = ControlledObjectGenerator(
+        ControlledObjectSpec(
+            grid_size=8,
+            num_colors=6,
+            object_count=2,
+            trajectory_length=16,
+            invalid_action_ratio=0.0,
+            noop_ratio=0.0,
+            require_state_change=True,
+        )
+    )
+    trajectory = generator.sample_trajectory(np.random.default_rng(8))
+
+    changed = np.any(trajectory.states[1:] != trajectory.states[:-1], axis=(1, 2))
+
+    assert np.all(trajectory.action_validity)
+    assert np.all(changed)
+
+
+def test_symbolic_receding_planner_solves_without_oracle_action_injection() -> None:
     generator = _generator(horizon=8)
     rng = np.random.default_rng(9)
     for _ in range(8):
-        trajectory = generator.sample_trajectory(rng)
-        planned = _exact_receding_plan(
+        trajectory = generator.sample_trajectory(rng, horizon=2)
+        planned = _symbolic_receding_plan(
             generator,
             trajectory.states[0],
             trajectory.states[-1],
-            trajectory.actions,
-            rng,
-            candidates=8,
+            max_depth=2,
+            beam_width=256,
         )
         np.testing.assert_array_equal(planned, trajectory.states[-1])
 
@@ -216,7 +241,7 @@ def test_target_gradient_modes_match_requested_ldad_ablation() -> None:
     assert all(not parameter.requires_grad for parameter in ema.target_encoder.parameters())
 
 
-def test_ldad_decodes_full_action_sequence_from_long_horizon_displacement() -> None:
+def test_ldad_decodes_one_action_from_adjacent_latent_displacement() -> None:
     generator = _generator(horizon=4)
     batch = build_controlled_dataset(generator, trajectory_count=4, seed=31).sample_batch(
         np.random.default_rng(37), batch_size=2, horizon=4
@@ -231,21 +256,22 @@ def test_ldad_decodes_full_action_sequence_from_long_horizon_displacement() -> N
     captured = []
     original = model.ldad_decoder.forward
 
-    def capture(delta: torch.Tensor, *, horizon: int) -> torch.Tensor:
-        captured.append((delta, horizon))
-        return original(delta, horizon=horizon)
+    def capture(delta: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        captured.append(delta)
+        return original(delta)
 
     model.ldad_decoder.forward = capture  # type: ignore[method-assign,union-attr]
     output = model(batch)
     current = model.encode(batch.states[:, 0])
-    endpoint = model.encode(batch.states[:, 4], target=True)
+    endpoint = model.encode(batch.states[:, 1], target=True)
 
-    assert captured[0][1] == 4
-    torch.testing.assert_close(captured[0][0], endpoint - current)
+    torch.testing.assert_close(captured[0], endpoint - current)
+    assert output.ldad_logits is not None
+    assert [logits.shape[-1] for logits in output.ldad_logits] == [8, 8, 7]
     assert float(output.ldad_loss.detach()) >= 0.0
 
 
-def test_full_grid_ldad_is_paired_and_trains_its_displacement_pooler() -> None:
+def test_full_grid_ldad_decodes_the_complete_displacement_without_pooling() -> None:
     generator = _generator(horizon=4)
     batch = build_controlled_dataset(generator, trajectory_count=4, seed=41).sample_batch(
         np.random.default_rng(43), batch_size=2, horizon=4
@@ -262,9 +288,71 @@ def test_full_grid_ldad_is_paired_and_trains_its_displacement_pooler() -> None:
     output.loss.backward()
 
     assert output.predictions[0].shape == (2, 4, 64, 8)
-    assert model.delta_pool is not None
-    assert model.delta_pool.weight.grad is not None
-    assert bool(torch.isfinite(model.delta_pool.weight.grad).all())
+    assert model.ldad_decoder is not None
+    assert model.ldad_decoder.input_dim == 64 * 8
+    assert model.ldad_decoder.input_projection.weight.grad is not None
+    assert bool(torch.isfinite(model.ldad_decoder.input_projection.weight.grad).all())
+
+
+def test_recursive_hierarchy_planner_uses_every_level() -> None:
+    generator = _generator(horizon=16)
+    trajectory = generator.sample_trajectory(np.random.default_rng(44), horizon=16)
+    model = _model(hierarchy_depth=3, hierarchy_stride=4)
+    visited = []
+    original = model.predict_from_macro
+
+    def capture(level: int, latent: torch.Tensor, macro: torch.Tensor) -> torch.Tensor:
+        visited.append(level)
+        return original(level, latent, macro)
+
+    model.predict_from_macro = capture  # type: ignore[method-assign]
+    goal = model.encode(torch.as_tensor(trajectory.states[-1:]))
+    action = _recursive_on_support_action(
+        model,
+        generator,
+        trajectory.states[0],
+        goal,
+        np.random.default_rng(45),
+        candidates=4,
+        device=torch.device("cpu"),
+    )
+
+    assert isinstance(action, RigidAction)
+    assert set(visited) == {0, 1, 2}
+
+
+def test_cem_macro_actions_are_clamped_to_empirical_support_bounds() -> None:
+    generator = _generator(horizon=8)
+    dataset = build_controlled_dataset(generator, trajectory_count=16, seed=46)
+    model = _model(hierarchy_depth=2, hierarchy_stride=4)
+    batch = dataset.sample_batch(np.random.default_rng(47), batch_size=2, horizon=4)
+    state = model.encode(batch.states[:, 0])
+    target = model.encode(batch.states[:, 4], target=True)
+    support = _estimate_macro_support(
+        model,
+        dataset,
+        level=1,
+        seed=48,
+        sample_count=16,
+        device=torch.device("cpu"),
+    )
+    macros, first_subgoal = _cem_macro_sequence(
+        model,
+        state[:1],
+        target[:1],
+        level=1,
+        transition_count=2,
+        support=support,
+        candidates=8,
+        iterations=2,
+        support_weight=0.1,
+        torch_rng=torch.Generator().manual_seed(49),
+    )
+
+    assert macros.shape == (2, 8)
+    assert first_subgoal.shape == state[:1].shape
+    assert bool(torch.all(macros >= support.lower))
+    assert bool(torch.all(macros <= support.upper))
 
 
 def test_hierarchy_stage_freezes_encoder_and_lower_temporal_models() -> None:
@@ -335,3 +423,86 @@ def test_launcher_has_separate_axes_and_paired_delta_jepa_rows() -> None:
     assert 'if [[ "${JOB_COUNT}" -ne 72 ]]' in launcher
     assert "training.init_checkpoint" in slurm
     assert "training.train_from_level" in slurm
+
+
+def test_fidelity_gate_separates_state_capacity_and_paired_adjacent_ldad() -> None:
+    launcher = (
+        ROOT / "scripts/experiments/submit_controlled_objects_fidelity_gate.sh"
+    ).read_text(encoding="utf-8")
+    data = (
+        ROOT / "configs/controlled_objects/data/rigid_transform.yaml"
+    ).read_text(encoding="utf-8")
+    strong = (
+        ROOT / "configs/controlled_objects/objective/ema_vicreg_strong.yaml"
+    ).read_text(encoding="utf-8")
+
+    assert "LATENT_DIMS=(4 8 16 32)" in launcher
+    assert "REPRESENTATIONS=(cls grid)" in launcher
+    assert "representation\\tlatent_dim\\tobjective" in launcher
+    assert 'if [[ "${JOB_COUNT}" -ne 54 ]]' in launcher
+    assert "require_state_change: true" in data
+    assert "vicreg_weight: 0.5" in strong
+
+
+def test_controlled_summary_requires_all_seed_prediction_and_planning_gates() -> None:
+    key = (
+        "rollout",
+        "1",
+        "4",
+        "4",
+        "false",
+        "1.0",
+        "cls",
+        "32",
+        "ema_vicreg",
+    )
+    rows = []
+    for seed, gain, success in ((1707, 0.1, 1.0), (2707, 0.2, 1.0), (3707, -0.1, 0.75)):
+        rows.append(
+            {
+                "seed": str(seed),
+                "metrics": {
+                    "eval_prediction_loss": 0.01,
+                    "eval_level0_rollout1_gain": gain,
+                    "eval_learned_receding_success_rate": success,
+                    "eval_oracle_macro_learned_low_success_rate": success,
+                    "eval_exact_receding_success_rate": 1.0,
+                    "eval_ldad_loss": 0.0,
+                    "eval_latent_effective_rank": 8.0,
+                },
+            }
+        )
+
+    summary = _summarize_group(key, rows)
+
+    assert summary["exact_gate"]
+    assert not summary["prediction_gate"]
+    assert not summary["planning_gate"]
+    assert summary["all_horizon_gain_min"] == -0.1
+
+
+def test_controlled_summary_action_gate_uses_learned_ranking_only() -> None:
+    key = ("ldad", "1", "4", "4", "false", "1.0", "cls", "8", "ldad_online")
+    rows = []
+    for seed in (1707, 2707, 3707):
+        rows.append(
+            {
+                "seed": str(seed),
+                "metrics": {
+                    "eval_prediction_loss": 0.01,
+                    "eval_level0_rollout1_gain": 0.1,
+                    "eval_learned_receding_success_rate": 1.0,
+                    "eval_oracle_macro_learned_low_success_rate": 1.0,
+                    "eval_exact_receding_success_rate": 1.0,
+                    "eval_ldad_loss": 0.1,
+                    "eval_latent_effective_rank": 4.0,
+                    "eval_action_top1_accuracy": 0.25,
+                    "eval_oracle_geometry_action_top1_accuracy": 1.0,
+                },
+            }
+        )
+
+    summary = _summarize_group(key, rows)
+
+    assert summary["action_top1_min"] == 0.25
+    assert not summary["action_gate"]

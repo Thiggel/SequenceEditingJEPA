@@ -1,28 +1,27 @@
 # Runbook
 
-Last updated: 2026-07-13 16:43 CEST
+Last updated: 2026-07-13 17:18 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
-## Active Controlled-HWM Sweep
+## Controlled-HWM Fidelity Gate
 
-Manifest:
+Completed v1 manifest:
 `$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_hwm_v1_steps20000.tsv`.
 Jobs are `3849807`-`3849879` excluding `3849826`; outputs are under
 `$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_hwm_v1_steps20000/`.
-Use `squeue -u "$USER" -n controlled_hwm` for state and inspect
-`logs/controlled_hwm_<jobid>.{out,err}` for failures. Hierarchy depth/stride
-jobs depend on low-level jobs `3849807`-`3849809`; combined rollout/hierarchy
-jobs depend on rollout-4 jobs `3849829`-`3849831`. Do not release or rewire
-those dependencies to a different seed/checkpoint.
+All 72 jobs completed. Aggregate with
+`scripts/analysis/analyze_controlled_objects.py`; archived output is under
+`../sequence-editing-report/assets/controlled_objects/`.
 
-Dry-run regeneration:
-`scripts/experiments/submit_controlled_objects_hwm.sh`. It submits only with
-`SUBMIT=1`. The trainer writes `config.json`, `metrics.jsonl`, final
-`metrics.json`, and `checkpoint.pt` per run. Aggregate only when all three
-seeds in a comparison are complete; treat exact planner success as a software
-gate and learned planning/support/reachability diagnostics as the scientific
-outcomes.
+The next launcher is
+`scripts/experiments/submit_controlled_objects_fidelity_gate.sh`. It dry-runs
+54 rows by default and submits only with `SUBMIT=1`. Expected manifest:
+`controlled_fidelity_v2_steps5000.tsv`. Require all three seeds before
+promotion. Primary primitive gates are positive gain at every horizon, action
+top-1, LDAD exact accuracy where applicable, and learned receding success.
+Only then submit a staged hierarchy follow-up. The trainer writes
+`config.json`, `metrics.jsonl`, final `metrics.json`, and `checkpoint.pt`.
 
 ## Active Moving-Object Sweep
 

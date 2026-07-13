@@ -2,66 +2,52 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 16:43 CEST
+Last updated: 2026-07-13 17:18 CEST
 
-## Controlled HWM and Dense-Rollout Sweep
+## Controlled HWM Fidelity Repair
 
-The controlled hierarchy sweep is submitted as 72 unique trainers, jobs
-`3849807`-`3849879` with allocator gap `3849826`. Manifest:
-`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_hwm_v1_steps20000.tsv`.
-Outputs and checkpoints are under
-`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_hwm_v1_steps20000/`.
-Current state is 6 complete, 44 running, and 22 pending, with no failures. H1
-jobs `3849807`-`3849809` and rollout-2 jobs `3849825/3849827/3849828` are
-complete; their dependencies are releasing as designed.
+The original 72-job matrix completed `72/72` with exit `0:0`: jobs
+`3849807`-`3849879`, allocator gap `3849826`. Manifest and output root remain
+`controlled_hwm_v1_steps20000.tsv` and `controlled_hwm_v1_steps20000/` under
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects`. Final aggregate:
+`../sequence-editing-report/assets/controlled_objects/controlled_hwm_v1_summary.md`.
 
-The new `controlled_objects` subsystem uses four rigid colored objects on a
-`16x16` grid. A primitive `(row,col,transform)` action selects an object only
-through an occupied pixel and translates or rotates its whole connected mask;
-object IDs, masks, and colors are not model inputs. Invalid/background actions
-are labeled no-ops. Held-out goals are endpoints of known reachable action
-sequences.
+Every complete v1 group fails learned planning. Standard EMA+VICReg loses to
+identity at every tested depth, stride, rollout, and lambda. Minimum gain
+worsens from `-.0047` at depth 1 to `-.0880` at depth 4; dense rollout-4/8
+reaches `-.0264/-.0501`. Learned and oracle-candidate/learned-low planning are
+zero for hierarchy groups. High-level support and reachability AUROCs near
+`.98-.99` separate artificial three-sigma negatives but do not make control
+work. Canonical online LDAD CLS has tiny positive gains (`>=.0001`) but still
+zero minimum planning success.
 
-Each hierarchy has distinct predictors at temporal spans `1,s,s^2,s^3` and a
-Transformer macro encoder for each primitive-action chunk. Staged hierarchy
-rows load and freeze the same-seed flat checkpoint. Dense rollout recursively
-feeds predictions back and supervises every endpoint with normalized
-`lambda^(i-1)` weights. High-level dense rows apply the same rule at every
-temporal level. There is no pixel reconstruction.
+The audit found three invalidating implementation/evaluation errors in v1:
 
-Submitted controlled comparisons, three seeds each:
+- LDAD decoded four actions from `z[t+4]-z[t]`; Delta-JEPA specifies one action
+  from adjacent `z[t+1]-z[t]`. V1 exact decoded-action accuracy was effectively
+  zero.
+- About 27% of sampled transitions left pixels unchanged, assigning 584 action
+  labels to an identical zero displacement in a 128-trajectory audit.
+- Depth-3/4 planning jumped directly from the top model to the primitive model,
+  skipping intermediate levels. The reported exact planner also inserted the
+  demonstrated suffix into its candidate set.
 
-| block | matrix | unique jobs |
-|---|---|---:|
-| hierarchy depth | total levels `{1,2,3,4}`, fixed stride 4 | 12 |
-| hierarchy stride | depth 3, stride `{2,4,8}`; stride 4 reused above | 6 new |
-| primitive rollout | steps `{1,2,4,8}`; step 1 reused above | 9 new |
-| hierarchy + rollout | depth 3/stride 4/rollout 4, primitive-only vs every-level dense supervision | 6 |
-| lambda | flat rollout 4, `{.75,.9,.95,1}`; lambda 1 reused | 9 new |
-| LDAD | five EMA/stop-gradient/VICReg variants x `{CLS,full-grid}` | 30 |
+V2 repairs those contracts: trajectories contain only state-changing actions;
+categorical LDAD uses adjacent endpoints and one row/column/transform target;
+full-grid LDAD receives the complete flattened displacement; planning descends
+through every level; symbolic beam search receives no oracle action; and macro
+CEM uses empirical 2nd-98th percentile bounds with a separate nearest-support
+energy penalty. Evaluation now reports action top-1/margins, exact LDAD field
+accuracy, changed-transition gain, non-oracle symbolic success, on-support
+planning, bounded CEM, and support-penalized CEM. Twenty-one focused tests and the
+full repository suite pass.
 
-The canonical Delta-JEPA row is `ldad_online`: shared encoder, no EMA, no
-stop-gradient, no VICReg. LDAD decodes all four primitive actions from the
-long-horizon endpoint displacement. `ldad_vicreg_stopgrad` is the otherwise
-ambiguous bare-VICReg row. Every LDAD objective is paired with a single learned
-CLS and full-grid latent as required by the project invariant.
-
-Evaluation records each supervised horizon against identity, high-level versus
-primitive-rollout error, learned receding planning, oracle-macro/learned-low
-planning, exact symbolic receding planning, macro support-energy AUROC, and
-low-level reachability-energy AUROC. Local preflight passed: 15 focused tests,
-full repository tests, exact symbolic receding success on all sanity episodes,
-staged checkpoint loading/freezing, and a 256-trajectory CPU fit that reduced
-dense low/high MSE from `.0862` to `.0020` in 300 steps while beating identity
-at every supervised horizon.
-
-The first full-size endpoints fail the learned primitive gate. H1 one-step
-prediction gain over identity is `-.00471/-.00467/-.00451`; learned receding
-success over four episodes is `.25/.50/.75`. Rollout-2 is also worse than
-identity at both horizons in every seed and solves `.00/.00/.25`. Exact
-symbolic receding remains `1.0`. Clean process completion is distinct from
-scientific gate passage; hierarchy rows built on these checkpoints are failure
-localization unless later objective rows repair primitive dynamics.
+The next gated launcher is `submit_controlled_objects_fidelity_gate.sh`: 54
+four-step rows, comprising CLS bottlenecks `{4,8,16,32}` x standard/strong
+EMA+VICReg x three seeds, plus five corrected LDAD objectives x paired
+`{CLS,grid}` x three seeds. It is verified but not yet submitted. No hierarchy
+follow-up is permitted until a primitive row has positive gain, strong action
+top-1, and reproducible learned planning across all seeds.
 
 ## Moving-Object Bottleneck Grid
 

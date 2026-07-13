@@ -21,6 +21,7 @@ class ControlledObjectOutput:
     predictions: tuple[torch.Tensor, ...]
     targets: tuple[torch.Tensor, ...]
     rollout_weights: tuple[torch.Tensor, ...]
+    ldad_logits: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
 
 
 class ControlledStateEncoder(nn.Module):
@@ -55,9 +56,7 @@ class ControlledStateEncoder(nn.Module):
             norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(layer, num_layers=num_layers)
-        self.project = nn.Sequential(
-            nn.LayerNorm(token_dim), nn.Linear(token_dim, latent_dim), nn.Tanh()
-        )
+        self.project = nn.Sequential(nn.LayerNorm(token_dim), nn.Linear(token_dim, latent_dim))
 
     def forward(self, states: torch.Tensor) -> torch.Tensor:
         if states.ndim != 3:
@@ -140,41 +139,40 @@ class LatentDynamics(nn.Module):
             condition = condition.unsqueeze(1)
         condition = condition.expand(*latent.shape[:-1], condition.shape[-1])
         delta = self.predictor(torch.cat([latent, condition], dim=-1))
-        return torch.tanh(latent + delta)
+        return latent + delta
 
 
-class MultiStepLDAD(nn.Module):
+class CategoricalLDAD(nn.Module):
     def __init__(
         self,
         *,
-        latent_dim: int,
-        max_horizon: int,
+        input_dim: int,
+        grid_size: int,
         hidden_dim: int,
-        num_heads: int,
     ):
         super().__init__()
-        self.max_horizon = int(max_horizon)
-        self.queries = nn.Parameter(torch.zeros(1, max_horizon, hidden_dim))
-        self.condition = nn.Linear(latent_dim, 2 * hidden_dim)
-        layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=num_heads,
-            dim_feedforward=2 * hidden_dim,
-            dropout=0.0,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
+        self.input_dim = int(input_dim)
+        self.input_projection = nn.Linear(input_dim, hidden_dim)
+        self.trunk = nn.Sequential(
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
         )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=2)
-        self.output = nn.Linear(hidden_dim, 3)
+        self.row = nn.Linear(hidden_dim, grid_size)
+        self.col = nn.Linear(hidden_dim, grid_size)
+        self.transform = nn.Linear(hidden_dim, len(TRANSFORM_NAMES))
 
-    def forward(self, delta: torch.Tensor, *, horizon: int) -> torch.Tensor:
-        if not (1 <= horizon <= self.max_horizon):
-            raise ValueError("LDAD horizon exceeds its configured action-query count.")
-        scale, shift = self.condition(delta).chunk(2, dim=-1)
-        queries = self.queries[:, :horizon].expand(len(delta), -1, -1)
-        conditioned = queries * (1.0 + scale.unsqueeze(1)) + shift.unsqueeze(1)
-        return torch.tanh(self.output(self.transformer(conditioned)))
+    def forward(
+        self, delta: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        flattened = delta.flatten(1)
+        if flattened.shape[1] != self.input_dim:
+            raise ValueError(
+                f"LDAD expected displacement dim {self.input_dim}, got {flattened.shape[1]}."
+            )
+        hidden = self.trunk(self.input_projection(flattened))
+        return self.row(hidden), self.col(hidden), self.transform(hidden)
 
 
 class ControlledObjectJEPA(nn.Module):
@@ -268,22 +266,16 @@ class ControlledObjectJEPA(nn.Module):
             [LatentDynamics(latent_dim=latent_dim, macro_dim=macro_dim) for _ in self.level_spans]
         )
         if ldad_weight > 0.0:
-            self.ldad_decoder: MultiStepLDAD | None = MultiStepLDAD(
-                latent_dim=latent_dim,
-                max_horizon=rollout_steps,
-                hidden_dim=max(32, latent_dim),
-                num_heads=4,
+            ldad_input_dim = latent_dim * (
+                grid_size * grid_size if latent_representation == "grid" else 1
             )
-            if latent_representation == "grid":
-                self.delta_pool: nn.Linear | None = nn.Linear(
-                    grid_size * grid_size, 1, bias=False
-                )
-                nn.init.constant_(self.delta_pool.weight, 1.0 / (grid_size * grid_size))
-            else:
-                self.delta_pool = None
+            self.ldad_decoder: CategoricalLDAD | None = CategoricalLDAD(
+                input_dim=ldad_input_dim,
+                grid_size=grid_size,
+                hidden_dim=max(64, 2 * latent_dim),
+            )
         else:
             self.ldad_decoder = None
-            self.delta_pool = None
 
     @property
     def required_horizon(self) -> int:
@@ -389,15 +381,20 @@ class ControlledObjectJEPA(nn.Module):
         else:
             vicreg_loss = prediction_loss.detach() * 0.0
 
+        ldad_logits = None
         if self.ldad_decoder is not None:
-            ldad_horizon = self.rollout_steps
-            endpoint = self.encode(batch.states[:, ldad_horizon], target=True)
-            delta = _pool_delta(endpoint - current, self.delta_pool)
-            decoded_actions = self.ldad_decoder(delta, horizon=ldad_horizon)
-            action_targets = _normalize_actions(
-                batch.actions[:, :ldad_horizon], grid_size=self.grid_size
-            )
-            ldad_loss = F.mse_loss(decoded_actions, action_targets)
+            endpoint = self.encode(batch.states[:, 1], target=True)
+            ldad_logits = self.ldad_decoder(endpoint - current)
+            changed = (batch.states[:, 1] != batch.states[:, 0]).flatten(1).any(dim=1)
+            effective = batch.action_validity[:, 0] & changed
+            if bool(effective.any()):
+                action_targets = batch.actions[effective, 0]
+                ldad_loss = sum(
+                    F.cross_entropy(logits[effective], action_targets[:, index])
+                    for index, logits in enumerate(ldad_logits)
+                ) / len(ldad_logits)
+            else:
+                ldad_loss = sum(logits.sum() for logits in ldad_logits) * 0.0
         else:
             ldad_loss = prediction_loss.detach() * 0.0
         return ControlledObjectOutput(
@@ -413,22 +410,8 @@ class ControlledObjectJEPA(nn.Module):
             predictions=tuple(all_predictions),
             targets=tuple(all_targets),
             rollout_weights=tuple(all_weights),
+            ldad_logits=ldad_logits,
         )
-
-
-def _normalize_actions(actions: torch.Tensor, *, grid_size: int) -> torch.Tensor:
-    output = actions.to(torch.float32).clone()
-    output[..., :2] = output[..., :2] * (2.0 / (grid_size - 1)) - 1.0
-    output[..., 2] = output[..., 2] * (2.0 / (len(TRANSFORM_NAMES) - 1)) - 1.0
-    return output
-
-
-def _pool_delta(delta: torch.Tensor, pool: nn.Linear | None) -> torch.Tensor:
-    if delta.ndim == 2:
-        return delta
-    if delta.ndim != 3 or pool is None:
-        raise ValueError("Full-grid LDAD requires a learned token pooler.")
-    return pool(delta.transpose(1, 2)).squeeze(-1)
 
 
 def _vicreg_samples(latent: torch.Tensor) -> torch.Tensor:

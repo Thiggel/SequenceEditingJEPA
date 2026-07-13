@@ -37,6 +37,7 @@ class ControlledObjectSpec:
     trajectory_length: int = 64
     invalid_action_ratio: float = 0.1
     noop_ratio: float = 0.05
+    require_state_change: bool = False
     max_scene_retries: int = 512
 
 
@@ -118,29 +119,45 @@ class ControlledObjectGenerator:
         )
 
     def sample_action(self, state: np.ndarray, rng: np.random.Generator) -> RigidAction:
-        if rng.random() < self.spec.noop_ratio:
+        if not self.spec.require_state_change and rng.random() < self.spec.noop_ratio:
             return RigidAction(0, 0, 0)
         candidates = self.candidate_actions(state, include_invalid=True)
         legal = []
+        effective = []
         invalid = []
         for action in candidates:
-            _, valid = self.apply_action(state, action)
-            (legal if valid else invalid).append(action)
+            next_state, valid = self.apply_action(state, action)
+            if valid:
+                legal.append(action)
+                if np.any(next_state != state):
+                    effective.append(action)
+            else:
+                invalid.append(action)
+        if self.spec.require_state_change:
+            if not effective:
+                raise RuntimeError("Sampled scene has no state-changing rigid action.")
+            return effective[int(rng.integers(0, len(effective)))]
         pool = invalid if invalid and rng.random() < self.spec.invalid_action_ratio else legal
         if not pool:
             return RigidAction(0, 0, 0)
         return pool[int(rng.integers(0, len(pool)))]
 
     def candidate_actions(
-        self, state: np.ndarray, *, include_invalid: bool = False
+        self,
+        state: np.ndarray,
+        *,
+        include_invalid: bool = False,
+        state_changing_only: bool = False,
     ) -> tuple[RigidAction, ...]:
-        actions = [RigidAction(0, 0, 0)]
+        actions = [] if state_changing_only else [RigidAction(0, 0, 0)]
         for color in np.unique(state[state != 0]):
             cells = np.argwhere(state == color)
             row, col = (int(value) for value in cells[np.lexsort((cells[:, 1], cells[:, 0]))][0])
             for transform in range(1, len(TRANSFORM_NAMES)):
                 action = RigidAction(row, col, transform)
-                if include_invalid or self.apply_action(state, action)[1]:
+                next_state, valid = self.apply_action(state, action)
+                changed = bool(np.any(next_state != state))
+                if (include_invalid or valid) and (not state_changing_only or changed):
                     actions.append(action)
         return tuple(actions)
 
