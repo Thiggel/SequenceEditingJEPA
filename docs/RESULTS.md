@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 17:51 CEST
+Last updated: 2026-07-13 18:14 CEST
 
 ## Controlled-HWM Fidelity Repair
 
@@ -26,10 +26,17 @@ action ranking is at most `.0625`. Artifact:
 
 V2 still had duplicate nonzero successors for symmetric actions and a
 candidate-starved random planner. The generator now canonicalizes valid actions
-by successor grid, and a latent-scored primitive beam passes an exact-dynamics
-two-step solve test. The next 36-row gate crosses canonical Delta-JEPA LDAD
-weight `{1,10,100}`, adjacent/ordered-four-step decoding, paired CLS/grid, and
-three seeds. Hierarchy remains blocked on a primitive winner.
+by successor grid, and a latent-scored primitive beam passes exact-dynamics
+two- and four-step controls.
+
+V3 jobs `3850409`-`3850444` completed `36/36` `0:0`. All groups improve over
+identity, but none reaches the action or planning gate. CLS h4/w1 is the only
+all-seed planning signal: original final evaluation solves `1/8` per seed with
+minimum action top-1 `.50`. Correcting a short-oracle-suffix evaluator bug gives
+learned success `.25/.125/.125`, oracle-candidate `.25/.50/.125`, and exact
+symbolic `1.0`. Full-grid adjacent LDAD decodes `.719-.750` of actions but has
+zero planning. A paired six-job CLS/grid h4/w1 20k gate is next; hierarchy stays
+blocked pending reliable primitive planning.
 
 ## Final Hard-Rate Transfer
 

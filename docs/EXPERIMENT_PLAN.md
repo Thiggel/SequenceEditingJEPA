@@ -11,18 +11,17 @@ planning in every group. V2 also exposed duplicate nonzero action successors
 and random-search candidate starvation. Both are repaired by successor
 canonicalization and latent-scored primitive beam search.
 
-The immediate v3 plan is 36 canonical online/no-stop-gradient Delta-JEPA rows:
-paired CLS/grid x LDAD weight `{1,10,100}` x decoder horizon `{1,4}` x three
-seeds. Horizon 1 tests identifiable adjacent LDAD; horizon 4 restores the
-paper's ordered multi-step extension as a separate diagnostic. Every row uses
-four-step dense predictor rollout.
+V3 completed 36 canonical online/no-stop-gradient Delta-JEPA rows over paired
+CLS/grid, LDAD weight `{1,10,100}`, decoder horizon `{1,4}`, and three seeds.
+Only CLS h4/w1 produces nonzero learned planning in every seed, and it remains
+far below the 95% gate. The immediate v4 plan is therefore six fresh 20k rows:
+CLS/grid x three seeds at h4/w1, with 32 planning episodes and beam width 64.
 
-Require positive prediction gain at all horizons, useful action top-1/exact
-LDAD accuracy, and reproducible receding planning before selecting a same-seed
-checkpoint for hierarchy. Then rerun depth `{1,2,3,4}`, stride `{2,4,8}`, and
+Require reproducible primitive receding planning before selecting same-seed
+checkpoints for hierarchy. Then rerun depth `{1,2,3,4}`, stride `{2,4,8}`, and
 primitive-only versus every-level rollout using recursive all-level planning
 and bounded/support-penalized continuous macro CEM. See
-`docs/CURRENT_EXPERIMENTS.md` for the invalidating v1 findings and exact gate.
+`docs/CURRENT_EXPERIMENTS.md` for the v1-v3 findings and exact gate.
 
 ## Active Moving-Object Bottleneck Plan
 

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-13 17:51 CEST
+Last updated: 2026-07-13 18:14 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -19,14 +19,19 @@ V2 manifest `controlled_fidelity_v2_steps5000.tsv` maps completed jobs
 `../sequence-editing-report/assets/controlled_objects/controlled_fidelity_v2_summary.md`.
 No row passes learned planning.
 
+V3 manifest `controlled_delta_identifiable_v3_steps5000.tsv` maps completed
+jobs `3850409`-`3850444`; artifact is
+`../sequence-editing-report/assets/controlled_objects/controlled_delta_identifiable_v3_summary.md`.
+An accidental duplicate submission ran `3850448`-`3850449` byte-for-byte
+identically; held duplicates `3850450`-`3850483` were canceled before starting.
+
 The next launcher is
-`scripts/experiments/submit_controlled_objects_delta_gate.sh`. It dry-runs 36
-rows by default and submits only with `SUBMIT=1`; expected manifest is
-`controlled_delta_identifiable_v3_steps5000.tsv`. Require all three seeds.
-Primary gates are positive gain at every horizon, action top-1, adjacent LDAD
-exact accuracy, and learned beam success. Ordered horizon-4 LDAD is diagnostic,
-not a hard gate. Only then submit staged hierarchy. The trainer writes
-`config.json`, `metrics.jsonl`, final `metrics.json`, and `checkpoint.pt`.
+`scripts/experiments/submit_controlled_objects_delta_long_gate.sh`. It dry-runs
+six paired CLS/grid h4/w1 rows by default and submits only with `SUBMIT=1`;
+expected manifest is `controlled_delta_long_v4_steps20000.tsv`. Require all
+three seeds and reliable 32-episode learned beam success before staged
+hierarchy. The trainer writes `config.json`, `metrics.jsonl`, final
+`metrics.json`, and `checkpoint.pt`.
 
 ## Active Moving-Object Sweep
 

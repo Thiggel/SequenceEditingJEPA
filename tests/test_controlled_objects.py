@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from puzzle_jepa.controlled_objects import evaluation as controlled_evaluation
 from puzzle_jepa.controlled_objects.batching import (
     ControlledObjectBatch,
     build_controlled_dataset,
@@ -172,6 +173,7 @@ def test_latent_beam_planner_solves_with_exact_dynamics_without_oracle_actions()
 
     class ExactPixelDynamics:
         hierarchy_depth = 1
+        level_spans = (1,)
 
         @staticmethod
         def encode(states: torch.Tensor, *, target: bool = False) -> torch.Tensor:
@@ -210,6 +212,117 @@ def test_latent_beam_planner_solves_with_exact_dynamics_without_oracle_actions()
     )
 
     np.testing.assert_array_equal(planned, trajectory.states[-1])
+
+
+def test_oracle_candidate_receding_plan_keeps_short_remaining_suffix(monkeypatch) -> None:
+    generator = ControlledObjectGenerator(
+        ControlledObjectSpec(
+            grid_size=8,
+            num_colors=3,
+            object_count=1,
+            trajectory_length=2,
+            require_state_change=True,
+        )
+    )
+    initial = np.zeros((8, 8), dtype=np.int64)
+    initial[3:5, 3:5] = 1
+    oracle_actions = np.stack(
+        [RigidAction(3, 3, 4).as_array(), RigidAction(3, 4, 2).as_array()]
+    )
+    goal = generator.replay(
+        initial,
+        (RigidAction(*(int(value) for value in action)) for action in oracle_actions),
+    )
+
+    class ExactPixelDynamics:
+        hierarchy_depth = 1
+        level_spans = (1,)
+
+        @staticmethod
+        def encode(states: torch.Tensor, *, target: bool = False) -> torch.Tensor:
+            del target
+            return states.to(torch.float32).flatten(1)
+
+        @staticmethod
+        def level_rollout_steps(level: int) -> int:
+            assert level == 0
+            return 2
+
+        @staticmethod
+        def encode_action_chunk(level: int, actions: torch.Tensor) -> torch.Tensor:
+            assert level == 0
+            return actions[:, 0]
+
+        @staticmethod
+        def predict_from_macro(
+            level: int, latents: torch.Tensor, macros: torch.Tensor
+        ) -> torch.Tensor:
+            assert level == 0
+            successors = []
+            for latent, action_values in zip(latents, macros, strict=True):
+                state = latent.reshape(8, 8).to(torch.long).numpy()
+                action = RigidAction(*(int(value) for value in action_values))
+                successor, valid = generator.apply_action(state, action)
+                assert valid
+                successors.append(successor.reshape(-1))
+            return torch.as_tensor(np.stack(successors), dtype=torch.float32)
+
+    def wrong_sequences(
+        _generator,
+        state: np.ndarray,
+        _rng,
+        *,
+        horizon: int,
+        count: int,
+    ) -> np.ndarray:
+        row, col = (int(value) for value in np.argwhere(state == 1)[0])
+        wrong = np.asarray([row, col, 3], dtype=np.int64)
+        return np.tile(wrong, (count, horizon, 1))
+
+    monkeypatch.setattr(
+        controlled_evaluation, "_candidate_action_sequences", wrong_sequences
+    )
+    planned = _receding_on_support_plan(
+        ExactPixelDynamics(),
+        generator,
+        initial,
+        goal,
+        np.random.default_rng(14),
+        max_steps=2,
+        candidates=4,
+        device=torch.device("cpu"),
+        oracle_actions=oracle_actions,
+    )
+
+    np.testing.assert_array_equal(planned, goal)
+
+
+def test_flat_planning_diagnostic_uses_full_four_step_symbolic_horizon(
+    monkeypatch,
+) -> None:
+    generator = _generator(horizon=4)
+    dataset = build_controlled_dataset(generator, trajectory_count=4, seed=15)
+
+    class FlatFourStepModel:
+        hierarchy_depth = 1
+        required_horizon = 4
+
+    monkeypatch.setattr(
+        controlled_evaluation,
+        "_receding_on_support_plan",
+        lambda _model, _generator, _initial, goal, _rng, **_kwargs: goal.copy(),
+    )
+    metrics = controlled_evaluation._planning_diagnostics(
+        FlatFourStepModel(),
+        dataset,
+        generator,
+        np.random.default_rng(16),
+        episodes=1,
+        candidates=32,
+        device=torch.device("cpu"),
+    )
+
+    assert metrics["eval_symbolic_planning_horizon"] == 4.0
 
 
 def test_dataset_samples_matched_contiguous_state_action_windows() -> None:
@@ -574,6 +687,19 @@ def test_delta_gate_pairs_latents_across_weight_and_horizon_axes() -> None:
             ROOT / f"configs/controlled_objects/model/{model_name}.yaml"
         ).read_text(encoding="utf-8")
         assert "ldad_horizon: 1" in model_config
+
+
+def test_delta_long_gate_extends_only_paired_h4_weight1_winner() -> None:
+    launcher = (
+        ROOT / "scripts/experiments/submit_controlled_objects_delta_long_gate.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "REPRESENTATIONS=(cls grid)" in launcher
+    assert "LDAD_HORIZON=4,LDAD_WEIGHT=1" in launcher
+    assert "MAX_STEPS=${MAX_STEPS:-20000}" in launcher
+    assert "PLANNING_EPISODES=${PLANNING_EPISODES:-32}" in launcher
+    assert "PLANNING_CANDIDATES=${PLANNING_CANDIDATES:-64}" in launcher
+    assert 'if [[ "${JOB_COUNT}" -ne 6 ]]' in launcher
 
 
 def test_controlled_summary_requires_all_seed_prediction_and_planning_gates() -> None:

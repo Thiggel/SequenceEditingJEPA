@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 17:51 CEST
+Last updated: 2026-07-13 18:14 CEST
 
 ## Controlled HWM Fidelity Repair
 
@@ -35,13 +35,22 @@ per step. Valid actions are now canonicalized by successor grid, and primitive
 planning uses deterministic latent-scored beam expansion. An exact-dynamics
 regression solves a two-step goal without oracle actions.
 
-The prepared v3 gate is 36 canonical online/no-stop-gradient Delta-JEPA jobs:
-paired `{CLS,grid}` x LDAD weight `{1,10,100}` x decoder horizon `{1,4}` x
-three seeds. Horizon 1 is the identifiable gate; horizon 4 is the paper's
-ordered multi-step ablation and may remain ambiguous when independent object
-actions commute. All rows retain four-step dense predictor rollout. Hierarchy
-remains blocked until prediction, action ranking, and learned beam planning pass
-across all seeds.
+V3 jobs `3850409`-`3850444` completed `36/36` with exit `0:0`; artifact:
+`../sequence-editing-report/assets/controlled_objects/controlled_delta_identifiable_v3_summary.md`.
+All 12 groups have positive predictor gain, but none passes the action or 95%
+planning gate. The best row is CLS, LDAD horizon 4, weight 1: minimum action
+top-1 is `.50` and every seed solves `1/8` learned plans. Its exact ordered
+four-action LDAD accuracy is zero, as expected when independent actions commute.
+Adjacent full-grid LDAD decodes actions at `.719-.750` minimum but still has
+zero planning and at most `.125` action top-1.
+
+The evaluator also dropped oracle suffixes shorter than the fixed rollout and
+reported only a two-step symbolic ceiling. Regressions now retain the remaining
+suffix and evaluate flat symbolic search at horizon 4. Corrected checkpoint
+evaluation gives CLS h4/w1 learned success `.25/.125/.125`, oracle-candidate
+success `.25/.50/.125`, and symbolic success `1.0` across seeds. The next gate
+is six fresh 20k h4/w1 jobs, paired CLS/full-grid, with 32 planning episodes and
+beam width 64. Hierarchy remains blocked until this low-level model is reliable.
 
 ## Moving-Object Bottleneck Grid
 

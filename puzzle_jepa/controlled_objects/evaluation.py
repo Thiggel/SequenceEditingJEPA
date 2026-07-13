@@ -281,7 +281,7 @@ def _planning_diagnostics(
     oracle_candidate_successes = 0
     bounded_cem_successes = 0
     support_cem_successes = 0
-    symbolic_horizon = min(2, planning_horizon)
+    symbolic_horizon = min(4, planning_horizon)
     supports = {
         level: _estimate_macro_support(
             model,
@@ -713,6 +713,15 @@ def _recursive_on_support_action(
     state_tensor = torch.as_tensor(state[None], dtype=torch.long, device=device)
     state_latent = model.encode(state_tensor)
     top_level = model.hierarchy_depth - 1
+    if oracle_actions is not None:
+        while top_level > 0 and model.level_spans[top_level] > len(oracle_actions):
+            top_level -= 1
+    transition_count = model.level_rollout_steps(top_level)
+    if oracle_actions is not None:
+        transition_count = min(
+            transition_count,
+            max(1, len(oracle_actions) // model.level_spans[top_level]),
+        )
     return _plan_on_support_level(
         model,
         generator,
@@ -721,7 +730,7 @@ def _recursive_on_support_action(
         target_latent,
         rng,
         level=top_level,
-        transition_count=model.level_rollout_steps(top_level),
+        transition_count=transition_count,
         candidates=candidates,
         device=device,
         oracle_actions=oracle_actions,
