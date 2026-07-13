@@ -22,6 +22,9 @@ checkpoints for hierarchy. Then rerun depth `{1,2,3,4}`, stride `{2,4,8}`, and
 primitive-only versus every-level rollout using recursive all-level planning
 and bounded/support-penalized continuous macro CEM. See
 `docs/CURRENT_EXPERIMENTS.md` for the v1-v3 findings and exact gate.
+The current macro support bank is global rather than state-conditioned; require
+a current-state reachability/support control before treating low CEM energy as
+evidence that a high-level action is executable.
 
 ## Active Moving-Object Bottleneck Plan
 

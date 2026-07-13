@@ -55,6 +55,14 @@ planning episodes and beam width 64, and write under
 `controlled_delta_long_v4_steps20000/`. Hierarchy remains blocked until this
 low-level model is reliable.
 
+A hierarchy-specific risk remains even after that gate. Macro CEM currently
+uses one global bank and marginal quantile box of encoded action chunks at every
+predicted state. Its support penalty can therefore call a macro on-manifold
+because it occurred somewhere in the dataset even when it is unreachable from
+the current latent. Before interpreting hierarchy, add a state-conditioned
+support/reachability diagnostic or energy and compare it with the current
+global penalty.
+
 ## Moving-Object Bottleneck Grid
 
 The 315-run seven-family sequence matrix is complete, including dynamics and
