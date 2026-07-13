@@ -28,6 +28,21 @@ Natural-horizon planning is an absolute pass/fail gate; use shared one-step
 ranking and per-step gains, not raw solve-rate differences between horizons,
 to estimate the dense-rollout effect.
 
+The capacity extension holds trajectory, objective, four-step rollout, and
+stride fixed while scaling encoder/CLS width `64/32 -> 128/64 -> 256/128`.
+For each width compare flat depth 1 with a staged depth-2 hierarchy. Gate first
+on all frozen probes, especially trained-minus-initial semantics, raw-control
+gaps, and semantic transfer at the furthest hierarchy/rollout endpoint; only
+then interpret planning. Probe every checkpoint, not only planning winners.
+This extension is complete: width improves position/relation decoding but not
+hierarchical planning. Because both widths co-scale, a later causal ablation
+must vary encoder width at fixed CLS width and CLS width at fixed encoder width
+before assigning the effect to either capacity source.
+
+LDAD objective ablations remain blocked by an explicit policy conflict: Delta
+rows require paired learned-CLS/full-grid latents, but current scope prohibits
+all full-grid runs. Do not submit a relabeled single-CLS LDAD row.
+
 ## Active Moving-Object Bottleneck Plan
 
 The immediate experiment replaces the broad low-level edit sweep. A fixed-width

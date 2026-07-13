@@ -25,6 +25,7 @@ from puzzle_jepa.controlled_objects.generator import (
     ControlledObjectSpec,
 )
 from puzzle_jepa.controlled_objects.model import ControlledObjectJEPA
+from puzzle_jepa.controlled_objects.probes import run_controlled_object_probes
 from scripts.analysis.analyze_controlled_objects import _summarize_group
 
 
@@ -643,6 +644,68 @@ def test_controlled_model_forward_backward_reports_each_hierarchy_level() -> Non
     assert model.dynamics[2].predictor[-1].weight.grad is not None
 
 
+def test_controlled_probe_suite_reports_semantics_raw_and_rollout_controls() -> None:
+    generator = ControlledObjectGenerator(
+        ControlledObjectSpec(
+            grid_size=8,
+            num_colors=6,
+            object_count=2,
+            trajectory_length=8,
+            require_state_change=True,
+        )
+    )
+    model = _model(
+        hierarchy_depth=2,
+        hierarchy_stride=2,
+        rollout_steps=2,
+        rollout_all_levels=True,
+    )
+    model.train()
+
+    metrics = run_controlled_object_probes(
+        model,
+        generator,
+        seed=71,
+        train_samples=24,
+        eval_samples=16,
+        batch_size=8,
+        device=torch.device("cpu"),
+        steps=2,
+        learning_rate=1.0e-2,
+    )
+
+    assert model.training
+    assert metrics["probe_schema"] == "controlled_objects_v2"
+    for name in (
+        "probe_object_presence_balanced_acc",
+        "raw_probe_object_presence_balanced_acc",
+        "probe_rollout_object_presence_balanced_acc",
+        "probe_shape_balanced_acc",
+        "raw_probe_shape_balanced_acc",
+        "probe_rollout_shape_balanced_acc",
+        "probe_position_r2",
+        "raw_probe_position_r2",
+        "probe_rollout_position_r2",
+        "probe_relation_r2",
+        "raw_probe_relation_r2",
+        "probe_rollout_relation_r2",
+        "probe_grid_foreground_iou",
+        "raw_probe_grid_foreground_iou",
+        "probe_rollout_grid_foreground_iou",
+        "probe_delta_transform_balanced_acc",
+        "probe_predicted_delta_transform_balanced_acc",
+        "probe_delta_selected_color_balanced_acc",
+        "probe_predicted_delta_selected_color_balanced_acc",
+        "probe_latent_effective_rank",
+        "probe_level0_rollout2_position_r2",
+        "probe_level1_rollout1_position_r2",
+        "probe_level1_rollout2_grid_foreground_iou",
+    ):
+        assert np.isfinite(metrics[name]), name
+    assert metrics["raw_probe_position_r2"] > -10.0
+    assert metrics["raw_probe_relation_r2"] > -10.0
+
+
 def test_config_tree_contains_all_five_unique_ldad_variants() -> None:
     objective_dir = ROOT / "configs/controlled_objects/objective"
     configs = {
@@ -687,6 +750,37 @@ def test_launcher_has_single_cls_rollout_axes_and_staged_hierarchy() -> None:
     assert '"${previous_job}" "${checkpoint}" "${previous}"' in launcher
     assert "training.init_checkpoint" in slurm
     assert "training.train_from_level" in slurm
+
+
+def test_capacity_and_probe_launchers_are_single_cls_and_cover_every_checkpoint() -> None:
+    capacity = (
+        ROOT / "scripts/experiments/submit_controlled_objects_capacity.sh"
+    ).read_text(encoding="utf-8")
+    probes = (
+        ROOT / "scripts/experiments/submit_controlled_objects_probes.sh"
+    ).read_text(encoding="utf-8")
+    train_slurm = (
+        ROOT / "scripts/slurm/run_controlled_objects_train.slurm"
+    ).read_text(encoding="utf-8")
+    probe_slurm = (
+        ROOT / "scripts/slurm/run_controlled_objects_probes.slurm"
+    ).read_text(encoding="utf-8")
+
+    assert "TOKEN_DIMS=(128 256)" in capacity
+    assert 'latent_dim=$((token_dim / 2))' in capacity
+    assert "capacity_flat" in capacity
+    assert "capacity_hierarchy" in capacity
+    assert "ROLLOUT_STEPS=4" in capacity
+    assert "HIERARCHY_STRIDE=4" in capacity
+    assert "LDAD_WEIGHT=0" in capacity
+    assert "grid_ldad" not in capacity
+    assert '"${TRAIN_JOB_COUNT}" -ne 12' in capacity
+    assert '"${PROBE_JOB_COUNT}" -ne 12' in capacity
+    assert "TOKEN_DIM" in train_slurm
+    assert 'EXPECTED_JOBS="${EXPECTED_JOBS:-54}"' in probes
+    assert 'probe_eval_v2.json' in probes
+    assert '"--dependency=afterok:${train_job_id}"' in probes
+    assert "controlled_objects_probes" in probe_slurm
 
 
 def test_superseded_controlled_launchers_cannot_submit() -> None:

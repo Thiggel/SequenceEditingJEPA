@@ -29,6 +29,9 @@ if [[ -n "${INIT_CHECKPOINT:-}" ]]; then
   INIT_ARGS+=("training.init_checkpoint=${INIT_CHECKPOINT}")
 fi
 MODEL_ARGS=()
+if [[ -n "${TOKEN_DIM:-}" ]]; then
+  MODEL_ARGS+=("model.token_dim=${TOKEN_DIM}")
+fi
 if [[ -n "${LATENT_DIM:-}" ]]; then
   MODEL_ARGS+=("model.latent_dim=${LATENT_DIM}")
 fi

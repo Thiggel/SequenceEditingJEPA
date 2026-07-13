@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-13 19:27 CEST
+Last updated: 2026-07-13 20:09 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -15,7 +15,7 @@ stages through `afterok` dependencies. Aggregate with
 `scripts/analysis/analyze_controlled_objects.py` after all three seeds of a
 group finish.
 
-The only active launcher is
+The primary hierarchy launcher is
 `scripts/experiments/submit_controlled_objects_hwm.sh`. It emits exactly 54
 single-CLS, non-LDAD rows and dry-runs unless `SUBMIT=1`. Do not rerun while
 the manifest jobs are active. The Delta and fidelity launchers are retired and
@@ -23,6 +23,18 @@ exit 2; the former long-gate launcher was removed.
 
 Canceled off-scope jobs `3850564`-`3850569` produced no result. `3850564` ran
 for `00:01:34`; the rest never started.
+
+Corrected frozen probes use
+`controlled_hierarchy_rollout_v5_steps20000_probes_v2.tsv`, jobs
+`3850936`-`3850989`, and write `probe_eval_v2.json` beside each checkpoint.
+The analyzer ignores schema-v1 outputs from `3850855`-`3850908`, whose sparse
+raw-grid standardization made regression controls invalid.
+
+Capacity manifest `controlled_capacity_v6_steps20000.tsv` contains six reused
+`64/32` baselines and 12 completed `128/64` or `256/128` rows. Train jobs
+`3850910,3850912,...,3850932` and dependent probes
+`3850911,3850913,...,3850933` completed successfully. Aggregate both manifests with
+`scripts/analysis/analyze_controlled_objects.py`.
 
 ## Historical Controlled Gates
 

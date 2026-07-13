@@ -266,6 +266,7 @@ class ControlledObjectJEPA(nn.Module):
         if latent_representation == "grid" and hierarchy_depth != 1:
             raise ValueError("The paired full-grid control is defined only for flat LDAD rows.")
         self.grid_size = int(grid_size)
+        self.token_dim = int(token_dim)
         self.latent_dim = int(latent_dim)
         self.latent_representation = latent_representation
         self.hierarchy_depth = int(hierarchy_depth)

@@ -2,11 +2,11 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 19:27 CEST
+Last updated: 2026-07-13 20:09 CEST
 
 ## Single-CLS Hierarchy and Dense Rollout
 
-This is the only active controlled-object sweep. It tests whether temporal
+This is the primary controlled-object sweep. It tests whether temporal
 depth and autoregressive intermediate supervision make a compressed single-CLS
 world model controllable on deterministic rigid-object translations and
 rotations. Delta-JEPA and representation type are not axes. Because the
@@ -33,7 +33,7 @@ All rows use latent width 32, `ema_vicreg_strong`, state-changing trajectories,
 level starts from the same-seed lower checkpoint and freezes the encoder and
 all previously trained temporal levels.
 
-Twenty-one jobs are complete and no job has failed. The first three primitive
+Forty-three jobs are complete and no job has failed. The first four primitive
 groups have final three-seed results:
 
 | rollout | minimum gain over all supervised steps | min action top-1 | learned planning by seed | symbolic min |
@@ -41,6 +41,7 @@ groups have final three-seed results:
 | 1 | `+.00379` | `.5625` | `.50/.5625/.84375` | `1.0` |
 | 2 | `+.00131` | `.5000` | `.25/.125/.34375` | `1.0` |
 | 4 | `+.00097` | `.3125` | `.00/.09375/.09375` | `1.0` |
+| 8 | `+.00020` | `.1875` | `.00/.00/.00` | `1.0` |
 
 All pass the predictor-over-identity gate and fail the `.95` planning gate.
 The planning goals use each model's configured natural horizon, so rollout-1
@@ -49,8 +50,52 @@ they are not an unconfounded cross-horizon comparison. Shared one-step action
 ranking and per-step prediction gains are the direct rollout comparison.
 Lambda `{.75,.9,.95,1}` is also complete at rollout 4: all values retain
 positive gain, while minimum planning is `0/0/.03125/0`. The remaining Slurm
-state at this snapshot is 11 running and 22 pending, including
-released and dependency-held hierarchy stages.
+state is nine running and two dependency-held.
+
+## Capacity and Frozen Probes
+
+A controlled capacity extension reuses the six `64/32` token/CLS baseline
+checkpoints and adds token/CLS widths `128/64` and `256/128`. Each width has
+flat four-step rollout and staged depth-2, stride-4 hierarchy over three seeds.
+The 12 new training jobs `3850910,3850912,...,3850932` and their dependent
+probes `3850911,3850913,...,3850933` all completed successfully. Manifest:
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_capacity_v6_steps20000.tsv`.
+
+| token/CLS | flat planning mean/min | depth-2 planning mean/min | position R2 | relation R2 |
+|---:|---:|---:|---:|---:|
+| `64/32` | `.063/.000` | `.031/.000` | `.001` | `-.095` |
+| `128/64` | `.042/.000` | `.031/.000` | `.253` | `.171` |
+| `256/128` | `.094/.094` | `.031/.000` | `.323` | `.235` |
+
+Width clearly increases color-indexed spatial information and level-1 macro
+endpoint transfer, but planning remains far below the `.95` gate and hierarchy
+does not improve it. Shape remains `.277-.294` and decreases by about `.05`
+from initialization. Because token and CLS widths co-scale, this identifies an
+overall capacity effect but does not separate encoder capacity from bottleneck
+width.
+
+Frozen probe v2 evaluates matched pre-training/pre-stage initialization and
+final checkpoints on identical examples and head initialization. It reports
+color/object presence, rotation-invariant shape family, color-indexed position,
+pair relations, grid foreground decoding, true/predicted latent-delta action
+decoding, effective rank, raw-grid controls, and semantic transfer through
+every supervised rollout step at every hierarchy level. Corrected jobs
+`3850936`-`3850989` cover all 54 active checkpoints; 43 are complete and 11
+are dependency-held. The first probe pass `3850855`-`3850908` exposed
+ill-conditioned raw regressors and is ignored; its jobs were not canceled.
+
+Preliminary complete rollout-1/2 v2 probes show final shape balanced accuracy
+`.283/.298`, but training changes it by `-.065/-.064` from matched random
+initialization. Position improves to only `.043/.035` versus raw controls
+`.592/.581`; relation R2 stays negative (`-.082/-.080`) versus raw
+`.484/.467`; grid foreground IoU is `.015/.014`. Predicted latent deltas do
+encode the primitive transform at `.672/.732`. This is evidence of action and
+weak position information, not learned object abstraction. Capacity and
+hierarchy endpoint conclusions remain pending.
+
+No LDAD sweep was submitted. Project policy requires every Delta/LDAD row to
+have a paired full-grid row, while the current user scope forbids full-grid
+experiments; those constraints must be reconciled before LDAD is eligible.
 
 Two hierarchy bugs were fixed before submission. First, the nearest-support
 energy was global over macro chunks; it now measures joint current-state and

@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 19:27 CEST
+Last updated: 2026-07-13 20:09 CEST
 
 ## Controlled-HWM Fidelity Repair
 
@@ -21,8 +21,28 @@ cross-horizon effect estimate. Minimum shared action top-1 is `.5625/.5000`.
 Rollout-4 also passes prediction (minimum gain `+.00097`) but has action top-1
 `.3125` minimum and planning `.00/.09375/.09375`. Lambda
 `.75/.9/.95/1` leaves minimum planning at `0/0/.03125/0`; no weighting repairs
-control. Twenty-one jobs are complete, 11 are running, 22 are pending, and no
-job has failed.
+control. Rollout-8 has only `+.00020` minimum gain, `.1875` minimum action
+top-1, and zero planning. Forty-three jobs are complete, nine are running, two
+are dependency-held, and no job has failed.
+
+Frozen probe v2 now evaluates every hierarchy level and dense rollout endpoint,
+with matched initialization and raw-grid controls. Preliminary rollout-1/2
+results reject a shape-abstraction claim: final shape balanced accuracy is
+`.283/.298` but falls by about `.06` with training. Position reaches only
+`.043/.035` versus raw `.592/.581`, relations remain negative versus raw
+around `.48`, and grid foreground IoU is about `.014`. Predicted latent deltas
+do carry the primitive transform (`.672/.732`). The initial probe pass is
+invalid for raw position/relation because sparse raw features were standardized;
+the analyzer accepts only corrected schema v2.
+
+Capacity jobs and probes completed `12/12`. Scaling token/CLS from `64/32` to
+`128/64` and `256/128` raises position R2 `.001 -> .253 -> .323` and relation
+R2 `-.095 -> .171 -> .235`, but the widest flat model plans only `.094` and
+every depth-2 group has zero minimum planning. Shape decreases from
+initialization at every width. Capacity improves spatial coding, not
+hierarchical control. Token and CLS widths co-scale, so encoder and bottleneck
+effects remain confounded. No LDAD row was submitted because Delta pairing
+requires a prohibited full-grid row.
 
 All 72 v1 jobs `3849807`-`3849879` completed `0:0`. Every group fails learned
 planning, and standard EMA+VICReg loses to identity across depth, stride,

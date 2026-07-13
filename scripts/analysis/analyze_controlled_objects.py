@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 from statistics import mean
@@ -34,6 +35,7 @@ def analyze_manifest(manifest_path: Path) -> dict[str, Any]:
             missing.append(row["run_name"])
             continue
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        probes = _read_current_probes(Path(row["output_dir"]))
         objective = row["objective"]
         default_ldad_horizon = (
             row["rollout_steps"]
@@ -54,6 +56,7 @@ def analyze_manifest(manifest_path: Path) -> dict[str, Any]:
                     )
                 ),
                 "metrics": metrics,
+                "probes": probes,
             }
         )
     groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
@@ -139,6 +142,9 @@ def _summarize_group(
             "action_top1_min": min(action_top1) if action_top1 else None,
         }
     )
+    probe_rows = [row["probes"] for row in rows if row.get("probes") is not None]
+    output["probe_seed_count"] = len(probe_rows)
+    output["probe_metrics"] = _summarize_probes(probe_rows)
     output["exact_gate"] = len(rows) == 3 and output["exact_receding_min"] == 1.0
     output["prediction_gate"] = len(rows) == 3 and output["all_horizon_gain_min"] > 0.0
     output["planning_gate"] = len(rows) == 3 and output["learned_receding_min"] >= 0.95
@@ -152,6 +158,36 @@ def _summarize_group(
         and output["action_top1_min"] is not None
         and output["action_top1_min"] >= 0.95
     )
+    return output
+
+
+def _summarize_probes(probes: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    if not probes:
+        return {}
+    names = sorted(
+        set.intersection(
+            *(
+                (
+                    set(probe["initial"])
+                    & set(probe["final"])
+                    & set(probe["delta"])
+                )
+                - {"probe_schema"}
+                for probe in probes
+            )
+        )
+    )
+    output = {}
+    for name in names:
+        initial = [float(probe["initial"][name]) for probe in probes]
+        final = [float(probe["final"][name]) for probe in probes]
+        delta = [float(probe["delta"][name]) for probe in probes]
+        output[name] = {
+            "initial_mean": mean(initial),
+            "final_mean": mean(final),
+            "final_min": min(final),
+            "delta_mean": mean(delta),
+        }
     return output
 
 
@@ -174,6 +210,17 @@ def _metric_values(metrics: list[dict[str, Any]], suffix: str) -> list[float]:
 def _read_manifest(path: Path) -> list[dict[str, str]]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle, delimiter="\t"))
+
+
+def _read_current_probes(output_dir: Path) -> dict[str, Any] | None:
+    for name in ("probe_eval_v2.json", "probe_eval_v1.json"):
+        path = output_dir / name
+        if not path.is_file():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("probe_schema") == "controlled_objects_checkpoint_v2":
+            return payload
+    return None
 
 
 def _markdown(analysis: dict[str, Any]) -> str:
@@ -202,11 +249,73 @@ def _markdown(analysis: dict[str, Any]) -> str:
                 ldad_accuracy=_format_optional(group["ldad_exact_accuracy_min"]),
             )
         )
+    probe_groups = [group for group in analysis["groups"] if group["probe_seed_count"]]
+    if probe_groups:
+        lines.extend(
+            [
+                "",
+                "## Frozen semantic probes",
+                "",
+                "All values are final means. Parenthesized representation changes are from matched initialization; unbounded endpoint R2 changes remain in JSON only.",
+                "",
+                "| block | depth | rollout | z | probes | presence | shape | position R2 | relation R2 | endpoint position R2 | endpoint relation R2 | endpoint grid IoU | predicted action | rank |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for group in probe_groups:
+            probes = group["probe_metrics"]
+            lines.append(
+                "| {block} | {depth} | {rollout_steps} | {latent_dim} | "
+                "{probe_seed_count} | {presence} | {shape} | {position} | "
+                "{relation} | {rollout_position} | {rollout_relation} | {grid} | "
+                "{action} | {rank} |".format(
+                    **group,
+                    presence=_format_probe(probes, "probe_object_presence_balanced_acc"),
+                    shape=_format_probe(probes, "probe_shape_balanced_acc"),
+                    position=_format_probe(probes, "probe_position_r2"),
+                    relation=_format_probe(probes, "probe_relation_r2"),
+                    rollout_position=_format_furthest_probe(
+                        group, "position_r2"
+                    ),
+                    rollout_relation=_format_furthest_probe(
+                        group, "relation_r2"
+                    ),
+                    grid=_format_furthest_probe(
+                        group, "grid_foreground_iou"
+                    ),
+                    action=_format_probe(
+                        probes, "probe_predicted_delta_transform_balanced_acc"
+                    ),
+                    rank=_format_probe(probes, "probe_latent_effective_rank"),
+                )
+            )
     return "\n".join(lines) + "\n"
 
 
 def _format_optional(value: float | None) -> str:
     return "-" if value is None else f"{value:.3f}"
+
+
+def _format_probe(metrics: dict[str, dict[str, float]], name: str) -> str:
+    if name not in metrics:
+        return "-"
+    value = metrics[name]
+    return f"{value['final_mean']:.3f} ({value['delta_mean']:+.3f})"
+
+
+def _format_furthest_probe(group: dict[str, Any], suffix: str) -> str:
+    pattern = re.compile(rf"probe_level(\d+)_rollout(\d+)_{re.escape(suffix)}")
+    candidates = []
+    for name in group["probe_metrics"]:
+        match = pattern.fullmatch(name)
+        if match:
+            level, rollout = (int(value) for value in match.groups())
+            horizon = int(group["stride"]) ** level * rollout
+            candidates.append((horizon, level, rollout, name))
+    if not candidates:
+        return "-"
+    value = group["probe_metrics"][max(candidates)[-1]]
+    return f"{value['final_mean']:.3f}"
 
 
 def main() -> None:
