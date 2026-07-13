@@ -112,8 +112,11 @@ Rotation z4/q16 learns weak shape; z8/q2 and z8/q4 learn position; no hard row
 learns velocity/angular velocity. Object-blocked also completed 18/18
 trainers/dynamics/probes: no hard row learns a complete-object factor or
 predictive dynamics; only z4/q16 visible count and z8/q2 color count pass
-narrow scene-summary gates. All 18 frontier rows run and five later families
-remain staged. Dynamics are
+narrow scene-summary gates. Frontier has now completed too: z8/q4 learns
+complete-object position (R2 `.026`, minimum gain `+.041`) and rollout
+position (`.020`, minimum gain `+.036`); no hard row learns shape, completion,
+relations, or dynamics. All 18 random-within-object rows run and four later
+families remain staged. Dynamics are
 `3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
 `3845376`-`3845395`.
 

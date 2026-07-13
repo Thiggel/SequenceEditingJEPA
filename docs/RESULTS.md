@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 04:30 CEST
+Last updated: 2026-07-13 06:48 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -27,6 +27,9 @@ Object-blocked construction has no hard complete-object shape, position,
 completion, relation, rollout-shape, or dynamics gate. Z4/q16 learns visible
 count (`.255` balanced) and z8/q2 learns aggregate color counts (R2 `.261`),
 which are scene summaries rather than bound-object evidence.
+Frontier z8/q4 instead learns complete-object position (R2 `.026`, minimum
+gain `+.041`) and rollout position (`.020`, minimum gain `+.036`). No hard
+frontier row learns shape, completion, relations, or predictive dynamics.
 
 ## Corrected Sequence Result
 
