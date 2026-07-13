@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 00:54 CEST
+Last updated: 2026-07-13 02:19 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -20,6 +20,9 @@ model IoU), supporting a JEPA-specific shape effect within tested controls.
 Under wrapped motion, z4/q16 and z8/q16 retain shape, while z8/q4 changes from
 reflected position to wrapped shape (`.261`, minimum gain `+.0279`). No hard
 wrapped cell learns position, velocity, relations, or predictive dynamics.
+Rotation restores z8/q2 and z8/q4 position (`.040/.062`) and keeps only weak
+z4/q16 shape (`.226`). No hard cell learns velocity or angular velocity,
+despite explicit object rotation.
 
 ## Corrected Sequence Result
 

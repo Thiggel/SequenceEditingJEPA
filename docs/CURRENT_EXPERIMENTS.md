@@ -107,8 +107,10 @@ Wrapped transfer completed 18/18 trainers/dynamics/probes `0:0`; partial
 artifact has six groups. Z4/q16, z8/q4, and z8/q16 learn shape at
 `.244/.261/.258`, while z8/q4 loses its reflected position signal. No hard
 wrapped row learns position, velocity, relations, or dynamics. Selected
-transfer trainers `3844843`-`3845004` continue with all 18 rotating rows
-running; seven sequence families remain staged. Dynamics are
+transfer trainers `3844843`-`3845004` now have wrap and rotation complete.
+Rotation z4/q16 learns weak shape; z8/q2 and z8/q4 learn position; no hard row
+learns velocity/angular velocity. All 18 object-blocked rows run and six later
+families remain staged. Dynamics are
 `3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
 `3845376`-`3845395`.
 
