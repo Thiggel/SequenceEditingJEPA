@@ -1,6 +1,6 @@
 defaults:
   - data: rigid_transform
-  - model: cls_hwm
+  - model: mlp_causal_hwm
   - objective: ema_vicreg
   - _self_
 
@@ -29,4 +29,4 @@ eval:
   trajectories: 256
   batch_size: 64
   planning_episodes: 4
-  planning_candidates: 16
+  planning_candidates: 32

@@ -119,6 +119,9 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
             "trainable_param_count": trainable_param_count,
             "hierarchy_depth": model.hierarchy_depth,
             "hierarchy_stride": model.hierarchy_stride,
+            "level_spans": list(model.level_spans),
+            "predictor_architecture": model.predictor_architecture,
+            "object_count": generator.spec.object_count,
             "token_dim": model.token_dim,
             "latent_dim": model.latent_dim,
             "ldad_horizon": model.ldad_horizon,
@@ -170,6 +173,10 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
         latest_train = {
             "train_loss": float(output.loss.detach().cpu()),
             "train_prediction_loss": float(output.prediction_loss.detach().cpu()),
+            "train_teacher_forcing_loss": float(
+                output.teacher_forcing_loss.detach().cpu()
+            ),
+            "train_rollout_loss": float(output.rollout_loss.detach().cpu()),
             "train_vicreg_loss": float(output.vicreg_loss.detach().cpu()),
             "train_ldad_loss": float(output.ldad_loss.detach().cpu()),
             "train_level_losses": [
@@ -206,7 +213,9 @@ def _initialize_low_level(model: ControlledObjectJEPA, checkpoint_path: Path) ->
     payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     source = payload["model"]
     target = model.state_dict()
-    required_prefixes = ("encoder.", "action_encoders.0.", "dynamics.0.")
+    required_prefixes = ("encoder.",)
+    for level in range(model.hierarchy_depth - 1):
+        required_prefixes += (f"action_encoders.{level}.", f"dynamics.{level}.")
     if model.target_encoder is not None:
         required_prefixes += ("target_encoder.",)
     compatible = {

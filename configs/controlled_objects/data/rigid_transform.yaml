@@ -2,7 +2,7 @@ name: rigid_transform
 grid_size: 16
 num_colors: 10
 object_count: 4
-trajectory_length: 64
+trajectory_length: 128
 invalid_action_ratio: 0.0
 noop_ratio: 0.0
 require_state_change: true

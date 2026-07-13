@@ -1,0 +1,15 @@
+name: mlp_causal_hwm
+hidden_dim: 256
+latent_representation: cls
+level_spans: [1]
+macro_dim: 16
+predictor_architecture: transformer
+predictor_layers: 2
+predictor_heads: 4
+predictor_max_context: 64
+rollout_steps: 1
+rollout_all_levels: true
+rollout_lambda: 1.0
+teacher_forcing_weight: 1.0
+autonomous_rollout_weight: 1.0
+ldad_horizon: 1

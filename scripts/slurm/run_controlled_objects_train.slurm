@@ -15,12 +15,12 @@ source scripts/env.sh
 RUN_NAME="${RUN_NAME:?RUN_NAME is required}"
 SEED="${SEED:?SEED is required}"
 OUTPUT_ROOT="${OUTPUT_ROOT:?OUTPUT_ROOT is required}"
-MODEL_CONFIG="${MODEL_CONFIG:-cls_hwm}"
+MODEL_CONFIG="${MODEL_CONFIG:-mlp_causal_hwm}"
 OBJECTIVE_CONFIG="${OBJECTIVE_CONFIG:-ema_vicreg}"
-HIERARCHY_DEPTH="${HIERARCHY_DEPTH:-1}"
-HIERARCHY_STRIDE="${HIERARCHY_STRIDE:-4}"
+LEVEL_SPANS="${LEVEL_SPANS:-[1]}"
+PREDICTOR_ARCHITECTURE="${PREDICTOR_ARCHITECTURE:-transformer}"
 ROLLOUT_STEPS="${ROLLOUT_STEPS:-1}"
-ROLLOUT_ALL_LEVELS="${ROLLOUT_ALL_LEVELS:-false}"
+ROLLOUT_ALL_LEVELS="${ROLLOUT_ALL_LEVELS:-true}"
 ROLLOUT_LAMBDA="${ROLLOUT_LAMBDA:-1.0}"
 TRAIN_FROM_LEVEL="${TRAIN_FROM_LEVEL:-0}"
 
@@ -29,11 +29,8 @@ if [[ -n "${INIT_CHECKPOINT:-}" ]]; then
   INIT_ARGS+=("training.init_checkpoint=${INIT_CHECKPOINT}")
 fi
 MODEL_ARGS=()
-if [[ -n "${TOKEN_DIM:-}" ]]; then
-  MODEL_ARGS+=("model.token_dim=${TOKEN_DIM}")
-fi
-if [[ -n "${LATENT_DIM:-}" ]]; then
-  MODEL_ARGS+=("model.latent_dim=${LATENT_DIM}")
+if [[ -n "${HIDDEN_DIM:-}" ]]; then
+  MODEL_ARGS+=("model.hidden_dim=${HIDDEN_DIM}")
 fi
 if [[ -n "${LDAD_HORIZON:-}" ]]; then
   MODEL_ARGS+=("model.ldad_horizon=${LDAD_HORIZON}")
@@ -48,8 +45,8 @@ python -m puzzle_jepa.train.controlled_objects \
   "objective=${OBJECTIVE_CONFIG}" \
   "seed=${SEED}" \
   "run_name=${RUN_NAME}" \
-  "model.hierarchy_depth=${HIERARCHY_DEPTH}" \
-  "model.hierarchy_stride=${HIERARCHY_STRIDE}" \
+  "model.level_spans=${LEVEL_SPANS}" \
+  "model.predictor_architecture=${PREDICTOR_ARCHITECTURE}" \
   "model.rollout_steps=${ROLLOUT_STEPS}" \
   "model.rollout_all_levels=${ROLLOUT_ALL_LEVELS}" \
   "model.rollout_lambda=${ROLLOUT_LAMBDA}" \
@@ -57,6 +54,7 @@ python -m puzzle_jepa.train.controlled_objects \
   "training.max_steps=${MAX_STEPS:-20000}" \
   "training.eval_every_steps=${EVAL_EVERY_STEPS:-5000}" \
   "training.batch_size=${BATCH_SIZE:-64}" \
+  "data.object_count=${OBJECT_COUNT:-4}" \
   "eval.planning_episodes=${PLANNING_EPISODES:-8}" \
   "eval.planning_candidates=${PLANNING_CANDIDATES:-32}" \
   "output_dir=${OUTPUT_ROOT}/${RUN_NAME}" \

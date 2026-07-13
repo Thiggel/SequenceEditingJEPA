@@ -7,218 +7,298 @@ from torch import nn
 from torch.nn import functional as F
 
 from puzzle_jepa.controlled_objects.batching import ControlledObjectBatch
-from puzzle_jepa.controlled_objects.generator import TRANSFORM_NAMES
 from puzzle_jepa.object_dynamics.losses import vicreg_regularizer
+
+
+RGB_PALETTE = torch.tensor(
+    [
+        [0.00, 0.00, 0.00],
+        [0.90, 0.12, 0.12],
+        [0.10, 0.72, 0.24],
+        [0.12, 0.34, 0.92],
+        [0.95, 0.78, 0.08],
+        [0.76, 0.16, 0.82],
+        [0.05, 0.76, 0.82],
+        [0.95, 0.42, 0.08],
+        [0.42, 0.20, 0.88],
+        [0.92, 0.92, 0.92],
+    ],
+    dtype=torch.float32,
+)
 
 
 @dataclass(slots=True)
 class ControlledObjectOutput:
     loss: torch.Tensor
     prediction_loss: torch.Tensor
+    teacher_forcing_loss: torch.Tensor
+    rollout_loss: torch.Tensor
     vicreg_loss: torch.Tensor
     ldad_loss: torch.Tensor
     level_losses: tuple[torch.Tensor, ...]
     predictions: tuple[torch.Tensor, ...]
+    teacher_forced_predictions: tuple[torch.Tensor, ...]
     targets: tuple[torch.Tensor, ...]
     rollout_weights: tuple[torch.Tensor, ...]
     ldad_logits: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
 
 
 class ControlledStateEncoder(nn.Module):
+    """A single-hidden-state MLP over a fixed 16x16 RGB rendering."""
+
     def __init__(
         self,
         *,
         grid_size: int,
         num_colors: int,
-        token_dim: int,
-        latent_dim: int,
-        num_layers: int,
-        num_heads: int,
-        latent_representation: str,
+        hidden_dim: int,
     ):
         super().__init__()
-        if latent_representation not in {"cls", "grid"}:
-            raise ValueError("latent_representation must be 'cls' or 'grid'.")
+        if num_colors > len(RGB_PALETTE):
+            raise ValueError(f"RGB palette supports at most {len(RGB_PALETTE)} colors.")
         self.grid_size = int(grid_size)
-        self.token_dim = int(token_dim)
-        self.latent_representation = latent_representation
-        self.color = nn.Embedding(num_colors, token_dim)
-        self.row = nn.Embedding(grid_size, token_dim)
-        self.col = nn.Embedding(grid_size, token_dim)
-        self.cls = nn.Parameter(torch.zeros(1, 1, token_dim))
-        layer = nn.TransformerEncoderLayer(
-            d_model=token_dim,
-            nhead=num_heads,
-            dim_feedforward=4 * token_dim,
-            dropout=0.0,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
+        self.num_colors = int(num_colors)
+        self.hidden_dim = int(hidden_dim)
+        self.input_dim = self.grid_size * self.grid_size * 3
+        self.register_buffer("palette", RGB_PALETTE[:num_colors].clone())
+        self.mlp = nn.Sequential(
+            nn.Linear(self.input_dim, hidden_dim),
+            nn.GELU(),
         )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=num_layers)
-        self.project = nn.Sequential(nn.LayerNorm(token_dim), nn.Linear(token_dim, latent_dim))
 
-    def forward(self, states: torch.Tensor) -> torch.Tensor:
+    def render_rgb(self, states: torch.Tensor) -> torch.Tensor:
         if states.ndim != 3:
             raise ValueError("ControlledStateEncoder expects [B,H,W].")
-        batch, height, width = states.shape
-        if (height, width) != (self.grid_size, self.grid_size):
+        if tuple(states.shape[1:]) != (self.grid_size, self.grid_size):
             raise ValueError(f"Expected {self.grid_size}x{self.grid_size} states.")
-        rows = torch.arange(height, device=states.device).view(1, height, 1)
-        cols = torch.arange(width, device=states.device).view(1, 1, width)
-        tokens = self.color(states) + self.row(rows) + self.col(cols)
-        tokens = tokens.reshape(batch, height * width, self.token_dim)
-        encoded = self.transformer(
-            torch.cat([self.cls.expand(batch, -1, -1), tokens], dim=1)
-        )
-        selected = encoded[:, 0] if self.latent_representation == "cls" else encoded[:, 1:]
-        return self.project(selected)
+        return self.palette[states]
+
+    def forward(self, states: torch.Tensor) -> torch.Tensor:
+        rgb = self.render_rgb(states)
+        return self.mlp(rgb.flatten(1))
 
 
 class ActionChunkEncoder(nn.Module):
+    """Ordered one-hot pixel edits followed by one learned linear projection."""
+
     def __init__(
         self,
         *,
         grid_size: int,
+        num_colors: int,
         chunk_length: int,
-        token_dim: int,
         macro_dim: int,
-        num_heads: int,
     ):
         super().__init__()
+        self.grid_size = int(grid_size)
+        self.num_colors = int(num_colors)
         self.chunk_length = int(chunk_length)
-        self.row = nn.Embedding(grid_size, token_dim)
-        self.col = nn.Embedding(grid_size, token_dim)
-        self.transform = nn.Embedding(len(TRANSFORM_NAMES), token_dim)
-        self.position = nn.Embedding(chunk_length, token_dim)
-        self.cls = nn.Parameter(torch.zeros(1, 1, token_dim))
-        layer = nn.TransformerEncoderLayer(
-            d_model=token_dim,
-            nhead=num_heads,
-            dim_feedforward=2 * token_dim,
-            dropout=0.0,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
-        )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=1)
-        self.project = nn.Sequential(nn.LayerNorm(token_dim), nn.Linear(token_dim, macro_dim))
+        self.action_dim = 2 * self.grid_size + self.num_colors
+        self.project = nn.Linear(self.chunk_length * self.action_dim, macro_dim)
 
     def forward(self, actions: torch.Tensor) -> torch.Tensor:
         if actions.ndim != 3 or actions.shape[1:] != (self.chunk_length, 3):
             raise ValueError(
                 f"Expected action chunks [B,{self.chunk_length},3], got {tuple(actions.shape)}."
             )
-        positions = torch.arange(self.chunk_length, device=actions.device).view(1, -1)
-        tokens = (
-            self.row(actions[..., 0])
-            + self.col(actions[..., 1])
-            + self.transform(actions[..., 2])
-            + self.position(positions)
-        )
-        encoded = self.transformer(
-            torch.cat([self.cls.expand(len(actions), -1, -1), tokens], dim=1)
-        )
-        return self.project(encoded[:, 0])
+        encoded = torch.cat(
+            (
+                F.one_hot(actions[..., 0], self.grid_size),
+                F.one_hot(actions[..., 1], self.grid_size),
+                F.one_hot(actions[..., 2], self.num_colors),
+            ),
+            dim=-1,
+        ).to(dtype=self.project.weight.dtype)
+        return self.project(encoded.flatten(1))
 
 
-class LatentDynamics(nn.Module):
-    def __init__(self, *, latent_dim: int, macro_dim: int):
+class _GatedDeltaBlock(nn.Module):
+    def __init__(self, hidden_dim: int, num_heads: int):
         super().__init__()
-        self.condition = nn.Linear(macro_dim, latent_dim)
-        self.predictor = nn.Sequential(
-            nn.LayerNorm(2 * latent_dim),
-            nn.Linear(2 * latent_dim, 4 * latent_dim),
+        if hidden_dim % num_heads:
+            raise ValueError("Gated DeltaNet hidden_dim must be divisible by num_heads.")
+        self.hidden_dim = int(hidden_dim)
+        self.num_heads = int(num_heads)
+        self.head_dim = hidden_dim // num_heads
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.q_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.v_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.alpha_proj = nn.Linear(hidden_dim, num_heads, bias=True)
+        self.beta_proj = nn.Linear(hidden_dim, num_heads, bias=True)
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.ffn_norm = nn.LayerNorm(hidden_dim)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_dim, 4 * hidden_dim),
             nn.GELU(),
-            nn.Linear(4 * latent_dim, latent_dim),
+            nn.Linear(4 * hidden_dim, hidden_dim),
         )
 
-    def forward(self, latent: torch.Tensor, macro: torch.Tensor) -> torch.Tensor:
-        condition = self.condition(macro)
-        while condition.ndim < latent.ndim:
-            condition = condition.unsqueeze(1)
-        condition = condition.expand(*latent.shape[:-1], condition.shape[-1])
-        delta = self.predictor(torch.cat([latent, condition], dim=-1))
-        return latent + delta
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        if inputs.is_cuda:
+            with torch.autocast(device_type="cuda", enabled=False):
+                return self._forward_impl(inputs.float()).to(inputs.dtype)
+        return self._forward_impl(inputs)
+
+    def _forward_impl(self, inputs: torch.Tensor) -> torch.Tensor:
+        normalized = self.norm(inputs)
+        shape = (*normalized.shape[:2], self.num_heads, self.head_dim)
+        queries = F.normalize(self.q_proj(normalized).reshape(shape).float(), dim=-1).to(
+            normalized.dtype
+        )
+        keys = F.normalize(self.k_proj(normalized).reshape(shape).float(), dim=-1).to(
+            normalized.dtype
+        )
+        values = F.silu(self.v_proj(normalized)).reshape(shape)
+        log_decay = F.logsigmoid(self.alpha_proj(normalized))
+        beta = torch.sigmoid(self.beta_proj(normalized))
+        if inputs.is_cuda:
+            from fla.ops.gated_delta_rule import chunk_gated_delta_rule
+
+            mixed, _ = chunk_gated_delta_rule(
+                q=queries,
+                k=keys,
+                v=values,
+                g=log_decay,
+                beta=beta,
+                use_qk_l2norm_in_kernel=False,
+            )
+        else:
+            mixed = _reference_gated_delta_rule(
+                queries, keys, values, log_decay.exp(), beta
+            )
+        residual = inputs + self.out_proj(mixed.flatten(2))
+        return residual + self.ffn(self.ffn_norm(residual))
 
 
-class CategoricalLDAD(nn.Module):
+def _reference_gated_delta_rule(
+    queries: torch.Tensor,
+    keys: torch.Tensor,
+    values: torch.Tensor,
+    decay: torch.Tensor,
+    beta: torch.Tensor,
+) -> torch.Tensor:
+    batch, steps, heads, key_dim = keys.shape
+    value_dim = values.shape[-1]
+    memory = values.new_zeros(batch, heads, key_dim, value_dim)
+    outputs = []
+    for step in range(steps):
+        key = keys[:, step]
+        value = values[:, step]
+        memory = memory * decay[:, step, :, None, None]
+        retrieved = torch.einsum("bhkv,bhk->bhv", memory, key)
+        update = torch.einsum("bhk,bhv->bhkv", key, value - retrieved)
+        memory = memory + beta[:, step, :, None, None] * update
+        outputs.append(torch.einsum("bhkv,bhk->bhv", memory, queries[:, step]))
+    return torch.stack(outputs, dim=1)
+
+
+class CausalLatentPredictor(nn.Module):
     def __init__(
         self,
         *,
-        input_dim: int,
-        grid_size: int,
-        hidden_dim: int,
+        latent_dim: int,
+        macro_dim: int,
+        architecture: str,
+        num_layers: int,
+        num_heads: int,
+        max_context: int,
     ):
         super().__init__()
-        self.input_dim = int(input_dim)
-        self.input_projection = nn.Linear(input_dim, hidden_dim)
+        if architecture not in {"transformer", "gated_deltanet", "lstm"}:
+            raise ValueError(
+                "predictor_architecture must be transformer, gated_deltanet, or lstm."
+            )
+        if latent_dim % num_heads:
+            raise ValueError("latent_dim must be divisible by predictor_heads.")
+        self.architecture = architecture
+        self.max_context = int(max_context)
+        self.state_projection = nn.Linear(latent_dim, latent_dim)
+        self.macro_projection = nn.Linear(macro_dim, latent_dim)
+        self.position = nn.Embedding(2 * max_context, latent_dim)
+        if architecture == "transformer":
+            layer = nn.TransformerEncoderLayer(
+                d_model=latent_dim,
+                nhead=num_heads,
+                dim_feedforward=4 * latent_dim,
+                dropout=0.0,
+                activation="gelu",
+                batch_first=True,
+                norm_first=True,
+            )
+            self.sequence_model: nn.Module = nn.TransformerEncoder(
+                layer, num_layers=num_layers
+            )
+        elif architecture == "gated_deltanet":
+            self.sequence_model = nn.ModuleList(
+                [_GatedDeltaBlock(latent_dim, num_heads) for _ in range(num_layers)]
+            )
+        else:
+            self.sequence_model = nn.LSTM(
+                input_size=latent_dim,
+                hidden_size=latent_dim,
+                num_layers=num_layers,
+                batch_first=True,
+            )
+        self.output = nn.Sequential(
+            nn.LayerNorm(latent_dim),
+            nn.Linear(latent_dim, 2 * latent_dim),
+            nn.GELU(),
+            nn.Linear(2 * latent_dim, latent_dim),
+        )
+
+    def forward(self, states: torch.Tensor, macros: torch.Tensor) -> torch.Tensor:
+        if states.shape[:2] != macros.shape[:2]:
+            raise ValueError("Causal predictor states and macro-actions must align.")
+        steps = states.shape[1]
+        if steps > self.max_context:
+            raise ValueError(f"Predictor context {steps} exceeds {self.max_context}.")
+        state_tokens = self.state_projection(states)
+        macro_tokens = self.macro_projection(macros)
+        hidden = torch.stack((state_tokens, macro_tokens), dim=2).flatten(1, 2)
+        token_count = hidden.shape[1]
+        positions = torch.arange(token_count, device=states.device).view(1, -1)
+        hidden = hidden + self.position(positions)
+        if self.architecture == "transformer":
+            causal_mask = torch.ones(
+                token_count, token_count, dtype=torch.bool, device=states.device
+            ).triu(1)
+            hidden = self.sequence_model(hidden, mask=causal_mask)
+        elif self.architecture == "gated_deltanet":
+            for block in self.sequence_model:
+                hidden = block(hidden)
+        else:
+            hidden, _ = self.sequence_model(hidden)
+        return states + self.output(hidden[:, 1::2])
+
+    def rollout(self, initial: torch.Tensor, macros: torch.Tensor) -> torch.Tensor:
+        predicted = []
+        for step in range(macros.shape[1]):
+            history = torch.stack([initial, *predicted], dim=1)
+            next_state = self(history, macros[:, : step + 1])[:, -1]
+            predicted.append(next_state)
+        return torch.stack(predicted, dim=1)
+
+
+class CategoricalLDAD(nn.Module):
+    def __init__(self, *, input_dim: int, grid_size: int, num_colors: int):
+        super().__init__()
+        hidden_dim = max(64, 2 * input_dim)
         self.trunk = nn.Sequential(
-            nn.LayerNorm(hidden_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.GELU(),
         )
         self.row = nn.Linear(hidden_dim, grid_size)
         self.col = nn.Linear(hidden_dim, grid_size)
-        self.transform = nn.Linear(hidden_dim, len(TRANSFORM_NAMES))
+        self.color = nn.Linear(hidden_dim, num_colors)
 
     def forward(
         self, delta: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        flattened = delta.flatten(1)
-        if flattened.shape[1] != self.input_dim:
-            raise ValueError(
-                f"LDAD expected displacement dim {self.input_dim}, got {flattened.shape[1]}."
-            )
-        hidden = self.trunk(self.input_projection(flattened))
-        return self.row(hidden), self.col(hidden), self.transform(hidden)
-
-
-class MultiStepCategoricalLDAD(nn.Module):
-    def __init__(
-        self,
-        *,
-        input_dim: int,
-        grid_size: int,
-        horizon: int,
-        hidden_dim: int,
-        num_heads: int = 4,
-    ):
-        super().__init__()
-        self.input_dim = int(input_dim)
-        self.horizon = int(horizon)
-        self.queries = nn.Parameter(torch.zeros(1, horizon, hidden_dim))
-        self.condition = nn.Linear(input_dim, 2 * hidden_dim)
-        layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=num_heads,
-            dim_feedforward=2 * hidden_dim,
-            dropout=0.0,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
-        )
-        self.transformer = nn.TransformerEncoder(layer, num_layers=2)
-        self.row = nn.Linear(hidden_dim, grid_size)
-        self.col = nn.Linear(hidden_dim, grid_size)
-        self.transform = nn.Linear(hidden_dim, len(TRANSFORM_NAMES))
-
-    def forward(
-        self, delta: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        flattened = delta.flatten(1)
-        if flattened.shape[1] != self.input_dim:
-            raise ValueError(
-                f"LDAD expected displacement dim {self.input_dim}, got {flattened.shape[1]}."
-            )
-        scale, shift = self.condition(flattened).chunk(2, dim=-1)
-        queries = self.queries.expand(len(delta), -1, -1)
-        normalized = F.layer_norm(queries, (queries.shape[-1],))
-        hidden = self.transformer(
-            normalized * (1.0 + scale.unsqueeze(1)) + shift.unsqueeze(1)
-        )
-        return self.row(hidden), self.col(hidden), self.transform(hidden)
+        hidden = self.trunk(delta)
+        return self.row(hidden), self.col(hidden), self.color(hidden)
 
 
 class ControlledObjectJEPA(nn.Module):
@@ -227,19 +307,27 @@ class ControlledObjectJEPA(nn.Module):
         *,
         grid_size: int = 16,
         num_colors: int = 10,
-        token_dim: int = 64,
-        latent_dim: int = 32,
-        encoder_layers: int = 2,
-        encoder_heads: int = 4,
+        hidden_dim: int | None = None,
+        token_dim: int = 256,
+        latent_dim: int = 256,
+        encoder_layers: int = 1,
+        encoder_heads: int = 1,
         latent_representation: str = "cls",
+        level_spans: tuple[int, ...] | list[int] | None = None,
         hierarchy_depth: int = 1,
         hierarchy_stride: int = 4,
-        macro_dim: int = 8,
+        macro_dim: int = 16,
         action_token_dim: int = 32,
         action_heads: int = 4,
+        predictor_architecture: str = "transformer",
+        predictor_layers: int = 2,
+        predictor_heads: int = 4,
+        predictor_max_context: int = 64,
         rollout_steps: int = 1,
-        rollout_all_levels: bool = False,
+        rollout_all_levels: bool = True,
         rollout_lambda: float = 1.0,
+        teacher_forcing_weight: float = 1.0,
+        autonomous_rollout_weight: float = 1.0,
         target_mode: str = "ema",
         stop_gradient_targets: bool = True,
         ema_decay: float = 0.99,
@@ -249,31 +337,40 @@ class ControlledObjectJEPA(nn.Module):
         ldad_horizon: int = 1,
     ):
         super().__init__()
-        if hierarchy_depth not in {1, 2, 3, 4}:
-            raise ValueError("hierarchy_depth must be in {1,2,3,4}.")
-        if hierarchy_stride not in {2, 4, 8}:
-            raise ValueError("hierarchy_stride must be in {2,4,8}.")
+        del encoder_layers, encoder_heads, action_token_dim, action_heads
+        if latent_representation != "cls":
+            raise ValueError("Controlled experiments support only one learned latent state.")
         if rollout_steps not in {1, 2, 4, 8}:
             raise ValueError("rollout_steps must be in {1,2,4,8}.")
         if not (0.0 < rollout_lambda <= 1.0):
             raise ValueError("rollout_lambda must lie in (0,1].")
-        if ldad_horizon not in {1, 2, 4, 8}:
-            raise ValueError("ldad_horizon must be in {1,2,4,8}.")
         if target_mode not in {"shared", "ema"}:
             raise ValueError("target_mode must be 'shared' or 'ema'.")
         if target_mode == "ema" and not stop_gradient_targets:
             raise ValueError("EMA targets are necessarily stop-gradient targets.")
-        if latent_representation == "grid" and hierarchy_depth != 1:
-            raise ValueError("Legacy grid representations support only flat checkpoints.")
+        resolved_spans = (
+            tuple(int(span) for span in level_spans)
+            if level_spans is not None
+            else tuple(hierarchy_stride**level for level in range(hierarchy_depth))
+        )
+        if not resolved_spans or resolved_spans[0] != 1:
+            raise ValueError("level_spans must start at primitive span 1.")
+        if any(left >= right for left, right in zip(resolved_spans, resolved_spans[1:])):
+            raise ValueError("level_spans must be strictly increasing.")
+        state_dim = int(hidden_dim if hidden_dim is not None else latent_dim)
         self.grid_size = int(grid_size)
-        self.token_dim = int(token_dim)
-        self.latent_dim = int(latent_dim)
-        self.latent_representation = latent_representation
-        self.hierarchy_depth = int(hierarchy_depth)
-        self.hierarchy_stride = int(hierarchy_stride)
+        self.num_colors = int(num_colors)
+        self.token_dim = state_dim
+        self.latent_dim = state_dim
+        self.latent_representation = "cls"
+        self.level_spans = resolved_spans
+        self.hierarchy_depth = len(resolved_spans)
+        self.hierarchy_stride = resolved_spans[1] if len(resolved_spans) > 1 else 1
         self.rollout_steps = int(rollout_steps)
         self.rollout_all_levels = bool(rollout_all_levels)
         self.rollout_lambda = float(rollout_lambda)
+        self.teacher_forcing_weight = float(teacher_forcing_weight)
+        self.autonomous_rollout_weight = float(autonomous_rollout_weight)
         self.target_mode = target_mode
         self.stop_gradient_targets = bool(stop_gradient_targets)
         self.ema_decay = float(ema_decay)
@@ -281,68 +378,64 @@ class ControlledObjectJEPA(nn.Module):
         self.vicreg_weight = float(vicreg_weight)
         self.ldad_weight = float(ldad_weight)
         self.ldad_horizon = int(ldad_horizon)
+        self.predictor_architecture = predictor_architecture
         self.train_from_level = 0
-        encoder_args = dict(
+        self.encoder = ControlledStateEncoder(
             grid_size=grid_size,
             num_colors=num_colors,
-            token_dim=token_dim,
-            latent_dim=latent_dim,
-            num_layers=encoder_layers,
-            num_heads=encoder_heads,
-            latent_representation=latent_representation,
+            hidden_dim=state_dim,
         )
-        self.encoder = ControlledStateEncoder(**encoder_args)
         if target_mode == "ema":
             self.target_encoder: ControlledStateEncoder | None = ControlledStateEncoder(
-                **encoder_args
+                grid_size=grid_size,
+                num_colors=num_colors,
+                hidden_dim=state_dim,
             )
             self.target_encoder.load_state_dict(self.encoder.state_dict())
             for parameter in self.target_encoder.parameters():
                 parameter.requires_grad_(False)
         else:
             self.target_encoder = None
-        self.level_spans = tuple(hierarchy_stride**level for level in range(hierarchy_depth))
         self.action_encoders = nn.ModuleList(
             [
                 ActionChunkEncoder(
                     grid_size=grid_size,
+                    num_colors=num_colors,
                     chunk_length=span,
-                    token_dim=action_token_dim,
                     macro_dim=macro_dim,
-                    num_heads=action_heads,
                 )
                 for span in self.level_spans
             ]
         )
         self.dynamics = nn.ModuleList(
-            [LatentDynamics(latent_dim=latent_dim, macro_dim=macro_dim) for _ in self.level_spans]
-        )
-        if ldad_weight > 0.0:
-            ldad_input_dim = latent_dim * (
-                grid_size * grid_size if latent_representation == "grid" else 1
-            )
-            decoder_args = dict(
-                input_dim=ldad_input_dim,
-                grid_size=grid_size,
-                hidden_dim=max(64, 2 * latent_dim),
-            )
-            if self.ldad_horizon == 1:
-                self.ldad_decoder: nn.Module | None = CategoricalLDAD(**decoder_args)
-            else:
-                self.ldad_decoder = MultiStepCategoricalLDAD(
-                    **decoder_args,
-                    horizon=self.ldad_horizon,
+            [
+                CausalLatentPredictor(
+                    latent_dim=state_dim,
+                    macro_dim=macro_dim,
+                    architecture=predictor_architecture,
+                    num_layers=predictor_layers,
+                    num_heads=predictor_heads,
+                    max_context=predictor_max_context,
                 )
-        else:
-            self.ldad_decoder = None
+                for _ in self.level_spans
+            ]
+        )
+        self.ldad_decoder = (
+            CategoricalLDAD(
+                input_dim=state_dim,
+                grid_size=grid_size,
+                num_colors=num_colors,
+            )
+            if ldad_weight > 0.0
+            else None
+        )
 
     @property
     def required_horizon(self) -> int:
-        rollout_horizon = max(
+        return max(
             span * self.level_rollout_steps(level)
             for level, span in enumerate(self.level_spans)
         )
-        return max(rollout_horizon, self.ldad_horizon if self.ldad_decoder else 1)
 
     def level_rollout_steps(self, level: int) -> int:
         return self.rollout_steps if level == 0 or self.rollout_all_levels else 1
@@ -360,12 +453,23 @@ class ControlledObjectJEPA(nn.Module):
     def predict_from_macro(
         self, level: int, latent: torch.Tensor, macro: torch.Tensor
     ) -> torch.Tensor:
-        return self.dynamics[level](latent, macro)
+        return self.dynamics[level](latent[:, None], macro[:, None])[:, 0]
 
     def predict_chunk(
         self, level: int, latent: torch.Tensor, actions: torch.Tensor
     ) -> torch.Tensor:
         return self.predict_from_macro(level, latent, self.encode_action_chunk(level, actions))
+
+    def rollout_level(
+        self, level: int, initial: torch.Tensor, actions: torch.Tensor
+    ) -> torch.Tensor:
+        span = self.level_spans[level]
+        if actions.ndim != 3 or actions.shape[1] % span:
+            raise ValueError("Rollout actions must contain complete level chunks.")
+        steps = actions.shape[1] // span
+        flat = actions.reshape(len(actions) * steps, span, 3)
+        macros = self.encode_action_chunk(level, flat).reshape(len(actions), steps, -1)
+        return self.dynamics[level].rollout(initial, macros)
 
     @torch.no_grad()
     def update_target_encoder(self) -> None:
@@ -382,14 +486,14 @@ class ControlledObjectJEPA(nn.Module):
                 f"train_from_level must be in [0,{self.hierarchy_depth - 1}]."
             )
         self.train_from_level = int(level)
-        if level <= 0:
+        if level == 0:
             return
         for parameter in self.encoder.parameters():
             parameter.requires_grad_(False)
         if self.target_encoder is not None:
             for parameter in self.target_encoder.parameters():
                 parameter.requires_grad_(False)
-        for index in range(min(level, self.hierarchy_depth)):
+        for index in range(level):
             for parameter in self.action_encoders[index].parameters():
                 parameter.requires_grad_(False)
             for parameter in self.dynamics[index].parameters():
@@ -402,77 +506,75 @@ class ControlledObjectJEPA(nn.Module):
             )
         current = self.encode(batch.states[:, 0])
         level_losses = []
+        teacher_losses = []
+        rollout_losses = []
         all_predictions = []
+        all_teacher_predictions = []
         all_targets = []
         all_weights = []
         for level, span in enumerate(self.level_spans):
-            state = current
-            predictions = []
-            targets = []
             rollout_count = self.level_rollout_steps(level)
+            endpoint_indices = torch.arange(
+                span, span * rollout_count + 1, span, device=batch.states.device
+            )
+            endpoint_states = batch.states.index_select(1, endpoint_indices)
+            flat_endpoints = endpoint_states.flatten(0, 1)
+            targets = self.encode(flat_endpoints, target=True).reshape(
+                len(batch.states), rollout_count, self.latent_dim
+            )
+            action_window = batch.actions[:, : span * rollout_count]
+            flat_actions = action_window.reshape(
+                len(batch.actions) * rollout_count, span, 3
+            )
+            macros = self.encode_action_chunk(level, flat_actions).reshape(
+                len(batch.actions), rollout_count, -1
+            )
+            teacher_inputs = torch.cat((current[:, None], targets[:, :-1]), dim=1)
+            teacher_predictions = self.dynamics[level](teacher_inputs, macros)
+            predictions = self.dynamics[level].rollout(current, macros)
             weights = current.new_tensor(
                 [self.rollout_lambda**index for index in range(rollout_count)]
             )
             weights = weights / weights.sum()
-            for rollout_index in range(rollout_count):
-                action_start = rollout_index * span
-                action_stop = action_start + span
-                state = self.predict_chunk(
-                    level, state, batch.actions[:, action_start:action_stop]
-                )
-                target = self.encode(
-                    batch.states[:, action_stop],
-                    target=True,
-                )
-                predictions.append(state)
-                targets.append(target)
-            predicted = torch.stack(predictions, dim=1)
-            target_stack = torch.stack(targets, dim=1)
-            reduce_dims = tuple(range(2, predicted.ndim))
-            per_step = (predicted - target_stack).square().mean(dim=reduce_dims)
-            level_loss = (per_step * weights.view(1, -1)).sum(dim=1).mean()
+            teacher_per_step = (teacher_predictions - targets).abs().mean(dim=-1)
+            rollout_per_step = (predictions - targets).abs().mean(dim=-1)
+            teacher_loss = (teacher_per_step * weights).sum(dim=1).mean()
+            rollout_loss = (rollout_per_step * weights).sum(dim=1).mean()
+            level_loss = (
+                self.teacher_forcing_weight * teacher_loss
+                + self.autonomous_rollout_weight * rollout_loss
+            ) / max(
+                1.0, self.teacher_forcing_weight + self.autonomous_rollout_weight
+            )
             level_losses.append(level_loss)
-            all_predictions.append(predicted)
-            all_targets.append(target_stack)
+            teacher_losses.append(teacher_loss)
+            rollout_losses.append(rollout_loss)
+            all_predictions.append(predictions)
+            all_teacher_predictions.append(teacher_predictions)
+            all_targets.append(targets)
             all_weights.append(weights)
-        prediction_loss = torch.stack(level_losses[self.train_from_level :]).mean()
+        selected = slice(self.train_from_level, None)
+        prediction_loss = torch.stack(level_losses[selected]).mean()
+        teacher_forcing_loss = torch.stack(teacher_losses[selected]).mean()
+        autonomous_rollout_loss = torch.stack(rollout_losses[selected]).mean()
 
         if self.vicreg_weight > 0.0:
             online_future = self.encoder(batch.states[:, self.required_horizon])
             vicreg_loss = 0.5 * (
-                vicreg_regularizer(_vicreg_samples(current))
-                + vicreg_regularizer(_vicreg_samples(online_future))
+                vicreg_regularizer(current) + vicreg_regularizer(online_future)
             )
         else:
             vicreg_loss = prediction_loss.detach() * 0.0
 
         ldad_logits = None
         if self.ldad_decoder is not None:
-            endpoint = self.encode(batch.states[:, self.ldad_horizon], target=True)
+            endpoint = self.encode(batch.states[:, 1], target=True)
             ldad_logits = self.ldad_decoder(endpoint - current)
-            changed = (
-                batch.states[:, 1 : self.ldad_horizon + 1]
-                != batch.states[:, : self.ldad_horizon]
-            )
-            changed = changed.flatten(2).any(dim=2).all(dim=1)
-            effective = (
-                batch.action_validity[:, : self.ldad_horizon].all(dim=1) & changed
-            )
-            if bool(effective.any()):
-                action_targets = batch.actions[effective, : self.ldad_horizon]
-                field_losses = []
-                for index, logits in enumerate(ldad_logits):
-                    selected = logits[effective]
-                    targets = action_targets[..., index]
-                    if self.ldad_horizon == 1:
-                        targets = targets[:, 0]
-                    else:
-                        selected = selected.flatten(0, 1)
-                        targets = targets.flatten()
-                    field_losses.append(F.cross_entropy(selected, targets))
-                ldad_loss = sum(field_losses) / len(field_losses)
-            else:
-                ldad_loss = sum(logits.sum() for logits in ldad_logits) * 0.0
+            field_losses = [
+                F.cross_entropy(logits, batch.actions[:, 0, index])
+                for index, logits in enumerate(ldad_logits)
+            ]
+            ldad_loss = sum(field_losses) / len(field_losses)
         else:
             ldad_loss = prediction_loss.detach() * 0.0
         return ControlledObjectOutput(
@@ -482,15 +584,14 @@ class ControlledObjectJEPA(nn.Module):
                 + self.ldad_weight * ldad_loss
             ),
             prediction_loss=prediction_loss,
+            teacher_forcing_loss=teacher_forcing_loss,
+            rollout_loss=autonomous_rollout_loss,
             vicreg_loss=vicreg_loss,
             ldad_loss=ldad_loss,
             level_losses=tuple(level_losses),
             predictions=tuple(all_predictions),
+            teacher_forced_predictions=tuple(all_teacher_predictions),
             targets=tuple(all_targets),
             rollout_weights=tuple(all_weights),
             ldad_logits=ldad_logits,
         )
-
-
-def _vicreg_samples(latent: torch.Tensor) -> torch.Tensor:
-    return latent if latent.ndim == 2 else latent.flatten(0, 1)

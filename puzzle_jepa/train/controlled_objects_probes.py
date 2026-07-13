@@ -62,7 +62,7 @@ def evaluate_checkpoint_probes(
         and np.isfinite(float(initial_metrics[name]))
     }
     return {
-        "probe_schema": "controlled_objects_checkpoint_v2",
+        "probe_schema": "controlled_objects_checkpoint_v3",
         "checkpoint": str(checkpoint_path),
         "step": int(payload["step"]),
         "run_name": str(config["run_name"]),

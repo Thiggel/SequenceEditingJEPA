@@ -213,12 +213,15 @@ def _read_manifest(path: Path) -> list[dict[str, str]]:
 
 
 def _read_current_probes(output_dir: Path) -> dict[str, Any] | None:
-    for name in ("probe_eval_v2.json", "probe_eval_v1.json"):
+    for name in ("probe_eval_v3.json", "probe_eval_v2.json", "probe_eval_v1.json"):
         path = output_dir / name
         if not path.is_file():
             continue
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("probe_schema") == "controlled_objects_checkpoint_v2":
+        if payload.get("probe_schema") in {
+            "controlled_objects_checkpoint_v2",
+            "controlled_objects_checkpoint_v3",
+        }:
             return payload
     return None
 

@@ -6,13 +6,20 @@ import numpy as np
 
 
 @dataclass(frozen=True, slots=True)
-class RigidAction:
+class PixelEdit:
+    row: int
+    col: int
+    color: int
+
+    def as_array(self) -> np.ndarray:
+        return np.asarray((self.row, self.col, self.color), dtype=np.int64)
+
+
+@dataclass(frozen=True, slots=True)
+class RigidTransform:
     row: int
     col: int
     transform: int
-
-    def as_array(self) -> np.ndarray:
-        return np.asarray((self.row, self.col, self.transform), dtype=np.int64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,12 +28,17 @@ class RigidObjectScene:
     object_maps: np.ndarray
     shape_ids: np.ndarray
     colors: np.ndarray
+    motion_ids: np.ndarray
 
     def __post_init__(self) -> None:
         if self.grid.ndim != 2 or self.object_maps.shape != self.grid.shape:
             raise ValueError("Scene grid and object map must be matching 2D arrays.")
-        if self.shape_ids.ndim != 1 or self.colors.shape != self.shape_ids.shape:
-            raise ValueError("Each scene object must have one shape and color.")
+        if (
+            self.shape_ids.ndim != 1
+            or self.colors.shape != self.shape_ids.shape
+            or self.motion_ids.shape != self.shape_ids.shape
+        ):
+            raise ValueError("Each scene object must have one shape, color, and motion policy.")
 
     @property
     def object_count(self) -> int:

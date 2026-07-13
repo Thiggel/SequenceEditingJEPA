@@ -6,9 +6,10 @@ from typing import Iterable
 import numpy as np
 
 from puzzle_jepa.controlled_objects.domain import (
-    RigidAction,
+    PixelEdit,
     RigidObjectScene,
     RigidObjectTrajectory,
+    RigidTransform,
 )
 
 
@@ -91,6 +92,7 @@ class ControlledObjectGenerator:
                     object_maps=object_map,
                     shape_ids=np.asarray(shape_ids, dtype=np.int64),
                     colors=np.asarray(colors, dtype=np.int64),
+                    motion_ids=np.asarray(colors, dtype=np.int64) - 1,
                 )
         raise RuntimeError("Could not place a controlled rigid-object scene.")
 
@@ -105,12 +107,23 @@ class ControlledObjectGenerator:
         states = [state]
         actions = []
         validity = []
-        for _ in range(self.spec.trajectory_length if horizon is None else horizon):
-            action = self.sample_action(state, rng)
-            state, valid = self.apply_action(state, action)
-            actions.append(action.as_array())
-            validity.append(valid)
-            states.append(state)
+        requested_horizon = self.spec.trajectory_length if horizon is None else horizon
+        macro_step = 0
+        while len(actions) < requested_horizon:
+            transform = self._deterministic_transform(state, scene, macro_step)
+            target, valid = self._apply_rigid_transform(state, transform)
+            if not valid or np.array_equal(target, state):
+                continue
+            for action in _pixel_edits(state, target):
+                state, edit_valid = self.apply_action(state, action)
+                if not edit_valid:
+                    raise RuntimeError("Generated rigid motion contained an invalid pixel edit.")
+                actions.append(action.as_array())
+                validity.append(True)
+                states.append(state)
+                if len(actions) == requested_horizon:
+                    break
+            macro_step += 1
         return RigidObjectTrajectory(
             states=np.stack(states).astype(np.int64, copy=False),
             actions=np.stack(actions).astype(np.int64, copy=False),
@@ -118,29 +131,9 @@ class ControlledObjectGenerator:
             scene=scene,
         )
 
-    def sample_action(self, state: np.ndarray, rng: np.random.Generator) -> RigidAction:
-        if not self.spec.require_state_change and rng.random() < self.spec.noop_ratio:
-            return RigidAction(0, 0, 0)
-        candidates = self.candidate_actions(state, include_invalid=True)
-        legal = []
-        effective = []
-        invalid = []
-        for action in candidates:
-            next_state, valid = self.apply_action(state, action)
-            if valid:
-                legal.append(action)
-                if np.any(next_state != state):
-                    effective.append(action)
-            else:
-                invalid.append(action)
-        if self.spec.require_state_change:
-            if not effective:
-                raise RuntimeError("Sampled scene has no state-changing rigid action.")
-            return effective[int(rng.integers(0, len(effective)))]
-        pool = invalid if invalid and rng.random() < self.spec.invalid_action_ratio else legal
-        if not pool:
-            return RigidAction(0, 0, 0)
-        return pool[int(rng.integers(0, len(pool)))]
+    def sample_action(self, state: np.ndarray, rng: np.random.Generator) -> PixelEdit:
+        actions = self.candidate_actions(state, state_changing_only=True)
+        return actions[int(rng.integers(0, len(actions)))]
 
     def candidate_actions(
         self,
@@ -148,35 +141,98 @@ class ControlledObjectGenerator:
         *,
         include_invalid: bool = False,
         state_changing_only: bool = False,
-    ) -> tuple[RigidAction, ...]:
-        actions = [] if state_changing_only else [RigidAction(0, 0, 0)]
-        seen_valid_successors = set() if state_changing_only else {state.tobytes()}
+    ) -> tuple[PixelEdit, ...]:
+        del include_invalid, state_changing_only
+        actions = []
+        for row in range(self.spec.grid_size):
+            for col in range(self.spec.grid_size):
+                current = int(state[row, col])
+                actions.extend(
+                    PixelEdit(row, col, color)
+                    for color in range(self.spec.num_colors)
+                    if color != current
+                )
+        return tuple(actions)
+
+    def apply_action(self, state: np.ndarray, action: PixelEdit) -> tuple[np.ndarray, bool]:
+        if state.shape != (self.spec.grid_size, self.spec.grid_size):
+            raise ValueError("State has the wrong controlled-object grid size.")
+        if not (0 <= action.color < self.spec.num_colors):
+            return state.copy(), False
+        if not (
+            0 <= action.row < self.spec.grid_size
+            and 0 <= action.col < self.spec.grid_size
+        ):
+            return state.copy(), False
+        if int(state[action.row, action.col]) == action.color:
+            return state.copy(), False
+        output = state.copy()
+        output[action.row, action.col] = action.color
+        return output, True
+
+    def replay(self, state: np.ndarray, actions: Iterable[PixelEdit]) -> np.ndarray:
+        output = state.copy()
+        for action in actions:
+            output, _ = self.apply_action(output, action)
+        return output
+
+    def _sample_transform(
+        self, state: np.ndarray, rng: np.random.Generator
+    ) -> RigidTransform:
+        candidates = self._candidate_rigid_transforms(state)
+        if not candidates:
+            raise RuntimeError("Sampled scene has no state-changing rigid transform.")
+        return candidates[int(rng.integers(0, len(candidates)))]
+
+    def _deterministic_transform(
+        self,
+        state: np.ndarray,
+        scene: RigidObjectScene,
+        macro_step: int,
+    ) -> RigidTransform:
+        for object_offset in range(scene.object_count):
+            object_id = (macro_step + object_offset) % scene.object_count
+            color = int(scene.colors[object_id])
+            cells = np.argwhere(state == color)
+            if not len(cells):
+                continue
+            row, col = (int(value) for value in cells[np.lexsort((cells[:, 1], cells[:, 0]))][0])
+            policy = int(scene.motion_ids[object_id])
+            phase = macro_step // scene.object_count
+            for transform_offset in range(6):
+                transform = 1 + (policy + phase + transform_offset) % 6
+                action = RigidTransform(row, col, transform)
+                target, valid = self._apply_rigid_transform(state, action)
+                if valid and not np.array_equal(target, state):
+                    return action
+        raise RuntimeError("Controlled scene has no valid deterministic rigid transform.")
+
+    def _candidate_rigid_transforms(
+        self, state: np.ndarray
+    ) -> tuple[RigidTransform, ...]:
+        actions = []
+        seen_successors = set()
         for color in np.unique(state[state != 0]):
             cells = np.argwhere(state == color)
-            row, col = (int(value) for value in cells[np.lexsort((cells[:, 1], cells[:, 0]))][0])
+            row, col = (
+                int(value)
+                for value in cells[np.lexsort((cells[:, 1], cells[:, 0]))][0]
+            )
             for transform in range(1, len(TRANSFORM_NAMES)):
-                action = RigidAction(row, col, transform)
-                next_state, valid = self.apply_action(state, action)
-                changed = bool(np.any(next_state != state))
-                if not (include_invalid or valid) or (state_changing_only and not changed):
+                action = RigidTransform(row, col, transform)
+                next_state, valid = self._apply_rigid_transform(state, action)
+                if not valid or np.array_equal(next_state, state):
                     continue
-                if valid:
-                    successor_key = next_state.tobytes()
-                    if successor_key in seen_valid_successors:
-                        continue
-                    seen_valid_successors.add(successor_key)
+                key = next_state.tobytes()
+                if key in seen_successors:
+                    continue
+                seen_successors.add(key)
                 actions.append(action)
         return tuple(actions)
 
-    def apply_action(self, state: np.ndarray, action: RigidAction) -> tuple[np.ndarray, bool]:
-        if state.shape != (self.spec.grid_size, self.spec.grid_size):
-            raise ValueError("State has the wrong controlled-object grid size.")
-        if action.transform == 0:
-            return state.copy(), True
-        if not (0 <= action.transform < len(TRANSFORM_NAMES)):
-            return state.copy(), False
-        if not (0 <= action.row < self.spec.grid_size and 0 <= action.col < self.spec.grid_size):
-            return state.copy(), False
+    def _apply_rigid_transform(
+        self, state: np.ndarray, action: RigidTransform
+    ) -> tuple[np.ndarray, bool]:
         color = int(state[action.row, action.col])
         if color == 0:
             return state.copy(), False
@@ -214,11 +270,16 @@ class ControlledObjectGenerator:
         region[target_mask] = color
         return cleared, True
 
-    def replay(self, state: np.ndarray, actions: Iterable[RigidAction]) -> np.ndarray:
-        output = state.copy()
-        for action in actions:
-            output, _ = self.apply_action(output, action)
-        return output
+
+def _pixel_edits(state: np.ndarray, target: np.ndarray) -> tuple[PixelEdit, ...]:
+    changed = state != target
+    paint = np.argwhere(changed & (target != 0))
+    erase = np.argwhere(changed & (target == 0))
+    ordered = np.concatenate((paint, erase), axis=0)
+    return tuple(
+        PixelEdit(int(row), int(col), int(target[row, col]))
+        for row, col in ordered
+    )
 
 
 def _is_connected(cells: np.ndarray) -> bool:

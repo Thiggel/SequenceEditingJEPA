@@ -8,7 +8,7 @@ import torch
 from torch.nn import functional as F
 
 from puzzle_jepa.controlled_objects.batching import ControlledTrajectoryDataset
-from puzzle_jepa.controlled_objects.domain import RigidAction
+from puzzle_jepa.controlled_objects.domain import PixelEdit
 from puzzle_jepa.controlled_objects.generator import ControlledObjectGenerator
 from puzzle_jepa.controlled_objects.model import ControlledObjectJEPA
 
@@ -17,6 +17,7 @@ from puzzle_jepa.controlled_objects.model import ControlledObjectJEPA
 class MacroSupport:
     state_bank: torch.Tensor
     bank: torch.Tensor
+    action_bank: torch.Tensor
     lower: torch.Tensor
     upper: torch.Tensor
     state_mean: torch.Tensor
@@ -51,6 +52,8 @@ def evaluate_controlled_model(
     metrics: dict[str, Any] = {
         "eval_loss": float(output.loss.cpu()),
         "eval_prediction_loss": float(output.prediction_loss.cpu()),
+        "eval_teacher_forcing_loss": float(output.teacher_forcing_loss.cpu()),
+        "eval_rollout_loss": float(output.rollout_loss.cpu()),
         "eval_vicreg_loss": float(output.vicreg_loss.cpu()),
         "eval_ldad_loss": float(output.ldad_loss.cpu()),
         "eval_action_valid_fraction": float(batch.action_validity.float().mean().cpu()),
@@ -83,7 +86,7 @@ def evaluate_controlled_model(
             correct = predictions[effective] == targets
             metrics["eval_ldad_row_accuracy"] = float(correct[..., 0].float().mean().cpu())
             metrics["eval_ldad_col_accuracy"] = float(correct[..., 1].float().mean().cpu())
-            metrics["eval_ldad_transform_accuracy"] = float(
+            metrics["eval_ldad_color_accuracy"] = float(
                 correct[..., 2].float().mean().cpu()
             )
             per_action = correct.all(dim=-1)
@@ -158,7 +161,11 @@ def _action_ranking_diagnostics(
     for sample in range(min(max_samples, len(batch.states))):
         state = batch.states[sample, 0].detach().cpu().numpy()
         actual_values = tuple(int(value) for value in batch.actions[sample, 0])
-        actions = generator.candidate_actions(state, state_changing_only=True)
+        actions = _candidate_subset(
+            generator.candidate_actions(state, state_changing_only=True),
+            limit=256,
+            required=PixelEdit(*actual_values),
+        )
         action_values = [tuple(int(value) for value in action.as_array()) for action in actions]
         if actual_values not in action_values:
             continue
@@ -214,13 +221,9 @@ def _hierarchy_diagnostics(
 ) -> dict[str, float]:
     current = model.encode(batch.states[:, 0])
     diagnostics: dict[str, float] = {}
-    primitive_state = current
-    primitive_predictions = []
-    for index in range(max(model.level_spans)):
-        primitive_state = model.predict_chunk(
-            0, primitive_state, batch.actions[:, index : index + 1]
-        )
-        primitive_predictions.append(primitive_state)
+    primitive_predictions = model.rollout_level(
+        0, current, batch.actions[:, : max(model.level_spans)]
+    ).unbind(dim=1)
     for level, span in enumerate(model.level_spans[1:], start=1):
         high_prediction = model.predict_chunk(
             level, current, batch.actions[:, :span]
@@ -295,13 +298,21 @@ def _planning_diagnostics(
     candidates: int,
     device: torch.device,
 ) -> dict[str, float]:
-    planning_horizon = model.required_horizon
+    planning_horizon = min(16, dataset.horizon)
     replay_successes = 0
     symbolic_successes = 0
     learned_successes = 0
     oracle_candidate_successes = 0
     bounded_cem_successes = 0
     support_cem_successes = 0
+    mppi_successes = 0
+    final_errors: dict[str, list[float]] = {
+        "retrieval": [],
+        "oracle_candidate": [],
+        "bounded_cem": [],
+        "support_cem": [],
+        "mppi": [],
+    }
     symbolic_horizon = min(4, planning_horizon)
     supports = {
         level: _estimate_macro_support(
@@ -312,7 +323,7 @@ def _planning_diagnostics(
             sample_count=max(256, candidates),
             device=device,
         )
-        for level in range(1, model.hierarchy_depth)
+        for level in range(model.hierarchy_depth)
     }
     torch_rng = torch.Generator(device=device)
     torch_rng.manual_seed(int(rng.integers(0, 2**31 - 1)))
@@ -322,7 +333,7 @@ def _planning_diagnostics(
         goal = trajectory.states[-1]
         replayed = generator.replay(
             initial,
-            (RigidAction(*(int(value) for value in action)) for action in trajectory.actions),
+            (PixelEdit(*(int(value) for value in action)) for action in trajectory.actions),
         )
         replay_successes += int(np.array_equal(replayed, goal))
         short_trajectory = generator.sample_trajectory(rng, horizon=symbolic_horizon)
@@ -344,8 +355,10 @@ def _planning_diagnostics(
             candidates=candidates,
             device=device,
             oracle_actions=None,
+            supports=supports,
         )
         learned_successes += int(np.array_equal(learned, goal))
+        final_errors["retrieval"].append(float(np.mean(learned != goal)))
         oracle_candidate = _receding_on_support_plan(
             model,
             generator,
@@ -356,9 +369,13 @@ def _planning_diagnostics(
             candidates=candidates,
             device=device,
             oracle_actions=trajectory.actions,
+            supports=supports,
         )
         oracle_candidate_successes += int(np.array_equal(oracle_candidate, goal))
-        if supports:
+        final_errors["oracle_candidate"].append(
+            float(np.mean(oracle_candidate != goal))
+        )
+        if model.hierarchy_depth > 1:
             bounded_cem = _receding_cem_plan(
                 model,
                 generator,
@@ -370,9 +387,11 @@ def _planning_diagnostics(
                 max_steps=2 * planning_horizon,
                 candidates=max(64, candidates),
                 support_weight=0.0,
+                planner="cem",
                 device=device,
             )
             bounded_cem_successes += int(np.array_equal(bounded_cem, goal))
+            final_errors["bounded_cem"].append(float(np.mean(bounded_cem != goal)))
             support_cem = _receding_cem_plan(
                 model,
                 generator,
@@ -384,9 +403,27 @@ def _planning_diagnostics(
                 max_steps=2 * planning_horizon,
                 candidates=max(64, candidates),
                 support_weight=0.1,
+                planner="cem",
                 device=device,
             )
             support_cem_successes += int(np.array_equal(support_cem, goal))
+            final_errors["support_cem"].append(float(np.mean(support_cem != goal)))
+            mppi = _receding_cem_plan(
+                model,
+                generator,
+                initial,
+                goal,
+                rng,
+                torch_rng,
+                supports=supports,
+                max_steps=2 * planning_horizon,
+                candidates=max(64, candidates),
+                support_weight=0.1,
+                planner="mppi",
+                device=device,
+            )
+            mppi_successes += int(np.array_equal(mppi, goal))
+            final_errors["mppi"].append(float(np.mean(mppi != goal)))
     return {
         "eval_oracle_replay_success_rate": replay_successes / episodes,
         "eval_symbolic_receding_success_rate": symbolic_successes / episodes,
@@ -396,11 +433,19 @@ def _planning_diagnostics(
             oracle_candidate_successes / episodes
         ),
         "eval_bounded_cem_receding_success_rate": (
-            bounded_cem_successes / episodes if supports else learned_successes / episodes
+            bounded_cem_successes / episodes if model.hierarchy_depth > 1 else learned_successes / episodes
         ),
         "eval_support_cem_receding_success_rate": (
-            support_cem_successes / episodes if supports else learned_successes / episodes
+            support_cem_successes / episodes if model.hierarchy_depth > 1 else learned_successes / episodes
         ),
+        "eval_mppi_receding_success_rate": (
+            mppi_successes / episodes if model.hierarchy_depth > 1 else learned_successes / episodes
+        ),
+        **{
+            f"eval_{name}_final_pixel_error": float(np.mean(values))
+            for name, values in final_errors.items()
+            if values
+        },
         "eval_planning_horizon": float(planning_horizon),
     }
 
@@ -428,6 +473,7 @@ def _estimate_macro_support(
     return MacroSupport(
         state_bank=state_bank,
         bank=bank,
+        action_bank=batch.actions[:, :span],
         lower=lower,
         upper=upper,
         state_mean=state_bank.mean(dim=0),
@@ -469,32 +515,17 @@ def _symbolic_beam_search(
     *,
     max_depth: int,
     beam_width: int,
-) -> tuple[RigidAction, ...]:
+) -> tuple[PixelEdit, ...]:
+    del generator, beam_width
     if np.array_equal(initial, goal):
         return ()
-    beam: list[tuple[np.ndarray, tuple[RigidAction, ...]]] = [(initial, ())]
-    seen = {initial.tobytes()}
-    for _ in range(max_depth):
-        expanded = []
-        for state, path in beam:
-            for action in generator.candidate_actions(
-                state, state_changing_only=True
-            ):
-                next_state, _ = generator.apply_action(state, action)
-                key = next_state.tobytes()
-                if key in seen:
-                    continue
-                next_path = (*path, action)
-                if np.array_equal(next_state, goal):
-                    return next_path
-                seen.add(key)
-                score = int(np.count_nonzero(next_state != goal))
-                expanded.append((score, next_state, next_path))
-        expanded.sort(key=lambda item: item[0])
-        beam = [(state, path) for _, state, path in expanded[:beam_width]]
-        if not beam:
-            break
-    return ()
+    mismatched = np.argwhere(initial != goal)
+    if len(mismatched) > max_depth:
+        return ()
+    return tuple(
+        PixelEdit(int(row), int(col), int(goal[row, col]))
+        for row, col in mismatched
+    )
 
 
 def _receding_on_support_plan(
@@ -508,6 +539,7 @@ def _receding_on_support_plan(
     candidates: int,
     device: torch.device,
     oracle_actions: np.ndarray | None,
+    supports: dict[int, MacroSupport],
 ) -> np.ndarray:
     state = initial.copy()
     goal_tensor = torch.as_tensor(goal[None], dtype=torch.long, device=device)
@@ -527,6 +559,7 @@ def _receding_on_support_plan(
             candidates=candidates,
             device=device,
             oracle_actions=oracle_suffix,
+            supports=supports,
         )
         state, _ = generator.apply_action(state, action)
     return state
@@ -544,6 +577,7 @@ def _receding_cem_plan(
     max_steps: int,
     candidates: int,
     support_weight: float,
+    planner: str,
     device: torch.device,
 ) -> np.ndarray:
     state = initial.copy()
@@ -562,6 +596,7 @@ def _receding_cem_plan(
             supports=supports,
             candidates=candidates,
             support_weight=support_weight,
+            planner=planner,
             device=device,
         )
         state, _ = generator.apply_action(state, action)
@@ -579,8 +614,9 @@ def _recursive_cem_action(
     supports: dict[int, MacroSupport],
     candidates: int,
     support_weight: float,
+    planner: str,
     device: torch.device,
-) -> RigidAction:
+) -> PixelEdit:
     state_tensor = torch.as_tensor(state[None], dtype=torch.long, device=device)
     state_latent = model.encode(state_tensor)
     top_level = model.hierarchy_depth - 1
@@ -593,10 +629,11 @@ def _recursive_cem_action(
         rng,
         torch_rng,
         level=top_level,
-        transition_count=model.level_rollout_steps(top_level),
+        transition_count=_planning_transition_count(model, top_level),
         supports=supports,
         candidates=candidates,
         support_weight=support_weight,
+        planner=planner,
         device=device,
     )
 
@@ -615,8 +652,9 @@ def _plan_cem_level(
     supports: dict[int, MacroSupport],
     candidates: int,
     support_weight: float,
+    planner: str,
     device: torch.device,
-) -> RigidAction:
+) -> PixelEdit:
     if level == 0:
         return _best_flat_plan_action(
             model,
@@ -628,7 +666,8 @@ def _plan_cem_level(
             beam_width=candidates,
             device=device,
         )
-    macros, first_subgoal = _cem_macro_sequence(
+    sequence_planner = _cem_macro_sequence if planner == "cem" else _mppi_macro_sequence
+    macros, first_subgoal = sequence_planner(
         model,
         state_latent,
         target_latent,
@@ -656,6 +695,7 @@ def _plan_cem_level(
         supports=supports,
         candidates=candidates,
         support_weight=support_weight,
+        planner=planner,
         device=device,
     )
 
@@ -690,21 +730,14 @@ def _cem_macro_sequence(
         macro_candidates = torch.maximum(
             torch.minimum(macro_candidates, support.upper), support.lower
         )
-        rollout = state_latent.expand(candidates, *state_latent.shape[1:])
-        first = None
-        support_states = []
-        for transition in range(transition_count):
-            support_states.append(_pooled(rollout))
-            rollout = model.predict_from_macro(
-                level, rollout, macro_candidates[:, transition]
-            )
-            if first is None:
-                first = rollout
-        costs = _latent_distance(rollout, target_latent.expand_as(rollout))
+        initial = state_latent.expand(candidates, -1)
+        rollout = model.dynamics[level].rollout(initial, macro_candidates)
+        support_states = torch.cat((initial[:, None], rollout[:, :-1]), dim=1)
+        costs = _latent_distance(rollout[:, -1], target_latent.expand(candidates, -1))
         if support_weight > 0.0:
             costs = costs + support_weight * _macro_support_energy(
                 macro_candidates,
-                torch.stack(support_states, dim=1),
+                support_states,
                 support,
             )
         elite_ids = costs.topk(elite_count, largest=False).indices
@@ -715,9 +748,49 @@ def _cem_macro_sequence(
         )
         chosen = int(costs.argmin())
         best_macros = macro_candidates[chosen]
-        assert first is not None
-        best_first = first[chosen : chosen + 1]
+        best_first = rollout[chosen : chosen + 1, 0]
     return best_macros, best_first
+
+
+def _mppi_macro_sequence(
+    model: ControlledObjectJEPA,
+    state_latent: torch.Tensor,
+    target_latent: torch.Tensor,
+    *,
+    level: int,
+    transition_count: int,
+    support: MacroSupport,
+    candidates: int,
+    iterations: int,
+    support_weight: float,
+    torch_rng: torch.Generator,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    del iterations
+    mean = support.mean.expand(transition_count, -1)
+    noise = torch.randn(
+        candidates,
+        transition_count,
+        support.mean.numel(),
+        device=state_latent.device,
+        generator=torch_rng,
+    )
+    candidates_macro = mean.unsqueeze(0) + support.std * noise
+    candidates_macro = torch.maximum(
+        torch.minimum(candidates_macro, support.upper), support.lower
+    )
+    initial = state_latent.expand(candidates, -1)
+    rollout = model.dynamics[level].rollout(initial, candidates_macro)
+    support_states = torch.cat((initial[:, None], rollout[:, :-1]), dim=1)
+    costs = _latent_distance(rollout[:, -1], target_latent.expand(candidates, -1))
+    if support_weight > 0.0:
+        costs = costs + support_weight * _macro_support_energy(
+            candidates_macro, support_states, support
+        )
+    temperature = costs.std(unbiased=False).clamp_min(1.0e-4)
+    weights = torch.softmax(-(costs - costs.min()) / temperature, dim=0)
+    selected = torch.einsum("b,btd->td", weights, candidates_macro)
+    selected_rollout = model.dynamics[level].rollout(state_latent, selected[None])
+    return selected, selected_rollout[:, 0]
 
 
 def _macro_support_energy(
@@ -752,14 +825,15 @@ def _recursive_on_support_action(
     candidates: int,
     device: torch.device,
     oracle_actions: np.ndarray | None = None,
-) -> RigidAction:
+    supports: dict[int, MacroSupport] | None = None,
+) -> PixelEdit:
     state_tensor = torch.as_tensor(state[None], dtype=torch.long, device=device)
     state_latent = model.encode(state_tensor)
     top_level = model.hierarchy_depth - 1
     if oracle_actions is not None:
         while top_level > 0 and model.level_spans[top_level] > len(oracle_actions):
             top_level -= 1
-    transition_count = model.level_rollout_steps(top_level)
+    transition_count = _planning_transition_count(model, top_level)
     if oracle_actions is not None:
         transition_count = min(
             transition_count,
@@ -777,6 +851,7 @@ def _recursive_on_support_action(
         candidates=candidates,
         device=device,
         oracle_actions=oracle_actions,
+        supports=supports or {},
     )
 
 
@@ -793,7 +868,8 @@ def _plan_on_support_level(
     candidates: int,
     device: torch.device,
     oracle_actions: np.ndarray | None,
-) -> RigidAction:
+    supports: dict[int, MacroSupport],
+) -> PixelEdit:
     if level == 0 and oracle_actions is None:
         return _best_flat_plan_action(
             model,
@@ -813,26 +889,23 @@ def _plan_on_support_level(
         rng,
         horizon=primitive_horizon,
         count=candidates,
+        action_bank=(supports[level].action_bank if level in supports else None),
     )
     if oracle_actions is not None and len(oracle_actions) >= primitive_horizon:
         sequences[0] = oracle_actions[:primitive_horizon]
     action_tensor = torch.as_tensor(sequences, dtype=torch.long, device=device)
-    rollout_state = state_latent.expand(len(sequences), *state_latent.shape[1:])
-    first_subgoals = None
-    for transition in range(transition_count):
-        start = transition * span
-        macro = model.encode_action_chunk(
-            level, action_tensor[:, start : start + span]
-        )
-        rollout_state = model.predict_from_macro(level, rollout_state, macro)
-        if first_subgoals is None:
-            first_subgoals = rollout_state
-    scores = _latent_distance(rollout_state, target_latent.expand_as(rollout_state))
+    rollouts = model.rollout_level(
+        level,
+        state_latent.expand(len(sequences), -1),
+        action_tensor,
+    )
+    scores = _latent_distance(
+        rollouts[:, -1], target_latent.expand(len(sequences), -1)
+    )
     chosen = int(scores.argmin())
     if level == 0:
-        return RigidAction(*(int(value) for value in sequences[chosen, 0]))
-    assert first_subgoals is not None
-    chosen_subgoal = first_subgoals[chosen : chosen + 1]
+        return PixelEdit(*(int(value) for value in sequences[chosen, 0]))
+    chosen_subgoal = rollouts[chosen : chosen + 1, 0]
     lower_span = model.level_spans[level - 1]
     return _plan_on_support_level(
         model,
@@ -846,6 +919,7 @@ def _plan_on_support_level(
         candidates=candidates,
         device=device,
         oracle_actions=None,
+        supports=supports,
     )
 
 
@@ -860,35 +934,40 @@ def _best_flat_plan_action(
     horizon: int,
     beam_width: int,
     device: torch.device,
-) -> RigidAction:
+) -> PixelEdit:
     if horizon < 1 or beam_width < 1:
         raise ValueError("Latent beam planning requires positive horizon and width.")
-    beam = [(state.copy(), state_latent, None)]
+    beam: list[tuple[np.ndarray, tuple[PixelEdit, ...]]] = [(state.copy(), ())]
     best_score = float("inf")
     best_action = None
     for _ in range(horizon):
         proposal_states = []
-        parent_latents = []
-        proposal_actions = []
+        proposal_sequences = []
         first_actions = []
-        for symbolic_state, latent, first_action in beam:
-            for action in generator.candidate_actions(
-                symbolic_state, state_changing_only=True
-            ):
+        for symbolic_state, sequence in beam:
+            actions = _candidate_subset(
+                generator.candidate_actions(symbolic_state, state_changing_only=True),
+                limit=max(32, 2 * beam_width),
+            )
+            for action in actions:
                 successor, _ = generator.apply_action(symbolic_state, action)
                 proposal_states.append(successor)
-                parent_latents.append(latent)
-                proposal_actions.append(action)
-                first_actions.append(action if first_action is None else first_action)
-        if not proposal_actions:
+                proposal_sequences.append((*sequence, action))
+                first_actions.append(sequence[0] if sequence else action)
+        if not proposal_sequences:
             break
-        latent_batch = torch.cat(parent_latents, dim=0)
         action_batch = torch.as_tensor(
-            np.stack([action.as_array() for action in proposal_actions])[:, None],
+            np.stack(
+                [np.stack([action.as_array() for action in sequence]) for sequence in proposal_sequences]
+            ),
             dtype=torch.long,
             device=device,
         )
-        predictions = model.predict_chunk(0, latent_batch, action_batch)
+        predictions = model.rollout_level(
+            0,
+            state_latent.expand(len(proposal_sequences), -1),
+            action_batch,
+        )[:, -1]
         scores = _latent_distance(predictions, target_latent.expand_as(predictions))
         step_best = int(scores.argmin())
         step_score = float(scores[step_best].cpu())
@@ -899,8 +978,7 @@ def _best_flat_plan_action(
         beam = [
             (
                 proposal_states[index],
-                predictions[index : index + 1],
-                first_actions[index],
+                proposal_sequences[index],
             )
             for index in keep
         ]
@@ -917,8 +995,10 @@ def _best_primitive_action(
     target_latent: torch.Tensor,
     *,
     device: torch.device,
-) -> RigidAction:
-    actions = generator.candidate_actions(state, state_changing_only=True)
+) -> PixelEdit:
+    actions = _candidate_subset(
+        generator.candidate_actions(state, state_changing_only=True), limit=256
+    )
     action_tensor = torch.as_tensor(
         np.stack([action.as_array() for action in actions])[:, None],
         dtype=torch.long,
@@ -937,9 +1017,19 @@ def _candidate_action_sequences(
     *,
     horizon: int,
     count: int,
+    action_bank: torch.Tensor | None = None,
 ) -> np.ndarray:
+    if action_bank is not None:
+        bank = action_bank.detach().cpu().numpy()
+        if horizon % bank.shape[1]:
+            raise ValueError("Planning horizon must contain complete support chunks.")
+        chunk_count = horizon // bank.shape[1]
+        ids = rng.integers(0, len(bank), size=(count, chunk_count))
+        return bank[ids].reshape(count, horizon, 3)
     sequences = []
-    first_actions = generator.candidate_actions(state, state_changing_only=True)
+    first_actions = _candidate_subset(
+        generator.candidate_actions(state, state_changing_only=True), limit=count
+    )
     for candidate_index in range(count):
         rollout_state = state.copy()
         actions = []
@@ -952,6 +1042,25 @@ def _candidate_action_sequences(
             rollout_state, _ = generator.apply_action(rollout_state, action)
         sequences.append(np.stack(actions))
     return np.stack(sequences)
+
+
+def _candidate_subset(
+    actions: tuple[PixelEdit, ...],
+    *,
+    limit: int,
+    required: PixelEdit | None = None,
+) -> tuple[PixelEdit, ...]:
+    if len(actions) <= limit:
+        return actions
+    indices = np.linspace(0, len(actions) - 1, num=limit, dtype=np.int64)
+    selected = [actions[int(index)] for index in indices]
+    if required is not None and required not in selected:
+        selected[-1] = required
+    return tuple(selected)
+
+
+def _planning_transition_count(model: ControlledObjectJEPA, level: int) -> int:
+    return max(1, min(8, 16 // model.level_spans[level]))
 
 
 def _latent_distance(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
