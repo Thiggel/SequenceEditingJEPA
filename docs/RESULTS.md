@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 13:14 CEST
+Last updated: 2026-07-13 14:18 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -38,6 +38,9 @@ positive means (`.017/.013`) but one negative seed each, and no hard
 factor/dynamics gate passes.
 Global-random q4/q16 have larger positive complete-position means
 (`.041/.033`) but one negative seed each, and no hard gate passes.
+Completion z8/q2 learns complete-object and rollout position (`.015/.020`),
+while z8/q16 learns current position only (`.022`). No hard row learns the
+completion variable itself or predictive dynamics.
 
 ## Corrected Sequence Result
 
