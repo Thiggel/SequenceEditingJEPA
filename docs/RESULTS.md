@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 17:18 CEST
+Last updated: 2026-07-13 17:51 CEST
 
 ## Controlled-HWM Fidelity Repair
 
@@ -11,14 +11,25 @@ Canonical online LDAD CLS has only `+.0001` minimum gain and zero minimum
 planning. Full artifact:
 `../sequence-editing-report/assets/controlled_objects/controlled_hwm_v1_summary.md`.
 
-V1 is not a faithful paper test: LDAD decoded four actions from a non-adjacent
-delta, 27% of transitions had no pixel effect, depth-3/4 planning skipped
-intermediate levels, and the exact planner injected the demonstrated action
-suffix. V2 repairs these contracts and adds bounded/support-penalized macro CEM
-plus action-ranking diagnostics. Twenty-one focused tests and the full suite pass.
-The verified 54-row fidelity gate crosses CLS dimensions `{4,8,16,32}` and all
-five paired CLS/grid LDAD variants; hierarchy remains blocked on a primitive
-winner.
+Correction: Delta-JEPA includes both adjacent LDAD and an ordered multi-step
+extension, so horizon-4 decoding was not by itself unfaithful. V1 remains
+invalid because 27% of transitions had no pixel effect, hierarchy search
+skipped levels, exact search injected the demonstration, and macro CEM was
+absent.
+
+All v2 jobs `3850221`-`3850274` completed `0:0`. Prediction improves, but
+learned planning is zero in every group. Online CLS LDAD reaches minimum action
+top-1/exact decoding `.3125/.2500`; adding online VICReg reaches
+`.3750/.2813`. Grid LDAD exact decoding reaches `.6719-.7344`, but predictor
+action ranking is at most `.0625`. Artifact:
+`../sequence-editing-report/assets/controlled_objects/controlled_fidelity_v2_summary.md`.
+
+V2 still had duplicate nonzero successors for symmetric actions and a
+candidate-starved random planner. The generator now canonicalizes valid actions
+by successor grid, and a latent-scored primitive beam passes an exact-dynamics
+two-step solve test. The next 36-row gate crosses canonical Delta-JEPA LDAD
+weight `{1,10,100}`, adjacent/ordered-four-step decoding, paired CLS/grid, and
+three seeds. Hierarchy remains blocked on a primitive winner.
 
 ## Final Hard-Rate Transfer
 

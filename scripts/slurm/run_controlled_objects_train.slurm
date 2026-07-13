@@ -32,6 +32,13 @@ MODEL_ARGS=()
 if [[ -n "${LATENT_DIM:-}" ]]; then
   MODEL_ARGS+=("model.latent_dim=${LATENT_DIM}")
 fi
+if [[ -n "${LDAD_HORIZON:-}" ]]; then
+  MODEL_ARGS+=("model.ldad_horizon=${LDAD_HORIZON}")
+fi
+OBJECTIVE_ARGS=()
+if [[ -n "${LDAD_WEIGHT:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.ldad_weight=${LDAD_WEIGHT}")
+fi
 
 python -m puzzle_jepa.train.controlled_objects \
   "model=${MODEL_CONFIG}" \
@@ -51,4 +58,5 @@ python -m puzzle_jepa.train.controlled_objects \
   "eval.planning_candidates=${PLANNING_CANDIDATES:-32}" \
   "output_dir=${OUTPUT_ROOT}/${RUN_NAME}" \
   "${MODEL_ARGS[@]}" \
+  "${OBJECTIVE_ARGS[@]}" \
   "${INIT_ARGS[@]}"

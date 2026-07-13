@@ -175,6 +175,52 @@ class CategoricalLDAD(nn.Module):
         return self.row(hidden), self.col(hidden), self.transform(hidden)
 
 
+class MultiStepCategoricalLDAD(nn.Module):
+    def __init__(
+        self,
+        *,
+        input_dim: int,
+        grid_size: int,
+        horizon: int,
+        hidden_dim: int,
+        num_heads: int = 4,
+    ):
+        super().__init__()
+        self.input_dim = int(input_dim)
+        self.horizon = int(horizon)
+        self.queries = nn.Parameter(torch.zeros(1, horizon, hidden_dim))
+        self.condition = nn.Linear(input_dim, 2 * hidden_dim)
+        layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=2 * hidden_dim,
+            dropout=0.0,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(layer, num_layers=2)
+        self.row = nn.Linear(hidden_dim, grid_size)
+        self.col = nn.Linear(hidden_dim, grid_size)
+        self.transform = nn.Linear(hidden_dim, len(TRANSFORM_NAMES))
+
+    def forward(
+        self, delta: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        flattened = delta.flatten(1)
+        if flattened.shape[1] != self.input_dim:
+            raise ValueError(
+                f"LDAD expected displacement dim {self.input_dim}, got {flattened.shape[1]}."
+            )
+        scale, shift = self.condition(flattened).chunk(2, dim=-1)
+        queries = self.queries.expand(len(delta), -1, -1)
+        normalized = F.layer_norm(queries, (queries.shape[-1],))
+        hidden = self.transformer(
+            normalized * (1.0 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+        )
+        return self.row(hidden), self.col(hidden), self.transform(hidden)
+
+
 class ControlledObjectJEPA(nn.Module):
     def __init__(
         self,
@@ -200,6 +246,7 @@ class ControlledObjectJEPA(nn.Module):
         prediction_weight: float = 1.0,
         vicreg_weight: float = 0.05,
         ldad_weight: float = 0.0,
+        ldad_horizon: int = 1,
     ):
         super().__init__()
         if hierarchy_depth not in {1, 2, 3, 4}:
@@ -210,6 +257,8 @@ class ControlledObjectJEPA(nn.Module):
             raise ValueError("rollout_steps must be in {1,2,4,8}.")
         if not (0.0 < rollout_lambda <= 1.0):
             raise ValueError("rollout_lambda must lie in (0,1].")
+        if ldad_horizon not in {1, 2, 4, 8}:
+            raise ValueError("ldad_horizon must be in {1,2,4,8}.")
         if target_mode not in {"shared", "ema"}:
             raise ValueError("target_mode must be 'shared' or 'ema'.")
         if target_mode == "ema" and not stop_gradient_targets:
@@ -230,6 +279,7 @@ class ControlledObjectJEPA(nn.Module):
         self.prediction_weight = float(prediction_weight)
         self.vicreg_weight = float(vicreg_weight)
         self.ldad_weight = float(ldad_weight)
+        self.ldad_horizon = int(ldad_horizon)
         encoder_args = dict(
             grid_size=grid_size,
             num_colors=num_colors,
@@ -269,20 +319,28 @@ class ControlledObjectJEPA(nn.Module):
             ldad_input_dim = latent_dim * (
                 grid_size * grid_size if latent_representation == "grid" else 1
             )
-            self.ldad_decoder: CategoricalLDAD | None = CategoricalLDAD(
+            decoder_args = dict(
                 input_dim=ldad_input_dim,
                 grid_size=grid_size,
                 hidden_dim=max(64, 2 * latent_dim),
             )
+            if self.ldad_horizon == 1:
+                self.ldad_decoder: nn.Module | None = CategoricalLDAD(**decoder_args)
+            else:
+                self.ldad_decoder = MultiStepCategoricalLDAD(
+                    **decoder_args,
+                    horizon=self.ldad_horizon,
+                )
         else:
             self.ldad_decoder = None
 
     @property
     def required_horizon(self) -> int:
-        return max(
+        rollout_horizon = max(
             span * self.level_rollout_steps(level)
             for level, span in enumerate(self.level_spans)
         )
+        return max(rollout_horizon, self.ldad_horizon if self.ldad_decoder else 1)
 
     def level_rollout_steps(self, level: int) -> int:
         return self.rollout_steps if level == 0 or self.rollout_all_levels else 1
@@ -383,16 +441,29 @@ class ControlledObjectJEPA(nn.Module):
 
         ldad_logits = None
         if self.ldad_decoder is not None:
-            endpoint = self.encode(batch.states[:, 1], target=True)
+            endpoint = self.encode(batch.states[:, self.ldad_horizon], target=True)
             ldad_logits = self.ldad_decoder(endpoint - current)
-            changed = (batch.states[:, 1] != batch.states[:, 0]).flatten(1).any(dim=1)
-            effective = batch.action_validity[:, 0] & changed
+            changed = (
+                batch.states[:, 1 : self.ldad_horizon + 1]
+                != batch.states[:, : self.ldad_horizon]
+            )
+            changed = changed.flatten(2).any(dim=2).all(dim=1)
+            effective = (
+                batch.action_validity[:, : self.ldad_horizon].all(dim=1) & changed
+            )
             if bool(effective.any()):
-                action_targets = batch.actions[effective, 0]
-                ldad_loss = sum(
-                    F.cross_entropy(logits[effective], action_targets[:, index])
-                    for index, logits in enumerate(ldad_logits)
-                ) / len(ldad_logits)
+                action_targets = batch.actions[effective, : self.ldad_horizon]
+                field_losses = []
+                for index, logits in enumerate(ldad_logits):
+                    selected = logits[effective]
+                    targets = action_targets[..., index]
+                    if self.ldad_horizon == 1:
+                        targets = targets[:, 0]
+                    else:
+                        selected = selected.flatten(0, 1)
+                        targets = targets.flatten()
+                    field_losses.append(F.cross_entropy(selected, targets))
+                ldad_loss = sum(field_losses) / len(field_losses)
             else:
                 ldad_loss = sum(logits.sum() for logits in ldad_logits) * 0.0
         else:

@@ -2,52 +2,46 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 17:18 CEST
+Last updated: 2026-07-13 17:51 CEST
 
 ## Controlled HWM Fidelity Repair
 
-The original 72-job matrix completed `72/72` with exit `0:0`: jobs
-`3849807`-`3849879`, allocator gap `3849826`. Manifest and output root remain
-`controlled_hwm_v1_steps20000.tsv` and `controlled_hwm_v1_steps20000/` under
-`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects`. Final aggregate:
-`../sequence-editing-report/assets/controlled_objects/controlled_hwm_v1_summary.md`.
+V1 jobs `3849807`-`3849879` and v2 jobs `3850221`-`3850274` both completed
+without runtime failures. Artifacts are
+`../sequence-editing-report/assets/controlled_objects/controlled_{hwm_v1,fidelity_v2}_summary.md`.
+V1 remains invalid as a hierarchy result because data contained ambiguous
+no-effect actions, depth-3/4 search skipped intermediate models, the exact
+metric injected an oracle suffix, and high-level search lacked continuous
+macro optimization. Correction: Delta-JEPA defines adjacent LDAD and also a
+paper-supported ordered multi-step extension, so v1's horizon-4 endpoint alone
+was not a fidelity violation.
 
-Every complete v1 group fails learned planning. Standard EMA+VICReg loses to
-identity at every tested depth, stride, rollout, and lambda. Minimum gain
-worsens from `-.0047` at depth 1 to `-.0880` at depth 4; dense rollout-4/8
-reaches `-.0264/-.0501`. Learned and oracle-candidate/learned-low planning are
-zero for hierarchy groups. High-level support and reachability AUROCs near
-`.98-.99` separate artificial three-sigma negatives but do not make control
-work. Canonical online LDAD CLS has tiny positive gains (`>=.0001`) but still
-zero minimum planning success.
+V2 uses state-changing actions, adjacent categorical LDAD, complete grid
+displacements, recursive hierarchy descent, and bounded/support-penalized macro
+CEM. It improves prediction but fails the primitive planning gate:
 
-The audit found three invalidating implementation/evaluation errors in v1:
+| group | min gain | min action top-1 | min LDAD exact | min planning |
+|---|---:|---:|---:|---:|
+| CLS bottlenecks | `-.00072` to `+.00098` | `.00-.125` | n/a | `.00` |
+| online CLS LDAD | `+.00049` | `.3125` | `.2500` | `.00` |
+| online+VICReg CLS LDAD | `+.00134` | `.3750` | `.2813` | `.00` |
+| grid LDAD variants | `+.00005` to `+.02684` | `.00-.0625` | `.6719-.7344` | `.00` |
 
-- LDAD decoded four actions from `z[t+4]-z[t]`; Delta-JEPA specifies one action
-  from adjacent `z[t+1]-z[t]`. V1 exact decoded-action accuracy was effectively
-  zero.
-- About 27% of sampled transitions left pixels unchanged, assigning 584 action
-  labels to an identical zero displacement in a 128-trajectory audit.
-- Depth-3/4 planning jumped directly from the top model to the primitive model,
-  skipping intermediate levels. The reported exact planner also inserted the
-  demonstrated suffix into its candidate set.
+The v2 audit found two residual confounds. Symmetric actions such as clockwise
+and counterclockwise line rotations can have identical nonzero successor grids;
+even oracle action ranking therefore bottoms out at `.9375`. Also, learned
+planning sampled only 32 random four-action sequences from roughly 18 choices
+per step. Valid actions are now canonicalized by successor grid, and primitive
+planning uses deterministic latent-scored beam expansion. An exact-dynamics
+regression solves a two-step goal without oracle actions.
 
-V2 repairs those contracts: trajectories contain only state-changing actions;
-categorical LDAD uses adjacent endpoints and one row/column/transform target;
-full-grid LDAD receives the complete flattened displacement; planning descends
-through every level; symbolic beam search receives no oracle action; and macro
-CEM uses empirical 2nd-98th percentile bounds with a separate nearest-support
-energy penalty. Evaluation now reports action top-1/margins, exact LDAD field
-accuracy, changed-transition gain, non-oracle symbolic success, on-support
-planning, bounded CEM, and support-penalized CEM. Twenty-one focused tests and the
-full repository suite pass.
-
-The next gated launcher is `submit_controlled_objects_fidelity_gate.sh`: 54
-four-step rows, comprising CLS bottlenecks `{4,8,16,32}` x standard/strong
-EMA+VICReg x three seeds, plus five corrected LDAD objectives x paired
-`{CLS,grid}` x three seeds. It is verified but not yet submitted. No hierarchy
-follow-up is permitted until a primitive row has positive gain, strong action
-top-1, and reproducible learned planning across all seeds.
+The prepared v3 gate is 36 canonical online/no-stop-gradient Delta-JEPA jobs:
+paired `{CLS,grid}` x LDAD weight `{1,10,100}` x decoder horizon `{1,4}` x
+three seeds. Horizon 1 is the identifiable gate; horizon 4 is the paper's
+ordered multi-step ablation and may remain ambiguous when independent object
+actions commute. All rows retain four-step dense predictor rollout. Hierarchy
+remains blocked until prediction, action ranking, and learned beam planning pass
+across all seeds.
 
 ## Moving-Object Bottleneck Grid
 

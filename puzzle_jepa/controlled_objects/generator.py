@@ -150,6 +150,7 @@ class ControlledObjectGenerator:
         state_changing_only: bool = False,
     ) -> tuple[RigidAction, ...]:
         actions = [] if state_changing_only else [RigidAction(0, 0, 0)]
+        seen_valid_successors = set() if state_changing_only else {state.tobytes()}
         for color in np.unique(state[state != 0]):
             cells = np.argwhere(state == color)
             row, col = (int(value) for value in cells[np.lexsort((cells[:, 1], cells[:, 0]))][0])
@@ -157,8 +158,14 @@ class ControlledObjectGenerator:
                 action = RigidAction(row, col, transform)
                 next_state, valid = self.apply_action(state, action)
                 changed = bool(np.any(next_state != state))
-                if (include_invalid or valid) and (not state_changing_only or changed):
-                    actions.append(action)
+                if not (include_invalid or valid) or (state_changing_only and not changed):
+                    continue
+                if valid:
+                    successor_key = next_state.tobytes()
+                    if successor_key in seen_valid_successors:
+                        continue
+                    seen_valid_successors.add(successor_key)
+                actions.append(action)
         return tuple(actions)
 
     def apply_action(self, state: np.ndarray, action: RigidAction) -> tuple[np.ndarray, bool]:

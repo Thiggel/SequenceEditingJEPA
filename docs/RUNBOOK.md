@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-13 17:18 CEST
+Last updated: 2026-07-13 17:51 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -14,13 +14,18 @@ All 72 jobs completed. Aggregate with
 `scripts/analysis/analyze_controlled_objects.py`; archived output is under
 `../sequence-editing-report/assets/controlled_objects/`.
 
+V2 manifest `controlled_fidelity_v2_steps5000.tsv` maps completed jobs
+`3850221`-`3850274`; aggregate artifact is
+`../sequence-editing-report/assets/controlled_objects/controlled_fidelity_v2_summary.md`.
+No row passes learned planning.
+
 The next launcher is
-`scripts/experiments/submit_controlled_objects_fidelity_gate.sh`. It dry-runs
-54 rows by default and submits only with `SUBMIT=1`. Expected manifest:
-`controlled_fidelity_v2_steps5000.tsv`. Require all three seeds before
-promotion. Primary primitive gates are positive gain at every horizon, action
-top-1, LDAD exact accuracy where applicable, and learned receding success.
-Only then submit a staged hierarchy follow-up. The trainer writes
+`scripts/experiments/submit_controlled_objects_delta_gate.sh`. It dry-runs 36
+rows by default and submits only with `SUBMIT=1`; expected manifest is
+`controlled_delta_identifiable_v3_steps5000.tsv`. Require all three seeds.
+Primary gates are positive gain at every horizon, action top-1, adjacent LDAD
+exact accuracy, and learned beam success. Ordered horizon-4 LDAD is diagnostic,
+not a hard gate. Only then submit staged hierarchy. The trainer writes
 `config.json`, `metrics.jsonl`, final `metrics.json`, and `checkpoint.pt`.
 
 ## Active Moving-Object Sweep

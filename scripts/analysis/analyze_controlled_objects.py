@@ -18,6 +18,8 @@ GROUP_KEYS = (
     "lambda",
     "representation",
     "latent_dim",
+    "ldad_horizon",
+    "ldad_weight",
     "objective",
 )
 
@@ -32,10 +34,25 @@ def analyze_manifest(manifest_path: Path) -> dict[str, Any]:
             missing.append(row["run_name"])
             continue
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        objective = row["objective"]
+        default_ldad_horizon = (
+            row["rollout_steps"]
+            if "controlled_hwm_v1" in manifest_path.name
+            and objective.startswith("ldad")
+            else "1"
+        )
         completed.append(
             {
                 **row,
                 "latent_dim": row.get("latent_dim") or str(metrics.get("latent_dim", 32)),
+                "ldad_horizon": row.get("ldad_horizon")
+                or str(metrics.get("ldad_horizon", default_ldad_horizon)),
+                "ldad_weight": row.get("ldad_weight")
+                or str(
+                    metrics.get(
+                        "ldad_weight", 1.0 if objective.startswith("ldad") else 0.0
+                    )
+                ),
                 "metrics": metrics,
             }
         )
@@ -165,14 +182,15 @@ def _markdown(analysis: dict[str, Any]) -> str:
         "",
         f"Completed: {analysis['completed_runs']}/{analysis['expected_runs']}",
         "",
-        "| block | depth | stride | rollout | all levels | lambda | representation | z | objective | seeds | gain min | action top-1 | learned min | oracle-candidate min | symbolic | bounded CEM | support CEM | LDAD exact | pred gate | plan gate |",
-        "|---|---:|---:|---:|---|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        "| block | depth | stride | rollout | all levels | lambda | representation | z | LDAD h | LDAD w | objective | seeds | gain min | action top-1 | learned min | oracle-candidate min | symbolic | bounded CEM | support CEM | LDAD exact | pred gate | plan gate |",
+        "|---|---:|---:|---:|---|---:|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
     ]
     for group in analysis["groups"]:
         lines.append(
             "| {block} | {depth} | {stride} | {rollout_steps} | "
             "{rollout_all_levels} | {lambda} | {representation} | {latent_dim} | "
-            "{objective} | {seed_count} | {all_horizon_gain_min:.4f} | {action_top1} | "
+            "{ldad_horizon} | {ldad_weight} | {objective} | {seed_count} | "
+            "{all_horizon_gain_min:.4f} | {action_top1} | "
             "{learned_receding_min:.2f} | "
             "{oracle_macro_learned_low_min:.2f} | {exact_receding_min:.2f} | "
             "{bounded} | {support_cem} | {ldad_accuracy} | "

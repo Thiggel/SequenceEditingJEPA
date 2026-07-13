@@ -13,6 +13,7 @@ from puzzle_jepa.controlled_objects.domain import RigidAction
 from puzzle_jepa.controlled_objects.evaluation import (
     _cem_macro_sequence,
     _estimate_macro_support,
+    _receding_on_support_plan,
     _recursive_on_support_action,
     _symbolic_receding_plan,
 )
@@ -116,6 +117,32 @@ def test_identifiable_trajectory_mode_samples_only_state_changing_actions() -> N
     assert np.all(changed)
 
 
+def test_identifiable_actions_have_unique_successor_grids() -> None:
+    generator = _generator()
+    state = np.zeros((8, 8), dtype=np.int64)
+    state[3, 2:5] = 1
+
+    actions = generator.candidate_actions(state, state_changing_only=True)
+    successors = [generator.apply_action(state, action)[0] for action in actions]
+
+    assert len(successors) == len({successor.tobytes() for successor in successors})
+    rotations = [action for action in actions if action.transform in {5, 6}]
+    assert len(rotations) == 1
+
+    rng = np.random.default_rng(10)
+    for _ in range(16):
+        sampled = generator.sample_scene(rng).grid
+        sampled_actions = generator.candidate_actions(
+            sampled, state_changing_only=True
+        )
+        sampled_successors = [
+            generator.apply_action(sampled, action)[0] for action in sampled_actions
+        ]
+        assert len(sampled_successors) == len(
+            {successor.tobytes() for successor in sampled_successors}
+        )
+
+
 def test_symbolic_receding_planner_solves_without_oracle_action_injection() -> None:
     generator = _generator(horizon=8)
     rng = np.random.default_rng(9)
@@ -129,6 +156,60 @@ def test_symbolic_receding_planner_solves_without_oracle_action_injection() -> N
             beam_width=256,
         )
         np.testing.assert_array_equal(planned, trajectory.states[-1])
+
+
+def test_latent_beam_planner_solves_with_exact_dynamics_without_oracle_actions() -> None:
+    generator = ControlledObjectGenerator(
+        ControlledObjectSpec(
+            grid_size=8,
+            num_colors=6,
+            object_count=2,
+            trajectory_length=4,
+            require_state_change=True,
+        )
+    )
+    trajectory = generator.sample_trajectory(np.random.default_rng(11), horizon=2)
+
+    class ExactPixelDynamics:
+        hierarchy_depth = 1
+
+        @staticmethod
+        def encode(states: torch.Tensor, *, target: bool = False) -> torch.Tensor:
+            del target
+            return states.to(torch.float32).flatten(1)
+
+        @staticmethod
+        def level_rollout_steps(level: int) -> int:
+            assert level == 0
+            return 2
+
+        @staticmethod
+        def predict_chunk(
+            level: int, latents: torch.Tensor, actions: torch.Tensor
+        ) -> torch.Tensor:
+            assert level == 0
+            successors = []
+            for latent, action_values in zip(latents, actions[:, 0], strict=True):
+                state = latent.reshape(8, 8).to(torch.long).numpy()
+                action = RigidAction(*(int(value) for value in action_values))
+                successor, valid = generator.apply_action(state, action)
+                assert valid
+                successors.append(successor.reshape(-1))
+            return torch.as_tensor(np.stack(successors), dtype=torch.float32)
+
+    planned = _receding_on_support_plan(
+        ExactPixelDynamics(),
+        generator,
+        trajectory.states[0],
+        trajectory.states[-1],
+        np.random.default_rng(13),
+        max_steps=4,
+        candidates=64,
+        device=torch.device("cpu"),
+        oracle_actions=None,
+    )
+
+    np.testing.assert_array_equal(planned, trajectory.states[-1])
 
 
 def test_dataset_samples_matched_contiguous_state_action_windows() -> None:
@@ -268,6 +349,41 @@ def test_ldad_decodes_one_action_from_adjacent_latent_displacement() -> None:
     torch.testing.assert_close(captured[0], endpoint - current)
     assert output.ldad_logits is not None
     assert [logits.shape[-1] for logits in output.ldad_logits] == [8, 8, 7]
+    assert float(output.ldad_loss.detach()) >= 0.0
+
+
+def test_multistep_ldad_decodes_ordered_actions_from_endpoint_displacement() -> None:
+    generator = _generator(horizon=4)
+    batch = build_controlled_dataset(generator, trajectory_count=4, seed=32).sample_batch(
+        np.random.default_rng(38), batch_size=2, horizon=4
+    )
+    model = _model(
+        rollout_steps=4,
+        target_mode="shared",
+        stop_gradient_targets=False,
+        vicreg_weight=0.0,
+        ldad_weight=1.0,
+        ldad_horizon=4,
+    )
+    captured = []
+    original = model.ldad_decoder.forward
+
+    def capture(delta: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        captured.append(delta)
+        return original(delta)
+
+    model.ldad_decoder.forward = capture  # type: ignore[method-assign,union-attr]
+    output = model(batch)
+    current = model.encode(batch.states[:, 0])
+    endpoint = model.encode(batch.states[:, 4], target=True)
+
+    torch.testing.assert_close(captured[0], endpoint - current)
+    assert output.ldad_logits is not None
+    assert [logits.shape for logits in output.ldad_logits] == [
+        torch.Size((2, 4, 8)),
+        torch.Size((2, 4, 8)),
+        torch.Size((2, 4, 7)),
+    ]
     assert float(output.ldad_loss.detach()) >= 0.0
 
 
@@ -444,6 +560,22 @@ def test_fidelity_gate_separates_state_capacity_and_paired_adjacent_ldad() -> No
     assert "vicreg_weight: 0.5" in strong
 
 
+def test_delta_gate_pairs_latents_across_weight_and_horizon_axes() -> None:
+    launcher = (
+        ROOT / "scripts/experiments/submit_controlled_objects_delta_gate.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "LDAD_WEIGHTS=(1 10 100)" in launcher
+    assert "LDAD_HORIZONS=(1 4)" in launcher
+    assert "REPRESENTATIONS=(cls grid)" in launcher
+    assert 'if [[ "${JOB_COUNT}" -ne 36 ]]' in launcher
+    for model_name in ("cls_hwm", "grid_ldad"):
+        model_config = (
+            ROOT / f"configs/controlled_objects/model/{model_name}.yaml"
+        ).read_text(encoding="utf-8")
+        assert "ldad_horizon: 1" in model_config
+
+
 def test_controlled_summary_requires_all_seed_prediction_and_planning_gates() -> None:
     key = (
         "rollout",
@@ -454,6 +586,8 @@ def test_controlled_summary_requires_all_seed_prediction_and_planning_gates() ->
         "1.0",
         "cls",
         "32",
+        "1",
+        "0.0",
         "ema_vicreg",
     )
     rows = []
@@ -482,7 +616,19 @@ def test_controlled_summary_requires_all_seed_prediction_and_planning_gates() ->
 
 
 def test_controlled_summary_action_gate_uses_learned_ranking_only() -> None:
-    key = ("ldad", "1", "4", "4", "false", "1.0", "cls", "8", "ldad_online")
+    key = (
+        "ldad",
+        "1",
+        "4",
+        "4",
+        "false",
+        "1.0",
+        "cls",
+        "8",
+        "1",
+        "1.0",
+        "ldad_online",
+    )
     rows = []
     for seed in (1707, 2707, 3707):
         rows.append(

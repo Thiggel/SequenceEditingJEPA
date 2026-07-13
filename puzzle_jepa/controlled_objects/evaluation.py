@@ -64,21 +64,33 @@ def evaluate_controlled_model(
         )
     )
     if output.ldad_logits is not None:
-        changed = (batch.states[:, 1] != batch.states[:, 0]).flatten(1).any(dim=1)
-        effective = batch.action_validity[:, 0] & changed
+        horizon = model.ldad_horizon
+        changed = batch.states[:, 1 : horizon + 1] != batch.states[:, :horizon]
+        changed = changed.flatten(2).any(dim=2).all(dim=1)
+        effective = batch.action_validity[:, :horizon].all(dim=1) & changed
+        metrics["eval_ldad_horizon"] = float(horizon)
         metrics["eval_ldad_effective_fraction"] = float(effective.float().mean().cpu())
         if bool(effective.any()):
             predictions = torch.stack(
                 [logits.argmax(dim=-1) for logits in output.ldad_logits], dim=-1
             )
-            correct = predictions[effective] == batch.actions[effective, 0]
-            metrics["eval_ldad_row_accuracy"] = float(correct[:, 0].float().mean().cpu())
-            metrics["eval_ldad_col_accuracy"] = float(correct[:, 1].float().mean().cpu())
+            targets = batch.actions[effective, :horizon]
+            if horizon == 1:
+                targets = targets[:, 0]
+            correct = predictions[effective] == targets
+            metrics["eval_ldad_row_accuracy"] = float(correct[..., 0].float().mean().cpu())
+            metrics["eval_ldad_col_accuracy"] = float(correct[..., 1].float().mean().cpu())
             metrics["eval_ldad_transform_accuracy"] = float(
-                correct[:, 2].float().mean().cpu()
+                correct[..., 2].float().mean().cpu()
+            )
+            per_action = correct.all(dim=-1)
+            metrics["eval_ldad_per_action_exact_accuracy"] = float(
+                per_action.float().mean().cpu()
             )
             metrics["eval_ldad_exact_accuracy"] = float(
-                correct.all(dim=1).float().mean().cpu()
+                per_action.flatten(1).all(dim=1).float().mean().cpu()
+                if horizon > 1
+                else per_action.float().mean().cpu()
             )
     for level, (predicted, targets) in enumerate(
         zip(output.predictions, output.targets, strict=True)
@@ -587,9 +599,8 @@ def _plan_cem_level(
             state,
             state_latent,
             target_latent,
-            rng,
             horizon=transition_count,
-            candidates=candidates,
+            beam_width=candidates,
             device=device,
         )
     macros, first_subgoal = _cem_macro_sequence(
@@ -731,6 +742,17 @@ def _plan_on_support_level(
     device: torch.device,
     oracle_actions: np.ndarray | None,
 ) -> RigidAction:
+    if level == 0 and oracle_actions is None:
+        return _best_flat_plan_action(
+            model,
+            generator,
+            state,
+            state_latent,
+            target_latent,
+            horizon=transition_count,
+            beam_width=candidates,
+            device=device,
+        )
     span = model.level_spans[level]
     primitive_horizon = span * transition_count
     sequences = _candidate_action_sequences(
@@ -775,34 +797,64 @@ def _plan_on_support_level(
     )
 
 
+@torch.no_grad()
 def _best_flat_plan_action(
     model: ControlledObjectJEPA,
     generator: ControlledObjectGenerator,
     state: np.ndarray,
     state_latent: torch.Tensor,
     target_latent: torch.Tensor,
-    rng: np.random.Generator,
     *,
     horizon: int,
-    candidates: int,
+    beam_width: int,
     device: torch.device,
 ) -> RigidAction:
-    sequences = _candidate_action_sequences(
-        generator,
-        state,
-        rng,
-        horizon=horizon,
-        count=candidates,
-    )
-    action_tensor = torch.as_tensor(sequences, dtype=torch.long, device=device)
-    rollout_state = state_latent.expand(len(sequences), *state_latent.shape[1:])
-    for step in range(horizon):
-        rollout_state = model.predict_chunk(
-            0, rollout_state, action_tensor[:, step : step + 1]
+    if horizon < 1 or beam_width < 1:
+        raise ValueError("Latent beam planning requires positive horizon and width.")
+    beam = [(state.copy(), state_latent, None)]
+    best_score = float("inf")
+    best_action = None
+    for _ in range(horizon):
+        proposal_states = []
+        parent_latents = []
+        proposal_actions = []
+        first_actions = []
+        for symbolic_state, latent, first_action in beam:
+            for action in generator.candidate_actions(
+                symbolic_state, state_changing_only=True
+            ):
+                successor, _ = generator.apply_action(symbolic_state, action)
+                proposal_states.append(successor)
+                parent_latents.append(latent)
+                proposal_actions.append(action)
+                first_actions.append(action if first_action is None else first_action)
+        if not proposal_actions:
+            break
+        latent_batch = torch.cat(parent_latents, dim=0)
+        action_batch = torch.as_tensor(
+            np.stack([action.as_array() for action in proposal_actions])[:, None],
+            dtype=torch.long,
+            device=device,
         )
-    scores = _latent_distance(rollout_state, target_latent.expand_as(rollout_state))
-    chosen = int(scores.argmin())
-    return RigidAction(*(int(value) for value in sequences[chosen, 0]))
+        predictions = model.predict_chunk(0, latent_batch, action_batch)
+        scores = _latent_distance(predictions, target_latent.expand_as(predictions))
+        step_best = int(scores.argmin())
+        step_score = float(scores[step_best].cpu())
+        if step_score < best_score:
+            best_score = step_score
+            best_action = first_actions[step_best]
+        keep = scores.topk(min(beam_width, len(scores)), largest=False).indices.tolist()
+        beam = [
+            (
+                proposal_states[index],
+                predictions[index : index + 1],
+                first_actions[index],
+            )
+            for index in keep
+        ]
+    if best_action is None:
+        raise RuntimeError("No valid primitive action is available for latent beam planning.")
+    return best_action
 
 
 def _best_primitive_action(

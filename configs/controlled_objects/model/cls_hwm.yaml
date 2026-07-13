@@ -12,3 +12,4 @@ action_heads: 4
 rollout_steps: 1
 rollout_all_levels: false
 rollout_lambda: 1.0
+ldad_horizon: 1

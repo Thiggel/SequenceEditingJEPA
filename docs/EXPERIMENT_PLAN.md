@@ -5,13 +5,17 @@ Source of truth: `../sequence-editing-report/BACKLOG.md` and
 
 ## Active HWM-Control Plan
 
-The completed 72-job controlled-object sweep crossed the requested hierarchy,
-stride, rollout, lambda, and LDAD axes, but a fidelity audit invalidated its
-paper-level interpretation. The immediate plan is the 54-row v2 primitive
-gate: CLS state dimension `{4,8,16,32}` under standard/strong EMA+VICReg, and
-all five corrected adjacent-LDAD objectives paired across learned-CLS and
-full-grid latents. Every row uses four-step dense rollout and state-changing
-actions.
+The completed v1 hierarchy matrix is fidelity-invalid, and the completed v2
+primitive gate improves prediction/inverse decoding but has zero learned
+planning in every group. V2 also exposed duplicate nonzero action successors
+and random-search candidate starvation. Both are repaired by successor
+canonicalization and latent-scored primitive beam search.
+
+The immediate v3 plan is 36 canonical online/no-stop-gradient Delta-JEPA rows:
+paired CLS/grid x LDAD weight `{1,10,100}` x decoder horizon `{1,4}` x three
+seeds. Horizon 1 tests identifiable adjacent LDAD; horizon 4 restores the
+paper's ordered multi-step extension as a separate diagnostic. Every row uses
+four-step dense predictor rollout.
 
 Require positive prediction gain at all horizons, useful action top-1/exact
 LDAD accuracy, and reproducible receding planning before selecting a same-seed
