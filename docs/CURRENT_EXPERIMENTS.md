@@ -2,7 +2,49 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-12 21:31 CEST
+Last updated: 2026-07-13 15:24 CEST
+
+## Proposed Hierarchy and Dense-Rollout Sweep
+
+No replacement jobs are submitted. All 109 remaining project `motion_watch`
+jobs were canceled after the final transfer results were preserved. Detailed
+design and fidelity audit:
+`../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+
+The current implementation is not a faithful end-to-end HWM reproduction on
+moving objects. `moving_objects` has autoregressive dense forecasting but no
+actions, hierarchy, or planner. `object_dynamics` has fixed-chunk endpoint
+prediction, but multiple macro losses teacher-force from true waypoints and
+continuous macro CEM has no support/reachability term. Grid Goal is closest,
+with distinct temporal predictors, learned macros, recursive hierarchy,
+continuous high-level search, primitive tracking, and MPC execution, but its
+Gaussian macro samples are unconstrained after optional codebook
+initialization.
+
+The proposed single world contains four rigid colored objects on `16x16`.
+Actions atomically translate or rotate one object; goals are endpoints of
+known reachable 16-step sequences. This is the minimum action-controlled
+adaptation needed because the current reflected/rotating worlds are autonomous
+and cannot test planning.
+
+Staged sweep, presented before submission:
+
+| stage | matrix | jobs |
+|---|---|---:|
+| low rollout | H1 plus `H={4,8,16}` x `lambda={.75,.9,.95,1}`, three seeds | 39 |
+| hierarchy core | stride `{2,4,8}` x macro dim `{2,4,8}` x `{teacher-forced,dense autoregressive}`, staged/frozen, three seeds | 54 |
+| combined | best hierarchy x low `{H1,best dense}` x high lambda `{.75,.9,.95}` x `{staged,joint}`, three seeds | 36 |
+| hard-state replication | winners only at `z4/q16` and `z8/q4` | at most 12 |
+
+The hierarchy planner matrix compares legal-chunk retrieval, unconstrained
+CEM, nearest-code projection, conditional macro support energy, low-level
+reachability energy, and both energies. Diagnostics isolate learned high/oracle
+low, oracle waypoint/learned low, true macro chunk/learned high, and exact
+dynamics. Gate on exact executed success, rollout drift, macro-energy
+calibration, subgoal reachability, model bias, and compute-matched flat versus
+hierarchical planning. Oracle direct episodes must solve `100%`; learned
+on-support hierarchy must solve all direct sanity episodes and at least `95%`
+of blocker detours before continuous macro optimization is promoted.
 
 ## Moving-Object Bottleneck Grid
 
@@ -31,7 +73,7 @@ exact N=8 every z loses balanced shape from initialization; z64 has weak
 absolute position `.063` but delta `-.093` and velocity `-.045`. Direct
 color-centroid velocity remains observable at `R2=.768` for N=8.
 
-The exact-N sequence confirmation is submitted: trainers
+The exact-N sequence confirmation is complete: trainers
 `3841078`-`3841245`, dependent dynamics `3841266`-`3841433`, dependent v6
 probes `3841434`-`3841497` and `3841499`-`3841602`, and six-hour watchers
 `3841603`-`3841622`. Manifest `sequence_fixed_selected_v1_steps5000.tsv` has
@@ -125,10 +167,13 @@ positive mean complete-position R2 (`.041/.033`) but one negative seed each,
 and no hard gate passes. Completion has now completed too: z8/q2 learns
 complete-object and rollout
 position (`.015/.020`), and z8/q16 learns current position only (`.022`). No
-hard row learns completion itself or predictive dynamics. All 18 noisy-repair
-rows run. Dynamics are
-`3845051`-`3845212`, probes `3845213`-`3845374`, and watchers
-`3845376`-`3845395`.
+hard row learns completion itself or predictive dynamics. Noisy repair also
+completed. Hard z8/q2/q4/q16 learn only weak complete-position R2
+`.013/.032/.067`; shape stays below majority, completion R2 is negative, and
+all hard predictors lose to identity. Final artifact
+`../sequence-editing-report/assets/moving_objects/rate_transfer_v1_summary.md`
+has 162 runs/54 groups. Dynamics are `3845051`-`3845212`; probes are
+`3845213`-`3845359` and `3845361`-`3845375` (ID `3845360` was not allocated).
 
 Barrier watcher `3841802` completed `0:0`. V1 rate trainers are
 `3841787`-`3841798` and `3841803`-`3841898`. Dynamics are

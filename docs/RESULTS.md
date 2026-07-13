@@ -1,6 +1,17 @@
 # Results
 
-Last updated: 2026-07-13 14:18 CEST
+Last updated: 2026-07-13 15:24 CEST
+
+## Final Hard-Rate Transfer
+
+All 162 selected transfer runs/dynamics/v6 probes completed `0:0`; the final
+artifact has 54 three-seed groups. Noisy repair gives hard z8/q2/q4/q16 only
+weak complete-position R2 (`.013/.032/.067`). Shape remains below the `.235`
+empirical majority, completion R2 is negative, and every hard noisy predictor
+loses to identity. Across nine families, trajectory and code factorization
+select narrow shape or color-indexed position summaries, not a complete object
+state. Full artifact:
+`../sequence-editing-report/assets/moving_objects/rate_transfer_v1_summary.md`.
 
 ## Corrected Hard-Rate Result
 

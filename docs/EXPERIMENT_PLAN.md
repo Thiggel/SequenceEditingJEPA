@@ -3,6 +3,22 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
+## Proposed HWM-Control Plan
+
+No experiment is currently submitted. The proposed next gate uses one
+action-controlled rigid-object trajectory type and prioritizes a paper-aligned
+two-level planner. Primitive actions translate or rotate one whole object;
+held-out goals are endpoints of known reachable 16-step sequences. First make
+exact-dynamics flat and hierarchical planners solve the sanity suite. Then
+select low-level autoregressive dense rollout over horizons `{4,8,16}` and
+`lambda={.75,.9,.95}` plus uniform controls. Train a separate staged/frozen
+high-level predictor over stride `{2,4,8}` and macro dimension `{2,4,8}`, with
+teacher-forced versus dense autoregressive macro supervision. Only after
+on-support hierarchy works should continuous macro CEM be compared against
+support energy and low-level reachability feedback. Replicate winners under
+hard state bottlenecks last. See the current-experiments source for the full
+matrix, diagnostics, gates, and job counts.
+
 ## Active Moving-Object Bottleneck Plan
 
 The immediate experiment replaces the broad low-level edit sweep. A fixed-width
