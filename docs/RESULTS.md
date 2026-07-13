@@ -1,6 +1,23 @@
 # Results
 
-Last updated: 2026-07-13 15:24 CEST
+Last updated: 2026-07-13 16:43 CEST
+
+## Controlled-HWM Preflight
+
+No Slurm result is available yet. The new action-controlled hierarchy passed
+15 focused tests and the full repository suite. Exact symbolic receding
+planning solved every reachable sanity episode. A small 256-trajectory CPU fit
+reduced averaged dense low/high prediction MSE from `.0862` to `.0020` after
+300 steps and beat identity at every supervised horizon. This is an
+implementation gate, not evidence that learned hierarchy plans successfully;
+that conclusion waits for jobs `3849807`-`3849879`.
+
+The first six Slurm endpoints do not pass the learned-model gate. H1 prediction
+is worse than identity in all seeds (gain `-.00471/-.00467/-.00451`) and
+learned receding success is `.25/.50/.75` over four episodes. Rollout-2 is
+worse than identity at both horizons in all seeds and solves `.00/.00/.25`.
+Exact receding success is `1.0` throughout, localizing the failure to learned
+latent dynamics/search rather than the environment or execution loop.
 
 ## Final Hard-Rate Transfer
 

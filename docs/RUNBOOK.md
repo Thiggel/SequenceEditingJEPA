@@ -1,8 +1,28 @@
 # Runbook
 
-Last updated: 2026-07-12 11:14 CEST
+Last updated: 2026-07-13 16:43 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
+
+## Active Controlled-HWM Sweep
+
+Manifest:
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_hwm_v1_steps20000.tsv`.
+Jobs are `3849807`-`3849879` excluding `3849826`; outputs are under
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_hwm_v1_steps20000/`.
+Use `squeue -u "$USER" -n controlled_hwm` for state and inspect
+`logs/controlled_hwm_<jobid>.{out,err}` for failures. Hierarchy depth/stride
+jobs depend on low-level jobs `3849807`-`3849809`; combined rollout/hierarchy
+jobs depend on rollout-4 jobs `3849829`-`3849831`. Do not release or rewire
+those dependencies to a different seed/checkpoint.
+
+Dry-run regeneration:
+`scripts/experiments/submit_controlled_objects_hwm.sh`. It submits only with
+`SUBMIT=1`. The trainer writes `config.json`, `metrics.jsonl`, final
+`metrics.json`, and `checkpoint.pt` per run. Aggregate only when all three
+seeds in a comparison are complete; treat exact planner success as a software
+gate and learned planning/support/reachability diagnostics as the scientific
+outcomes.
 
 ## Active Moving-Object Sweep
 

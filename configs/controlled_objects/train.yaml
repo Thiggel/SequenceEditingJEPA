@@ -1,0 +1,32 @@
+defaults:
+  - data: rigid_transform
+  - model: cls_hwm
+  - objective: ema_vicreg
+  - _self_
+
+seed: 1707
+data_seed: 8801
+device: auto
+run_name: controlled_hwm_seed${seed}
+output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/controlled_objects/${run_name}
+
+training:
+  deterministic: true
+  train_trajectories: 1024
+  max_steps: 20000
+  batch_size: 64
+  learning_rate: 3.0e-4
+  min_learning_rate: 3.0e-5
+  warmup_steps: 500
+  weight_decay: 1.0e-4
+  grad_clip: 1.0
+  bf16: true
+  eval_every_steps: 5000
+  init_checkpoint: null
+  train_from_level: 0
+
+eval:
+  trajectories: 256
+  batch_size: 64
+  planning_episodes: 4
+  planning_candidates: 16

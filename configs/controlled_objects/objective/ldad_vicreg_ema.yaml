@@ -1,0 +1,7 @@
+name: ldad_vicreg_ema
+target_mode: ema
+stop_gradient_targets: true
+ema_decay: 0.99
+prediction_weight: 1.0
+vicreg_weight: 0.05
+ldad_weight: 1.0

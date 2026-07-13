@@ -2,49 +2,66 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 15:24 CEST
+Last updated: 2026-07-13 16:43 CEST
 
-## Proposed Hierarchy and Dense-Rollout Sweep
+## Controlled HWM and Dense-Rollout Sweep
 
-No replacement jobs are submitted. All 109 remaining project `motion_watch`
-jobs were canceled after the final transfer results were preserved. Detailed
-design and fidelity audit:
-`../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
+The controlled hierarchy sweep is submitted as 72 unique trainers, jobs
+`3849807`-`3849879` with allocator gap `3849826`. Manifest:
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_hwm_v1_steps20000.tsv`.
+Outputs and checkpoints are under
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_hwm_v1_steps20000/`.
+Current state is 6 complete, 44 running, and 22 pending, with no failures. H1
+jobs `3849807`-`3849809` and rollout-2 jobs `3849825/3849827/3849828` are
+complete; their dependencies are releasing as designed.
 
-The current implementation is not a faithful end-to-end HWM reproduction on
-moving objects. `moving_objects` has autoregressive dense forecasting but no
-actions, hierarchy, or planner. `object_dynamics` has fixed-chunk endpoint
-prediction, but multiple macro losses teacher-force from true waypoints and
-continuous macro CEM has no support/reachability term. Grid Goal is closest,
-with distinct temporal predictors, learned macros, recursive hierarchy,
-continuous high-level search, primitive tracking, and MPC execution, but its
-Gaussian macro samples are unconstrained after optional codebook
-initialization.
+The new `controlled_objects` subsystem uses four rigid colored objects on a
+`16x16` grid. A primitive `(row,col,transform)` action selects an object only
+through an occupied pixel and translates or rotates its whole connected mask;
+object IDs, masks, and colors are not model inputs. Invalid/background actions
+are labeled no-ops. Held-out goals are endpoints of known reachable action
+sequences.
 
-The proposed single world contains four rigid colored objects on `16x16`.
-Actions atomically translate or rotate one object; goals are endpoints of
-known reachable 16-step sequences. This is the minimum action-controlled
-adaptation needed because the current reflected/rotating worlds are autonomous
-and cannot test planning.
+Each hierarchy has distinct predictors at temporal spans `1,s,s^2,s^3` and a
+Transformer macro encoder for each primitive-action chunk. Staged hierarchy
+rows load and freeze the same-seed flat checkpoint. Dense rollout recursively
+feeds predictions back and supervises every endpoint with normalized
+`lambda^(i-1)` weights. High-level dense rows apply the same rule at every
+temporal level. There is no pixel reconstruction.
 
-Staged sweep, presented before submission:
+Submitted controlled comparisons, three seeds each:
 
-| stage | matrix | jobs |
+| block | matrix | unique jobs |
 |---|---|---:|
-| low rollout | H1 plus `H={4,8,16}` x `lambda={.75,.9,.95,1}`, three seeds | 39 |
-| hierarchy core | stride `{2,4,8}` x macro dim `{2,4,8}` x `{teacher-forced,dense autoregressive}`, staged/frozen, three seeds | 54 |
-| combined | best hierarchy x low `{H1,best dense}` x high lambda `{.75,.9,.95}` x `{staged,joint}`, three seeds | 36 |
-| hard-state replication | winners only at `z4/q16` and `z8/q4` | at most 12 |
+| hierarchy depth | total levels `{1,2,3,4}`, fixed stride 4 | 12 |
+| hierarchy stride | depth 3, stride `{2,4,8}`; stride 4 reused above | 6 new |
+| primitive rollout | steps `{1,2,4,8}`; step 1 reused above | 9 new |
+| hierarchy + rollout | depth 3/stride 4/rollout 4, primitive-only vs every-level dense supervision | 6 |
+| lambda | flat rollout 4, `{.75,.9,.95,1}`; lambda 1 reused | 9 new |
+| LDAD | five EMA/stop-gradient/VICReg variants x `{CLS,full-grid}` | 30 |
 
-The hierarchy planner matrix compares legal-chunk retrieval, unconstrained
-CEM, nearest-code projection, conditional macro support energy, low-level
-reachability energy, and both energies. Diagnostics isolate learned high/oracle
-low, oracle waypoint/learned low, true macro chunk/learned high, and exact
-dynamics. Gate on exact executed success, rollout drift, macro-energy
-calibration, subgoal reachability, model bias, and compute-matched flat versus
-hierarchical planning. Oracle direct episodes must solve `100%`; learned
-on-support hierarchy must solve all direct sanity episodes and at least `95%`
-of blocker detours before continuous macro optimization is promoted.
+The canonical Delta-JEPA row is `ldad_online`: shared encoder, no EMA, no
+stop-gradient, no VICReg. LDAD decodes all four primitive actions from the
+long-horizon endpoint displacement. `ldad_vicreg_stopgrad` is the otherwise
+ambiguous bare-VICReg row. Every LDAD objective is paired with a single learned
+CLS and full-grid latent as required by the project invariant.
+
+Evaluation records each supervised horizon against identity, high-level versus
+primitive-rollout error, learned receding planning, oracle-macro/learned-low
+planning, exact symbolic receding planning, macro support-energy AUROC, and
+low-level reachability-energy AUROC. Local preflight passed: 15 focused tests,
+full repository tests, exact symbolic receding success on all sanity episodes,
+staged checkpoint loading/freezing, and a 256-trajectory CPU fit that reduced
+dense low/high MSE from `.0862` to `.0020` in 300 steps while beating identity
+at every supervised horizon.
+
+The first full-size endpoints fail the learned primitive gate. H1 one-step
+prediction gain over identity is `-.00471/-.00467/-.00451`; learned receding
+success over four episodes is `.25/.50/.75`. Rollout-2 is also worse than
+identity at both horizons in every seed and solves `.00/.00/.25`. Exact
+symbolic receding remains `1.0`. Clean process completion is distinct from
+scientific gate passage; hierarchy rows built on these checkpoints are failure
+localization unless later objective rows repair primitive dynamics.
 
 ## Moving-Object Bottleneck Grid
 

@@ -1,0 +1,7 @@
+name: ldad_online
+target_mode: shared
+stop_gradient_targets: false
+ema_decay: 0.99
+prediction_weight: 1.0
+vicreg_weight: 0.0
+ldad_weight: 1.0

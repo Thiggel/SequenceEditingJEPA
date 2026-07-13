@@ -1,0 +1,8 @@
+name: rigid_transform
+grid_size: 16
+num_colors: 10
+object_count: 4
+trajectory_length: 64
+invalid_action_ratio: 0.1
+noop_ratio: 0.05
+max_scene_retries: 512

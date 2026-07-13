@@ -3,21 +3,16 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-## Proposed HWM-Control Plan
+## Active HWM-Control Plan
 
-No experiment is currently submitted. The proposed next gate uses one
-action-controlled rigid-object trajectory type and prioritizes a paper-aligned
-two-level planner. Primitive actions translate or rotate one whole object;
-held-out goals are endpoints of known reachable 16-step sequences. First make
-exact-dynamics flat and hierarchical planners solve the sanity suite. Then
-select low-level autoregressive dense rollout over horizons `{4,8,16}` and
-`lambda={.75,.9,.95}` plus uniform controls. Train a separate staged/frozen
-high-level predictor over stride `{2,4,8}` and macro dimension `{2,4,8}`, with
-teacher-forced versus dense autoregressive macro supervision. Only after
-on-support hierarchy works should continuous macro CEM be compared against
-support energy and low-level reachability feedback. Replicate winners under
-hard state bottlenecks last. See the current-experiments source for the full
-matrix, diagnostics, gates, and job counts.
+The submitted 72-job controlled-object sweep isolates six axes: hierarchy
+depth `{1,2,3,4}` at stride 4; depth-3 stride `{2,4,8}`; flat rollout
+`{1,2,4,8}`; primitive-only versus every-level dense rollout in a depth-3
+hierarchy; lambda `{.75,.9,.95,1}` only at flat rollout 4; and five requested
+LDAD target/regularizer variants. Every LDAD row has paired learned-CLS and
+full-grid representations. Hierarchy rows reuse and freeze the exact same-seed
+low-level checkpoint. See `docs/CURRENT_EXPERIMENTS.md` and the external report
+for job IDs, metrics, fidelity details, and gates.
 
 ## Active Moving-Object Bottleneck Plan
 
