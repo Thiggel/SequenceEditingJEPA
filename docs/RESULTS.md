@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 19:15 CEST
+Last updated: 2026-07-13 19:27 CEST
 
 ## Controlled-HWM Fidelity Repair
 
@@ -17,6 +17,12 @@ but fail planning. Rollout-1 planning is `.50/.5625/.84375`; rollout-2 is
 `.25/.125/.34375`, with symbolic planning `1.0` throughout. These plan rates
 use one-step versus two-step goals and therefore are absolute gates, not a fair
 cross-horizon effect estimate. Minimum shared action top-1 is `.5625/.5000`.
+
+Rollout-4 also passes prediction (minimum gain `+.00097`) but has action top-1
+`.3125` minimum and planning `.00/.09375/.09375`. Lambda
+`.75/.9/.95/1` leaves minimum planning at `0/0/.03125/0`; no weighting repairs
+control. Twenty-one jobs are complete, 11 are running, 22 are pending, and no
+job has failed.
 
 All 72 v1 jobs `3849807`-`3849879` completed `0:0`. Every group fails learned
 planning, and standard EMA+VICReg loses to identity across depth, stride,
