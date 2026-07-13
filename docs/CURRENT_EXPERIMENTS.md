@@ -2,9 +2,49 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 18:24 CEST
+Last updated: 2026-07-13 18:47 CEST
 
-## Controlled HWM Fidelity Repair
+## Single-CLS Hierarchy and Dense Rollout
+
+This is the only active controlled-object sweep. It tests whether temporal
+depth and autoregressive intermediate supervision make a compressed single-CLS
+world model controllable on deterministic rigid-object translations and
+rotations. Delta-JEPA and representation type are not axes. Because the
+project requires paired representations for any Delta experiment, no new
+Delta experiment will run under the single-CLS-only scope.
+
+The 54 jobs `3850619`-`3850672` were submitted across `a40,rtxpro6k,a100`.
+Initial state: one running on A100, 20 priority-pending, and 33
+dependency-held. Manifest:
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_hierarchy_rollout_v5_steps20000.tsv`.
+Outputs:
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_hierarchy_rollout_v5_steps20000/<run_name>/`.
+
+| isolated question | settings | submitted rows |
+|---|---|---:|
+| primitive dense rollout | steps `{1,2,4,8}`, lambda `1` | 12 |
+| rollout weighting | rollout `4`, lambda `{.75,.9,.95}`; reuse lambda `1` | 9 |
+| hierarchy depth | depth `{1,2,3,4}`, stride `4`, rollout `1` | 9 new staged rows plus reused depth 1 |
+| hierarchy stride | stride `{2,4,8}`, depth `3`, rollout `1` | 12 private staged rows plus reused stride 4 |
+| hierarchy plus rollout | depth `3`, stride `4`, rollout `4`, primitive-only versus every-level dense loss | 12 staged rows |
+
+All rows use latent width 32, `ema_vicreg_strong`, state-changing trajectories,
+20k steps, 32 planning episodes, and 64 planning candidates. Every higher
+level starts from the same-seed lower checkpoint and freezes the encoder and
+all previously trained temporal levels.
+
+Two hierarchy bugs were fixed before submission. First, the nearest-support
+energy was global over macro chunks; it now measures joint current-state and
+macro support. Second, staged training froze old levels but averaged their
+constant losses into the objective; it now optimizes only newly trainable
+levels while retaining all per-level diagnostics. Both have regressions.
+
+The off-scope v4 Delta/full-grid jobs `3850564`-`3850569` were canceled at
+18:32 CEST. Job `3850564` ran for `00:01:34`; the other five never started and
+no v4 result exists. Delta/fidelity submission entry points are retired, and
+the long-gate launcher was removed.
+
+## Historical Controlled HWM Fidelity Repair
 
 V1 jobs `3849807`-`3849879` and v2 jobs `3850221`-`3850274` both completed
 without runtime failures. Artifacts are
@@ -48,20 +88,12 @@ The evaluator also dropped oracle suffixes shorter than the fixed rollout and
 reported only a two-step symbolic ceiling. Regressions now retain the remaining
 suffix and evaluate flat symbolic search at horizon 4. Corrected checkpoint
 evaluation gives CLS h4/w1 learned success `.25/.125/.125`, oracle-candidate
-success `.25/.50/.125`, and symbolic success `1.0` across seeds. V4 jobs
-`3850564`-`3850569` are submitted and priority-pending across
-`a40,rtxpro6k,a100`. These six fresh 20k h4/w1 rows pair CLS/full-grid, use 32
-planning episodes and beam width 64, and write under
-`controlled_delta_long_v4_steps20000/`. Hierarchy remains blocked until this
-low-level model is reliable.
+success `.25/.50/.125`, and symbolic success `1.0` across seeds. The proposed
+v4 continuation was canceled without a completed result after the scope was
+corrected to single-CLS hierarchy and rollout only.
 
-A hierarchy-specific risk remains even after that gate. Macro CEM currently
-uses one global bank and marginal quantile box of encoded action chunks at every
-predicted state. Its support penalty can therefore call a macro on-manifold
-because it occurred somewhere in the dataset even when it is unreachable from
-the current latent. Before interpreting hierarchy, add a state-conditioned
-support/reachability diagnostic or energy and compare it with the current
-global penalty.
+The global macro-support defect found in this audit is repaired in the active
+sweep with joint state-and-macro nearest-support energy.
 
 ## Moving-Object Bottleneck Grid
 

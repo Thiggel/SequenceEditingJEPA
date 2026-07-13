@@ -1,10 +1,30 @@
 # Runbook
 
-Last updated: 2026-07-13 18:24 CEST
+Last updated: 2026-07-13 18:47 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
-## Controlled-HWM Fidelity Gate
+## Single-CLS Hierarchy/Rollout Sweep
+
+Active manifest:
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_hierarchy_rollout_v5_steps20000.tsv`.
+Jobs `3850619`-`3850672` write to
+`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_hierarchy_rollout_v5_steps20000/`.
+The 21 independent flat rollout/lambda jobs release 33 same-seed hierarchy
+stages through `afterok` dependencies. Aggregate with
+`scripts/analysis/analyze_controlled_objects.py` after all three seeds of a
+group finish.
+
+The only active launcher is
+`scripts/experiments/submit_controlled_objects_hwm.sh`. It emits exactly 54
+single-CLS, non-LDAD rows and dry-runs unless `SUBMIT=1`. Do not rerun while
+the manifest jobs are active. The Delta and fidelity launchers are retired and
+exit 2; the former long-gate launcher was removed.
+
+Canceled off-scope jobs `3850564`-`3850569` produced no result. `3850564` ran
+for `00:01:34`; the rest never started.
+
+## Historical Controlled Gates
 
 Completed v1 manifest:
 `$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_hwm_v1_steps20000.tsv`.
@@ -25,15 +45,8 @@ jobs `3850409`-`3850444`; artifact is
 An accidental duplicate submission ran `3850448`-`3850449` byte-for-byte
 identically; held duplicates `3850450`-`3850483` were canceled before starting.
 
-The v4 launcher is
-`scripts/experiments/submit_controlled_objects_delta_long_gate.sh`. It dry-runs
-six paired CLS/grid h4/w1 rows by default and submits only with `SUBMIT=1`;
-manifest `controlled_delta_long_v4_steps20000.tsv` maps jobs
-`3850564`-`3850569`, currently priority-pending on `a40,rtxpro6k,a100`.
-Outputs are under `controlled_delta_long_v4_steps20000/<run_name>/`. Require
-all three seeds and reliable 32-episode learned beam success before staged
-hierarchy. The trainer writes `config.json`, `metrics.jsonl`, final
-`metrics.json`, and `checkpoint.pt`.
+The trainer writes `config.json`, `metrics.jsonl`, final `metrics.json`, and
+`checkpoint.pt`.
 
 ## Active Moving-Object Sweep
 

@@ -280,6 +280,7 @@ class ControlledObjectJEPA(nn.Module):
         self.vicreg_weight = float(vicreg_weight)
         self.ldad_weight = float(ldad_weight)
         self.ldad_horizon = int(ldad_horizon)
+        self.train_from_level = 0
         encoder_args = dict(
             grid_size=grid_size,
             num_colors=num_colors,
@@ -375,6 +376,11 @@ class ControlledObjectJEPA(nn.Module):
             target.mul_(self.ema_decay).add_(online, alpha=1.0 - self.ema_decay)
 
     def freeze_below_level(self, level: int) -> None:
+        if not (0 <= level < self.hierarchy_depth):
+            raise ValueError(
+                f"train_from_level must be in [0,{self.hierarchy_depth - 1}]."
+            )
+        self.train_from_level = int(level)
         if level <= 0:
             return
         for parameter in self.encoder.parameters():
@@ -428,7 +434,7 @@ class ControlledObjectJEPA(nn.Module):
             all_predictions.append(predicted)
             all_targets.append(target_stack)
             all_weights.append(weights)
-        prediction_loss = torch.stack(level_losses).mean()
+        prediction_loss = torch.stack(level_losses[self.train_from_level :]).mean()
 
         if self.vicreg_weight > 0.0:
             online_future = self.encoder(batch.states[:, self.required_horizon])

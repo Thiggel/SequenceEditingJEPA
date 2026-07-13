@@ -15,9 +15,12 @@ from puzzle_jepa.controlled_objects.model import ControlledObjectJEPA
 
 @dataclass(frozen=True, slots=True)
 class MacroSupport:
+    state_bank: torch.Tensor
     bank: torch.Tensor
     lower: torch.Tensor
     upper: torch.Tensor
+    state_mean: torch.Tensor
+    state_std: torch.Tensor
     mean: torch.Tensor
     std: torch.Tensor
 
@@ -236,12 +239,30 @@ def _hierarchy_diagnostics(
         )
         diagnostics[f"eval_level{level}_macro_effective_rank"] = _effective_rank(macros)
         if len(macros) > 2:
-            on_distance = torch.cdist(macros, macros)
+            pooled_current = _pooled(current)
+            state_mean = pooled_current.mean(dim=0)
+            state_std = pooled_current.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+            macro_mean = macros.mean(dim=0)
+            feature_std = macros.std(dim=0, unbiased=False).clamp_min(1.0e-3)
+            on_joint = torch.cat(
+                (
+                    (pooled_current - state_mean) / state_std,
+                    (macros - macro_mean) / feature_std,
+                ),
+                dim=-1,
+            )
+            on_distance = torch.cdist(on_joint, on_joint)
             on_distance.fill_diagonal_(torch.inf)
             on_nearest = on_distance.min(dim=1).values
-            feature_std = macros.std(dim=0, unbiased=False).clamp_min(1.0e-3)
-            off = macros.mean(dim=0) + 3.0 * feature_std * torch.randn_like(macros)
-            off_distance = torch.cdist(off, macros)
+            off = macro_mean + 3.0 * feature_std * torch.randn_like(macros)
+            off_joint = torch.cat(
+                (
+                    (pooled_current - state_mean) / state_std,
+                    (off - macro_mean) / feature_std,
+                ),
+                dim=-1,
+            )
+            off_distance = torch.cdist(off_joint, on_joint)
             off_nearest, nearest_index = off_distance.min(dim=1)
             off_prediction = model.predict_from_macro(level, current, off)
             on_reachability = _latent_distance(high_prediction, low_prediction)
@@ -400,13 +421,17 @@ def _estimate_macro_support(
         horizon=span,
         device=device,
     )
+    state_bank = _pooled(model.encode(batch.states[:, 0]))
     bank = model.encode_action_chunk(level, batch.actions[:, :span])
     lower = torch.quantile(bank, 0.02, dim=0)
     upper = torch.quantile(bank, 0.98, dim=0)
     return MacroSupport(
+        state_bank=state_bank,
         bank=bank,
         lower=lower,
         upper=upper,
+        state_mean=state_bank.mean(dim=0),
+        state_std=state_bank.std(dim=0, unbiased=False).clamp_min(1.0e-3),
         mean=bank.mean(dim=0),
         std=bank.std(dim=0, unbiased=False).clamp_min(1.0e-3),
     )
@@ -667,7 +692,9 @@ def _cem_macro_sequence(
         )
         rollout = state_latent.expand(candidates, *state_latent.shape[1:])
         first = None
+        support_states = []
         for transition in range(transition_count):
+            support_states.append(_pooled(rollout))
             rollout = model.predict_from_macro(
                 level, rollout, macro_candidates[:, transition]
             )
@@ -676,7 +703,9 @@ def _cem_macro_sequence(
         costs = _latent_distance(rollout, target_latent.expand_as(rollout))
         if support_weight > 0.0:
             costs = costs + support_weight * _macro_support_energy(
-                macro_candidates, support
+                macro_candidates,
+                torch.stack(support_states, dim=1),
+                support,
             )
         elite_ids = costs.topk(elite_count, largest=False).indices
         elites = macro_candidates[elite_ids]
@@ -691,10 +720,24 @@ def _cem_macro_sequence(
     return best_macros, best_first
 
 
-def _macro_support_energy(macros: torch.Tensor, support: MacroSupport) -> torch.Tensor:
+def _macro_support_energy(
+    macros: torch.Tensor,
+    states: torch.Tensor,
+    support: MacroSupport,
+) -> torch.Tensor:
+    if states.shape[:2] != macros.shape[:2]:
+        raise ValueError("Macro support states and actions must share batch/time axes.")
     normalized = (macros - support.mean) / support.std
-    bank = (support.bank - support.mean) / support.std
-    distances = torch.cdist(normalized.flatten(0, 1), bank)
+    normalized_states = (states - support.state_mean) / support.state_std
+    queries = torch.cat((normalized_states, normalized), dim=-1)
+    bank = torch.cat(
+        (
+            (support.state_bank - support.state_mean) / support.state_std,
+            (support.bank - support.mean) / support.std,
+        ),
+        dim=-1,
+    )
+    distances = torch.cdist(queries.flatten(0, 1), bank)
     nearest = distances.min(dim=1).values.square()
     return nearest.view(macros.shape[:2]).mean(dim=1)
 

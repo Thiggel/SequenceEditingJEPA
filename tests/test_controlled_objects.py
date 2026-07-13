@@ -12,8 +12,10 @@ from puzzle_jepa.controlled_objects.batching import (
 )
 from puzzle_jepa.controlled_objects.domain import RigidAction
 from puzzle_jepa.controlled_objects.evaluation import (
+    MacroSupport,
     _cem_macro_sequence,
     _estimate_macro_support,
+    _macro_support_energy,
     _receding_on_support_plan,
     _recursive_on_support_action,
     _symbolic_receding_plan,
@@ -584,14 +586,42 @@ def test_cem_macro_actions_are_clamped_to_empirical_support_bounds() -> None:
     assert bool(torch.all(macros <= support.upper))
 
 
+def test_macro_support_energy_rejects_macro_from_the_wrong_state() -> None:
+    support = MacroSupport(
+        state_bank=torch.tensor([[0.0], [10.0]]),
+        bank=torch.tensor([[0.0], [10.0]]),
+        lower=torch.tensor([0.0]),
+        upper=torch.tensor([10.0]),
+        state_mean=torch.tensor([5.0]),
+        state_std=torch.tensor([5.0]),
+        mean=torch.tensor([5.0]),
+        std=torch.tensor([5.0]),
+    )
+    current = torch.tensor([[[0.0]]])
+    matching = _macro_support_energy(torch.tensor([[[0.0]]]), current, support)
+    mismatched = _macro_support_energy(torch.tensor([[[10.0]]]), current, support)
+
+    assert float(matching) == 0.0
+    assert float(mismatched) > float(matching) + 1.0
+
+
 def test_hierarchy_stage_freezes_encoder_and_lower_temporal_models() -> None:
-    model = _model(hierarchy_depth=3)
+    generator = _generator(horizon=16)
+    batch = build_controlled_dataset(generator, trajectory_count=4, seed=50).sample_batch(
+        np.random.default_rng(51), batch_size=2, horizon=16
+    )
+    model = _model(hierarchy_depth=3, vicreg_weight=0.0)
     model.freeze_below_level(1)
+    output = model(batch)
 
     assert all(not parameter.requires_grad for parameter in model.encoder.parameters())
     assert all(not parameter.requires_grad for parameter in model.dynamics[0].parameters())
     assert all(parameter.requires_grad for parameter in model.dynamics[1].parameters())
     assert all(parameter.requires_grad for parameter in model.dynamics[2].parameters())
+    torch.testing.assert_close(
+        output.prediction_loss,
+        torch.stack(output.level_losses[1:]).mean(),
+    )
 
 
 def test_controlled_model_forward_backward_reports_each_hierarchy_level() -> None:
@@ -634,7 +664,7 @@ def test_config_tree_contains_all_five_unique_ldad_variants() -> None:
     assert "stop_gradient_targets: false" in configs["ldad_vicreg_online"]
 
 
-def test_launcher_has_separate_axes_and_paired_delta_jepa_rows() -> None:
+def test_launcher_has_single_cls_rollout_axes_and_staged_hierarchy() -> None:
     launcher = (
         ROOT / "scripts/experiments/submit_controlled_objects_hwm.sh"
     ).read_text(encoding="utf-8")
@@ -647,17 +677,19 @@ def test_launcher_has_separate_axes_and_paired_delta_jepa_rows() -> None:
     assert "LAMBDAS=(0.75 0.9 0.95 1.0)" in launcher
     assert "for lambda in 0.75 0.9 0.95" in launcher
     assert "for all_levels in false true" in launcher
-    assert "REPRESENTATIONS=(cls grid)" in launcher
-    assert "LDAD_OBJECTIVES=(" in launcher
-    assert 'if [[ "${JOB_COUNT}" -ne 72 ]]' in launcher
+    assert "MODEL_CONFIG=cls_hwm" in launcher
+    assert "OBJECTIVE_CONFIG=ema_vicreg_strong" in launcher
+    assert "LDAD_WEIGHT=0" in launcher
+    assert "grid_ldad" not in launcher
+    assert "REPRESENTATIONS" not in launcher
+    assert 'if [[ "${JOB_COUNT}" -ne 54 ]]' in launcher
+    assert 'checkpoint="${OUTPUT_ROOT}/${previous_run}/checkpoint.pt"' in launcher
+    assert '"${previous_job}" "${checkpoint}" "${previous}"' in launcher
     assert "training.init_checkpoint" in slurm
     assert "training.train_from_level" in slurm
 
 
-def test_fidelity_gate_separates_state_capacity_and_paired_adjacent_ldad() -> None:
-    launcher = (
-        ROOT / "scripts/experiments/submit_controlled_objects_fidelity_gate.sh"
-    ).read_text(encoding="utf-8")
+def test_superseded_controlled_launchers_cannot_submit() -> None:
     data = (
         ROOT / "configs/controlled_objects/data/rigid_transform.yaml"
     ).read_text(encoding="utf-8")
@@ -665,41 +697,16 @@ def test_fidelity_gate_separates_state_capacity_and_paired_adjacent_ldad() -> No
         ROOT / "configs/controlled_objects/objective/ema_vicreg_strong.yaml"
     ).read_text(encoding="utf-8")
 
-    assert "LATENT_DIMS=(4 8 16 32)" in launcher
-    assert "REPRESENTATIONS=(cls grid)" in launcher
-    assert "representation\\tlatent_dim\\tobjective" in launcher
-    assert 'if [[ "${JOB_COUNT}" -ne 54 ]]' in launcher
+    for name in (
+        "submit_controlled_objects_fidelity_gate.sh",
+        "submit_controlled_objects_delta_gate.sh",
+    ):
+        launcher = (ROOT / "scripts/experiments" / name).read_text(encoding="utf-8")
+        assert launcher.index("Retired:") < launcher.index("exit 2")
+        assert "sbatch" not in launcher
+        assert "REPRESENTATIONS" not in launcher
     assert "require_state_change: true" in data
     assert "vicreg_weight: 0.5" in strong
-
-
-def test_delta_gate_pairs_latents_across_weight_and_horizon_axes() -> None:
-    launcher = (
-        ROOT / "scripts/experiments/submit_controlled_objects_delta_gate.sh"
-    ).read_text(encoding="utf-8")
-
-    assert "LDAD_WEIGHTS=(1 10 100)" in launcher
-    assert "LDAD_HORIZONS=(1 4)" in launcher
-    assert "REPRESENTATIONS=(cls grid)" in launcher
-    assert 'if [[ "${JOB_COUNT}" -ne 36 ]]' in launcher
-    for model_name in ("cls_hwm", "grid_ldad"):
-        model_config = (
-            ROOT / f"configs/controlled_objects/model/{model_name}.yaml"
-        ).read_text(encoding="utf-8")
-        assert "ldad_horizon: 1" in model_config
-
-
-def test_delta_long_gate_extends_only_paired_h4_weight1_winner() -> None:
-    launcher = (
-        ROOT / "scripts/experiments/submit_controlled_objects_delta_long_gate.sh"
-    ).read_text(encoding="utf-8")
-
-    assert "REPRESENTATIONS=(cls grid)" in launcher
-    assert "LDAD_HORIZON=4,LDAD_WEIGHT=1" in launcher
-    assert "MAX_STEPS=${MAX_STEPS:-20000}" in launcher
-    assert "PLANNING_EPISODES=${PLANNING_EPISODES:-32}" in launcher
-    assert "PLANNING_CANDIDATES=${PLANNING_CANDIDATES:-64}" in launcher
-    assert 'if [[ "${JOB_COUNT}" -ne 6 ]]' in launcher
 
 
 def test_controlled_summary_requires_all_seed_prediction_and_planning_gates() -> None:

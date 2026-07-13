@@ -5,26 +5,25 @@ Source of truth: `../sequence-editing-report/BACKLOG.md` and
 
 ## Active HWM-Control Plan
 
+The active plan is single-CLS hierarchy and dense rollout only. Jobs
+`3850619`-`3850672` cross rollout `{1,2,4,8}`, lambda `{.75,.9,.95,1}` at
+rollout 4, hierarchy depth `{1,2,3,4}`, stride `{2,4,8}`, and primitive-only
+versus every-level dense rollout. Hierarchy is dependency-staged by seed and
+freezes all lower levels. No LDAD or representation sweep is active.
+
+The previously submitted v4 Delta/full-grid jobs `3850564`-`3850569` were
+canceled without a completed result. No Delta experiment can be proposed while
+the scope prohibits its required paired representation.
+
 The completed v1 hierarchy matrix is fidelity-invalid, and the completed v2
 primitive gate improves prediction/inverse decoding but has zero learned
 planning in every group. V2 also exposed duplicate nonzero action successors
 and random-search candidate starvation. Both are repaired by successor
 canonicalization and latent-scored primitive beam search.
 
-V3 completed 36 canonical online/no-stop-gradient Delta-JEPA rows over paired
-CLS/grid, LDAD weight `{1,10,100}`, decoder horizon `{1,4}`, and three seeds.
-Only CLS h4/w1 produces nonzero learned planning in every seed, and it remains
-far below the 95% gate. V4 jobs `3850564`-`3850569` submit six fresh 20k rows:
-CLS/grid x three seeds at h4/w1, with 32 planning episodes and beam width 64.
-
-Require reproducible primitive receding planning before selecting same-seed
-checkpoints for hierarchy. Then rerun depth `{1,2,3,4}`, stride `{2,4,8}`, and
-primitive-only versus every-level rollout using recursive all-level planning
-and bounded/support-penalized continuous macro CEM. See
-`docs/CURRENT_EXPERIMENTS.md` for the v1-v3 findings and exact gate.
-The current macro support bank is global rather than state-conditioned; require
-a current-state reachability/support control before treating low CEM energy as
-evidence that a high-level action is executable.
+Historical v1-v3 results remain useful negative controls but no longer drive
+the active grid. The planner recursively descends every hierarchy level and
+compares bounded macro CEM with a joint state-and-macro support penalty.
 
 ## Active Moving-Object Bottleneck Plan
 

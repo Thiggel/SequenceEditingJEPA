@@ -1,8 +1,15 @@
 # Results
 
-Last updated: 2026-07-13 18:24 CEST
+Last updated: 2026-07-13 18:47 CEST
 
 ## Controlled-HWM Fidelity Repair
+
+Current correction: off-scope v4 Delta/full-grid jobs
+`3850564`-`3850569` were canceled with no completed result. The replacement is
+the 54-job single-CLS hierarchy and dense-rollout sweep
+`3850619`-`3850672`; it contains no LDAD or representation axis. Results are
+pending. State-conditioned macro support and staged-loss selection were fixed
+and regression-tested before submission.
 
 All 72 v1 jobs `3849807`-`3849879` completed `0:0`. Every group fails learned
 planning, and standard EMA+VICReg loses to identity across depth, stride,
@@ -34,9 +41,9 @@ identity, but none reaches the action or planning gate. CLS h4/w1 is the only
 all-seed planning signal: original final evaluation solves `1/8` per seed with
 minimum action top-1 `.50`. Correcting a short-oracle-suffix evaluator bug gives
 learned success `.25/.125/.125`, oracle-candidate `.25/.50/.125`, and exact
-symbolic `1.0`. Full-grid adjacent LDAD decodes `.719-.750` of actions but has
-zero planning. Paired CLS/grid h4/w1 20k jobs `3850564`-`3850569` are
-submitted; hierarchy stays blocked pending reliable primitive planning.
+symbolic `1.0`. Historical full-grid adjacent LDAD decoded `.719-.750` of
+actions but had zero planning; those historical rows are not part of the
+current experiment.
 
 ## Final Hard-Rate Transfer
 
