@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 18:14 CEST
+Last updated: 2026-07-13 18:24 CEST
 
 ## Controlled-HWM Fidelity Repair
 
@@ -35,8 +35,8 @@ all-seed planning signal: original final evaluation solves `1/8` per seed with
 minimum action top-1 `.50`. Correcting a short-oracle-suffix evaluator bug gives
 learned success `.25/.125/.125`, oracle-candidate `.25/.50/.125`, and exact
 symbolic `1.0`. Full-grid adjacent LDAD decodes `.719-.750` of actions but has
-zero planning. A paired six-job CLS/grid h4/w1 20k gate is next; hierarchy stays
-blocked pending reliable primitive planning.
+zero planning. Paired CLS/grid h4/w1 20k jobs `3850564`-`3850569` are
+submitted; hierarchy stays blocked pending reliable primitive planning.
 
 ## Final Hard-Rate Transfer
 

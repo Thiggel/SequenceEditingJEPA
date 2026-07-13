@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-13 18:14 CEST
+Last updated: 2026-07-13 18:24 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -25,11 +25,13 @@ jobs `3850409`-`3850444`; artifact is
 An accidental duplicate submission ran `3850448`-`3850449` byte-for-byte
 identically; held duplicates `3850450`-`3850483` were canceled before starting.
 
-The next launcher is
+The v4 launcher is
 `scripts/experiments/submit_controlled_objects_delta_long_gate.sh`. It dry-runs
 six paired CLS/grid h4/w1 rows by default and submits only with `SUBMIT=1`;
-expected manifest is `controlled_delta_long_v4_steps20000.tsv`. Require all
-three seeds and reliable 32-episode learned beam success before staged
+manifest `controlled_delta_long_v4_steps20000.tsv` maps jobs
+`3850564`-`3850569`, currently priority-pending on `a40,rtxpro6k,a100`.
+Outputs are under `controlled_delta_long_v4_steps20000/<run_name>/`. Require
+all three seeds and reliable 32-episode learned beam success before staged
 hierarchy. The trainer writes `config.json`, `metrics.jsonl`, final
 `metrics.json`, and `checkpoint.pt`.
 

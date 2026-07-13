@@ -14,7 +14,7 @@ canonicalization and latent-scored primitive beam search.
 V3 completed 36 canonical online/no-stop-gradient Delta-JEPA rows over paired
 CLS/grid, LDAD weight `{1,10,100}`, decoder horizon `{1,4}`, and three seeds.
 Only CLS h4/w1 produces nonzero learned planning in every seed, and it remains
-far below the 95% gate. The immediate v4 plan is therefore six fresh 20k rows:
+far below the 95% gate. V4 jobs `3850564`-`3850569` submit six fresh 20k rows:
 CLS/grid x three seeds at h4/w1, with 32 planning episodes and beam width 64.
 
 Require reproducible primitive receding planning before selecting same-seed

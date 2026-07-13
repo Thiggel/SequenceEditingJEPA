@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 18:14 CEST
+Last updated: 2026-07-13 18:24 CEST
 
 ## Controlled HWM Fidelity Repair
 
@@ -48,9 +48,12 @@ The evaluator also dropped oracle suffixes shorter than the fixed rollout and
 reported only a two-step symbolic ceiling. Regressions now retain the remaining
 suffix and evaluate flat symbolic search at horizon 4. Corrected checkpoint
 evaluation gives CLS h4/w1 learned success `.25/.125/.125`, oracle-candidate
-success `.25/.50/.125`, and symbolic success `1.0` across seeds. The next gate
-is six fresh 20k h4/w1 jobs, paired CLS/full-grid, with 32 planning episodes and
-beam width 64. Hierarchy remains blocked until this low-level model is reliable.
+success `.25/.50/.125`, and symbolic success `1.0` across seeds. V4 jobs
+`3850564`-`3850569` are submitted and priority-pending across
+`a40,rtxpro6k,a100`. These six fresh 20k h4/w1 rows pair CLS/full-grid, use 32
+planning episodes and beam width 64, and write under
+`controlled_delta_long_v4_steps20000/`. Hierarchy remains blocked until this
+low-level model is reliable.
 
 ## Moving-Object Bottleneck Grid
 
