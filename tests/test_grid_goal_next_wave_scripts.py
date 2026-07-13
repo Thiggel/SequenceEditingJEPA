@@ -1935,19 +1935,25 @@ def _capture_weekend_args(
     return capture_file.read_text().splitlines()
 
 
-def test_weekend_manifest_pairs_every_delta_jepa_variant_with_single_latent_state():
+def test_weekend_manifest_delta_jepa_variants_are_single_cls_only():
     manifest = _weekend_manifest()
-    paired_stages = [stage for stage in manifest["stages"] if stage.get("requires_paired_latents")]
+    assert all("requires_paired_latents" not in stage for stage in manifest["stages"])
+    assert any(
+        "add a full-grid latent variant" in rule
+        for rule in manifest["oversight"]["forbidden_autonomy"]
+    )
+    delta_variants = [
+        variant
+        for stage in manifest["stages"]
+        for variant in stage["variants"]
+        if variant.startswith(("D", "I2_"))
+    ]
+    assert delta_variants
+    assert all(variant.endswith("_single") for variant in delta_variants)
+    assert not any(variant.endswith("_grid") for variant in delta_variants)
 
-    assert paired_stages
-    for stage in paired_stages:
-        variants = set(stage["variants"])
-        for base in stage["base_variants"]:
-            assert f"{base}_grid" in variants
-            assert f"{base}_single" in variants
 
-
-def test_weekend_train_and_eval_scripts_keep_delta_grid_single_pairs_in_sync():
+def test_weekend_train_and_eval_scripts_keep_single_cls_variants_in_sync():
     repo_root = Path(__file__).resolve().parents[1]
     manifest = _weekend_manifest()
     expected = []
@@ -1961,38 +1967,21 @@ def test_weekend_train_and_eval_scripts_keep_delta_grid_single_pairs_in_sync():
 
     assert train_variants == eval_variants
     assert set(train_variants) == expected_set
-    paired_bases = {
-        base
-        for stage in manifest["stages"]
-        if stage.get("requires_paired_latents")
-        for base in stage["base_variants"]
-    }
-    for base in paired_bases:
-        assert f"{base}_grid" in train_variants
-        assert f"{base}_single" in train_variants
+    assert not any(variant.endswith("_grid") for variant in train_variants)
 
 
-def test_weekend_delta_single_variants_use_single_latent_state_and_grid_variants_use_grid(tmp_path):
+def test_weekend_delta_variants_use_single_latent_state(tmp_path):
     single_args = _capture_weekend_args(
         tmp_path,
         script="scripts/slurm/run_grid_goal_weekend_train.slurm",
         variant="D2_online_set_h12345_single",
     )
-    grid_args = _capture_weekend_args(
-        tmp_path,
-        script="scripts/slurm/run_grid_goal_weekend_train.slurm",
-        variant="D2_online_set_h12345_grid",
-    )
-
     assert "model.latent_representation=single" in single_args
-    assert "model.latent_representation=grid" in grid_args
     assert "model.delta_action_mode=set" in single_args
-    assert "model.delta_action_mode=set" in grid_args
     assert "model.dynamics_target_mode=online_no_stopgrad" in single_args
-    assert "model.dynamics_target_mode=online_no_stopgrad" in grid_args
 
 
-def test_weekend_integrated_delta_variant_is_also_paired_and_eval_suffix_strips_to_base(tmp_path):
+def test_weekend_integrated_delta_variant_is_single_cls_and_eval_suffix_strips_to_base(tmp_path):
     train_args = _capture_weekend_args(
         tmp_path,
         script="scripts/slurm/run_grid_goal_weekend_train.slurm",

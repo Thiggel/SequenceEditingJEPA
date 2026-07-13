@@ -10,7 +10,6 @@ VARIANTS=(
   V3_waypoint_asym_hindsight
   I0_integrated_waypoint_asym
   I1_integrated_waypoint_iql
-  I2_integrated_best_delta_if_gate_passes_grid
   I2_integrated_best_delta_if_gate_passes_single
 )
 

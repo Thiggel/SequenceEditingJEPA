@@ -29,7 +29,7 @@
     ],
     "forbidden_autonomy": [
       "invent unrelated architectures",
-      "drop the single-CLS paired variant for any Delta-JEPA follow-up",
+      "add a full-grid latent variant to any Delta-JEPA follow-up",
       "cancel active jobs without an explicit supersession reason recorded in LOG.md"
     ]
   },
@@ -68,28 +68,13 @@
     },
     {
       "id": "D",
-      "name": "delta_jepa_paired",
-      "requires_paired_latents": true,
-      "base_variants": [
-        "D0_online_h1",
-        "D1_online_ordered_h12345",
-        "D2_online_set_h12345",
-        "D3_hybrid_ema_h1",
-        "D4_hybrid_ema_set_h12345",
-        "D5_ema_vicreg_no_ldad"
-      ],
+      "name": "delta_jepa_single_cls",
       "variants": [
-        "D0_online_h1_grid",
         "D0_online_h1_single",
-        "D1_online_ordered_h12345_grid",
         "D1_online_ordered_h12345_single",
-        "D2_online_set_h12345_grid",
         "D2_online_set_h12345_single",
-        "D3_hybrid_ema_h1_grid",
         "D3_hybrid_ema_h1_single",
-        "D4_hybrid_ema_set_h12345_grid",
         "D4_hybrid_ema_set_h12345_single",
-        "D5_ema_vicreg_no_ldad_grid",
         "D5_ema_vicreg_no_ldad_single"
       ],
       "gate": {
@@ -114,14 +99,9 @@
     {
       "id": "I",
       "name": "winner_integration",
-      "requires_paired_latents": true,
-      "base_variants": [
-        "I2_integrated_best_delta_if_gate_passes"
-      ],
       "variants": [
         "I0_integrated_waypoint_asym",
         "I1_integrated_waypoint_iql",
-        "I2_integrated_best_delta_if_gate_passes_grid",
         "I2_integrated_best_delta_if_gate_passes_single"
       ],
       "gate": {

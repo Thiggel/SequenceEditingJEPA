@@ -24,7 +24,6 @@ def main() -> None:
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest.read_text())
-    validate_delta_pairing(manifest)
     run_root = args.work_root / "runs" / str(manifest["run_family"])
     variants = all_variants(manifest)
     summary = summarize_variants(run_root, variants, args.run_suffix)
@@ -45,17 +44,6 @@ def main() -> None:
     }
     print(json.dumps(record, indent=2, sort_keys=True))
     update_report(args.report_root, args.repo_root, manifest, record)
-
-
-def validate_delta_pairing(manifest: dict[str, Any]) -> None:
-    for stage in manifest.get("stages", []):
-        if not stage.get("requires_paired_latents"):
-            continue
-        variants = set(stage.get("variants", []))
-        for base in stage.get("base_variants", []):
-            missing = [name for name in (f"{base}_grid", f"{base}_single") if name not in variants]
-            if missing:
-                raise ValueError(f"Delta stage {stage.get('id')} is missing paired variants: {missing}")
 
 
 def all_variants(manifest: dict[str, Any]) -> list[str]:
@@ -141,7 +129,7 @@ def derive_insights(summary: dict[str, Any]) -> list[str]:
         )
     delta_rows = [item for name, item in variants.items() if str(name).startswith("D")]
     if delta_rows and any(item.get("rows", 0) for item in delta_rows):
-        insights.append("Delta branch has eval rows; compare every grid variant against its single-CLS paired variant before promoting.")
+        insights.append("Delta branch has eval rows; evaluate its single-CLS representation and rollout diagnostics before promoting.")
     waypoint_rows = [item for name, item in variants.items() if "waypoint" in str(name)]
     if waypoint_rows and any(item.get("rows", 0) for item in waypoint_rows):
         insights.append("Waypoint rows are present; prioritize predicted-waypoint versus oracle-waypoint gap before terminal predicted-goal variants.")

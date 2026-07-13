@@ -264,7 +264,7 @@ class ControlledObjectJEPA(nn.Module):
         if target_mode == "ema" and not stop_gradient_targets:
             raise ValueError("EMA targets are necessarily stop-gradient targets.")
         if latent_representation == "grid" and hierarchy_depth != 1:
-            raise ValueError("The paired full-grid control is defined only for flat LDAD rows.")
+            raise ValueError("Legacy grid representations support only flat checkpoints.")
         self.grid_size = int(grid_size)
         self.token_dim = int(token_dim)
         self.latent_dim = int(latent_dim)

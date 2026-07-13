@@ -2,16 +2,16 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 20:09 CEST
+Last updated: 2026-07-13 21:08 CEST
 
 ## Single-CLS Hierarchy and Dense Rollout
 
 This is the primary controlled-object sweep. It tests whether temporal
 depth and autoregressive intermediate supervision make a compressed single-CLS
 world model controllable on deterministic rigid-object translations and
-rotations. Delta-JEPA and representation type are not axes. Because the
-project requires paired representations for any Delta experiment, no new
-Delta experiment will run under the single-CLS-only scope.
+rotations. Delta-JEPA and representation type are not axes. Future controlled
+Delta/LDAD experiments must also use only the learned CLS latent; full-grid
+pairing is no longer required or permitted.
 
 The 54 jobs `3850619`-`3850672` were submitted across `a40,rtxpro6k,a100`.
 Initial state: one running on A100, 20 priority-pending, and 33
@@ -33,7 +33,7 @@ All rows use latent width 32, `ema_vicreg_strong`, state-changing trajectories,
 level starts from the same-seed lower checkpoint and freezes the encoder and
 all previously trained temporal levels.
 
-Forty-three jobs are complete and no job has failed. The first four primitive
+Forty-four jobs are complete and no job has failed. The first four primitive
 groups have final three-seed results:
 
 | rollout | minimum gain over all supervised steps | min action top-1 | learned planning by seed | symbolic min |
@@ -50,13 +50,15 @@ they are not an unconfounded cross-horizon comparison. Shared one-step action
 ranking and per-step prediction gains are the direct rollout comparison.
 Lambda `{.75,.9,.95,1}` is also complete at rollout 4: all values retain
 positive gain, while minimum planning is `0/0/.03125/0`. The remaining Slurm
-state is nine running and two dependency-held.
+state is nine running and one dependency-held.
 
 ## Capacity and Frozen Probes
 
 A controlled capacity extension reuses the six `64/32` token/CLS baseline
 checkpoints and adds token/CLS widths `128/64` and `256/128`. Each width has
 flat four-step rollout and staged depth-2, stride-4 hierarchy over three seeds.
+Every scene has exactly four distinctly colored objects on a `16x16` grid;
+each sampled shape occupies three to five cells, for 12-20 foreground cells.
 The 12 new training jobs `3850910,3850912,...,3850932` and their dependent
 probes `3850911,3850913,...,3850933` all completed successfully. Manifest:
 `$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_capacity_v6_steps20000.tsv`.
@@ -80,7 +82,7 @@ color/object presence, rotation-invariant shape family, color-indexed position,
 pair relations, grid foreground decoding, true/predicted latent-delta action
 decoding, effective rank, raw-grid controls, and semantic transfer through
 every supervised rollout step at every hierarchy level. Corrected jobs
-`3850936`-`3850989` cover all 54 active checkpoints; 43 are complete and 11
+`3850936`-`3850989` cover all 54 active checkpoints; 44 are complete and 10
 are dependency-held. The first probe pass `3850855`-`3850908` exposed
 ill-conditioned raw regressors and is ignored; its jobs were not canceled.
 
@@ -93,9 +95,10 @@ encode the primitive transform at `.672/.732`. This is evidence of action and
 weak position information, not learned object abstraction. Capacity and
 hierarchy endpoint conclusions remain pending.
 
-No LDAD sweep was submitted. Project policy requires every Delta/LDAD row to
-have a paired full-grid row, while the current user scope forbids full-grid
-experiments; those constraints must be reconciled before LDAD is eligible.
+No LDAD sweep was submitted. The obsolete paired-latent requirement has now
+been removed, so a future LDAD stabilizer ablation is single-CLS only. It is
+held until the exact object-load question is resolved rather than confounding
+objective choice with a possibly overloaded four-object environment.
 
 Two hierarchy bugs were fixed before submission. First, the nearest-support
 energy was global over macro chunks; it now measures joint current-state and
@@ -435,7 +438,7 @@ Longer training improves count, rollout transfer, and attention but degrades a
 hidden-provenance process probe; the prior nearest-neighbor score compared
 scene-local canonical slots, not semantics. HWM d4 confirmation and the bounded
 dual-probe trajectory gate are now complete. Neither hierarchy nor temporal
-object ordering passes its intended gate, so the 486-job phase remains held.
+object ordering passes its intended gate, so the 486-job phase is retired.
 
 Purpose: test whether LeWM-like compressed single-CLS JEPA dynamics can learn
 hidden object/process structure from low-level grid edits. The model is not
@@ -709,14 +712,14 @@ Verification:
 - Grid-Goal SIGReg now uses the same projected Epps-Pulley test, and Grid-Goal
   LDAD now decodes encoded endpoint displacement. Historical checkpoints were
   trained before these repairs and retain the old objective semantics.
-- Full-grid cell-token baselines and paired CLS/grid LDAD rows now exist for
-  flat and H8 configs. Delta-JEPA defines adjacent-state action decoding; the
-  prior long-horizon action-sequence requirement was erroneous.
+- Full-grid object model configs and paired Delta rows were removed. Future
+  object Delta/LDAD rows are single-CLS only. Delta-JEPA defines adjacent-state
+  action decoding; the prior long-horizon action-sequence requirement was
+  erroneous.
 
-Phase submission is now gated on GPU validation and selecting train length,
-macro dimension, and joint-versus-staged HWM from the prepared calibrations.
-The full phase is nine datasets x 18 rows x three seeds (`486` jobs), with
-common `semantic_mix` probes and paired CLS/full-grid Delta rows.
+The historical 486-row phase is retired and cannot submit. Any replacement
+must use single-CLS models only and be redesigned after the controlled
+object-load ablation.
 
 ## Structured JEPA Audit Update
 
@@ -818,7 +821,7 @@ Submitted variants:
 | Block | Variants | What it tests |
 |---|---|---|
 | Structured slots | `S0`-`S4` | 81 cells versus unit/global/progress/full slot layouts. |
-| Delta-JEPA | `DJ0`-`DJ5` plus paired `_single` rows | Action conditioning crossed with all-token versus changed-cell+unit LDAD sources; every full-grid Delta row has a learned-CLS single-latent counterpart. |
+| Delta-JEPA | historical `DJ0`-`DJ5` and `_single` rows | Action conditioning crossed with all-token versus changed-cell+unit LDAD sources; future Delta follow-ups are single-CLS only. |
 | SD-JEPA | `SD0`-`SD3` | Separate progress projection and action-effect subspace. |
 | Preference ranking | `PR0`-`PR4` | State progress rank, legal/listwise action rank, and predictor-successor ranking for PR2. |
 | Goal/waypoint | `GW0`-`GW4` | Terminal goal, waypoint, waypoint+goal score, goal-conditioned waypoint, and multi-waypoint sketch. |

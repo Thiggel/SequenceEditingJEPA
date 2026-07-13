@@ -12,8 +12,8 @@ versus every-level dense rollout. Hierarchy is dependency-staged by seed and
 freezes all lower levels. No LDAD or representation sweep is active.
 
 The previously submitted v4 Delta/full-grid jobs `3850564`-`3850569` were
-canceled without a completed result. No Delta experiment can be proposed while
-the scope prohibits its required paired representation.
+canceled without a completed result. The paired-representation requirement is
+removed: future controlled Delta/LDAD work is single-CLS only.
 
 The completed v1 hierarchy matrix is fidelity-invalid, and the completed v2
 primitive gate improves prediction/inverse decoding but has zero learned
@@ -39,9 +39,16 @@ hierarchical planning. Because both widths co-scale, a later causal ablation
 must vary encoder width at fixed CLS width and CLS width at fixed encoder width
 before assigning the effect to either capacity source.
 
-LDAD objective ablations remain blocked by an explicit policy conflict: Delta
-rows require paired learned-CLS/full-grid latents, but current scope prohibits
-all full-grid runs. Do not submit a relabeled single-CLS LDAD row.
+LDAD objective ablations are no longer blocked by a representation-pairing
+policy. They remain held until the controlled object-load decision; when run,
+all LDAD variants must use the same single learned CLS latent as the hierarchy
+experiments.
+
+The current controlled world has exactly four distinctly colored objects on a
+`16x16` grid. Each shape occupies three to five cells. Before another objective
+sweep, hold the widest `256/128` token/CLS recipe fixed and compare exact
+object counts `{1,2,4}` over three seeds. This is the minimum test of whether
+probe failure is caused by object load rather than the learned objective.
 
 ## Active Moving-Object Bottleneck Plan
 
@@ -195,9 +202,9 @@ single-CLS rollout horizons, stability objectives, and hierarchy:
 
 | Block | Configs |
 |---|---|
-| Phase 1 | five CLS rows plus `grid128_r8` with `base` |
-| Phase 2 | `cls128_r8` with `ldad/vicreg/sigreg/ema`, plus paired `grid128_r8/ldad` |
-| Phase 3 | three joint HWM rows, paired CLS/grid H8 LDAD, and staged/frozen H8 |
+| Phase 1 | five single-CLS rollout/capacity rows |
+| Phase 2 | `cls128_r8` with `ldad/vicreg/sigreg/ema` |
+| Phase 3 | three single-CLS joint HWM rows, H8 LDAD, and staged/frozen H8 |
 | Control | `cls128_r8` reconstruction-only encoder baseline |
 
 Frozen evaluation now covers visible object count/current/next object, color,
@@ -240,9 +247,9 @@ Every endpoint reduced current-object and latent-delta object probe accuracy
 relative to its fixed step-0 encoder, while latent variance, map decoding, and
 invalid-state AUROC gave conflicting rankings. The 5000-step extension and
 EMA/VICReg/SIGReg triage completed, followed by three-seed EMA/SIGReg
-replication. Stable-slot v3 probes select `cls64_r8 + EMA`, LR `3e-4`, as the
-best compromise. The full guarded phase now contains nine datasets x 18 rows x
-three seeds (`486` jobs); it remains held until the new calibration jobs finish.
+replication. Stable-slot v3 probes selected `cls64_r8 + EMA`, LR `3e-4`, as the
+best compromise. The former 486-job phase is retired and cannot submit; any
+replacement must be rebuilt as a single-CLS experiment.
 
 ## ARC Concrete Plan
 
@@ -371,8 +378,8 @@ Research questions:
   slot preserve the factorization that single-CLS latents destroyed?
 - Does Delta-JEPA LDAD work better when the decoded displacement is selected
   from all tokens, only cell tokens, the changed cell, or the changed cell plus
-  Sudoku unit slots? Every Delta row is paired with a learned-CLS single-latent
-  run.
+  Sudoku unit slots? Historical rows included both representations; any future
+  Delta follow-up must be single-CLS only.
 - Does an SD-JEPA-style progress projection separate content dynamics from
   goal-distance/progress ranking?
 - Do preference/ranking losses improve the local branch discrimination that
@@ -493,10 +500,10 @@ Stages:
 |---|---|
 | `S` | Data/action smoke tests: old data, counterfactual fill, editable repair, AdaLN marker, old-local conditioning. |
 | `E` | EMA+VICReg base, hierarchy, and waypoint variants. |
-| `D` | Delta-JEPA paired full-grid and single-CLS variants. |
+| `D` | Delta-JEPA single-CLS variants. |
 | `V` | Asymmetric/value geometry variants. |
-| `I` | Integrated winners, including paired Delta-JEPA if the Delta gate passes. |
+| `I` | Integrated winners, including single-CLS Delta-JEPA if the Delta gate passes. |
 
-Operational invariant: any Delta-JEPA row must be paired as `_grid` and
-`_single`. This applies to the dedicated Delta stage and any later autonomous
-follow-up or integrated Delta stage.
+Operational invariant: any new Delta-JEPA row must use a single learned CLS
+latent. Do not add `_grid` variants to the dedicated Delta stage, autonomous
+follow-ups, or integrated stages.

@@ -88,43 +88,6 @@ def test_end_to_end_objectives_keep_future_targets_in_gradient_graph() -> None:
     assert output.targets.requires_grad
 
 
-def test_full_grid_ldad_pools_token_displacement_and_trains_pooler() -> None:
-    rng = np.random.default_rng(14)
-    generator = ObjectDynamicsGenerator(
-        ObjectDynamicsSpec(
-            grid_size=8,
-            max_objects=2,
-            max_shape_extent=4,
-            counterfactual_ratio=0.0,
-            wrong_ratio=0.0,
-        )
-    )
-    batch = sample_object_dynamics_batch(generator, rng, batch_size=2, horizon=1)
-    model = ObjectDynamicsJEPA(
-        grid_size=8,
-        d_model=16,
-        encoder_layers=1,
-        encoder_heads=4,
-        rollout_horizon=1,
-        target_mode="shared",
-        ldad_weight=1.0,
-        latent_representation="grid",
-    )
-    captured: list[torch.Tensor] = []
-    original = model._ldad_loss
-
-    def capture(delta: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
-        captured.append(delta)
-        return original(delta, actions)
-
-    model._ldad_loss = capture  # type: ignore[method-assign]
-    output = model(batch)
-    assert captured[0].shape == (2, 16)
-    output.loss.backward()
-    assert model.delta_pool.weight.grad is not None
-    assert bool(torch.isfinite(model.delta_pool.weight.grad).all())
-
-
 def test_sigreg_distinguishes_gaussian_from_rademacher_samples() -> None:
     torch.manual_seed(17)
     gaussian = torch.randn(2048, 1)
@@ -435,8 +398,8 @@ def test_probe_evaluation_preserves_model_mode_and_torch_rng() -> None:
 
 
 def test_phase_sweep_includes_non_empty_start_trajectory_regimes() -> None:
-    script = Path(__file__).resolve().parents[1] / "scripts" / "experiments" / "submit_object_dynamics_phase1.sh"
-    text = script.read_text()
+    sweep = Path(__file__).resolve().parents[1] / "configs" / "object_dynamics" / "sweep" / "phase1.yaml"
+    text = sweep.read_text()
     assert "completion" in text
     assert "transform_identity" in text
     assert "random_off_manifold" in text
@@ -457,15 +420,11 @@ def test_probe_class_weights_equalize_observed_class_mass() -> None:
     assert float(weights[3]) == 0.0
 
 
-def test_phase_sweep_requires_explicit_prestage_selection() -> None:
+def test_phase_sweep_is_retired_before_submission() -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "experiments" / "submit_object_dynamics_phase1.sh"
     text = script.read_text()
-    assert "PRESTAGE_SELECTION_CONFIRMED" in text
-    assert 'LEARNING_RATE="${LEARNING_RATE}"' in text
-    assert 'MAX_STEPS="${MAX_STEPS}"' in text
-    assert 'EVAL_EVERY_STEPS="${EVAL_EVERY_STEPS:-1000}"' in text
-    assert "phase3_h8_ldad" in text
-    assert "phase3_h4_ldad" not in text
+    assert text.index("Retired:") < text.index("exit 2")
+    assert "sbatch" not in text
 
 
 def test_stability_prestage_excludes_unpaired_delta_objective() -> None:

@@ -1,6 +1,6 @@
 # Runbook
 
-Last updated: 2026-07-13 20:09 CEST
+Last updated: 2026-07-13 21:08 CEST
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
@@ -70,7 +70,8 @@ and running `scripts/experiments/submit_moving_objects_oversight.sh`.
 
 Aggregate with `scripts/analysis/analyze_moving_objects.py`. Historical
 `submit_object_dynamics_{phase1,trajectory_gate}.sh` launchers are retired and
-exit nonzero because they contain prohibited full-grid latent rows.
+exit nonzero before any experiment row. Their full-grid model configs were
+removed; historical outputs remain available for provenance.
 
 The follow-up temporal-delta grid is dry-run by default at
 `scripts/experiments/submit_moving_objects_temporal.sh`; set `SUBMIT=1` only
@@ -203,7 +204,7 @@ and latent-variance behavior conflicts with map/surprise metrics. Base
 5000-step jobs `3831210`-`3831215`, stability jobs `3831216`-`3831227`, and
 replication trainers `3831379/81/83/85/87/89/91/93` completed. Stable-slot v3
 re-probes `3831509`-`3831534` also completed. All former strict fidelity
-specifications now pass. The `486`-job phase remains held: the completed length
+specifications now pass. The historical `486`-job phase is retired: the completed length
 grid improves count/rollout/attention with training length, while the old
 process target uses hidden trajectory provenance and the old nearest-neighbor
 score compares canonical slots rather than semantic object factors.

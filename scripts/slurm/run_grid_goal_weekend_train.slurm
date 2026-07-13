@@ -25,24 +25,17 @@ VARIANTS=(
   E3_waypoint_h16
   E4_waypoint_h4_h8_h16
   E5_waypoint_h16_hierarchy
-  D0_online_h1_grid
   D0_online_h1_single
-  D1_online_ordered_h12345_grid
   D1_online_ordered_h12345_single
-  D2_online_set_h12345_grid
   D2_online_set_h12345_single
-  D3_hybrid_ema_h1_grid
   D3_hybrid_ema_h1_single
-  D4_hybrid_ema_set_h12345_grid
   D4_hybrid_ema_set_h12345_single
-  D5_ema_vicreg_no_ldad_grid
   D5_ema_vicreg_no_ldad_single
   V1_asym_hindsight
   V2_iql_quasi
   V3_waypoint_asym_hindsight
   I0_integrated_waypoint_asym
   I1_integrated_waypoint_iql
-  I2_integrated_best_delta_if_gate_passes_grid
   I2_integrated_best_delta_if_gate_passes_single
 )
 
@@ -56,8 +49,6 @@ BASE_VARIANT="${VARIANT}"
 if [[ "${VARIANT}" == *_single ]]; then
   LATENT="single"
   BASE_VARIANT="${VARIANT%_single}"
-elif [[ "${VARIANT}" == *_grid ]]; then
-  BASE_VARIANT="${VARIANT%_grid}"
 fi
 
 ALLOW_OVERWRITE="true"

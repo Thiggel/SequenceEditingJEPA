@@ -19,7 +19,6 @@ phase1_models:
   - cls64_r8
   - cls128_r4
   - cls128_r8
-  - grid128_r8
 phase2_objectives:
   - ldad
   - vicreg
@@ -27,14 +26,12 @@ phase2_objectives:
   - ema
 delta_models:
   - cls128_r8
-  - grid128_r8
 hierarchy_models:
   - h_cls128_h4
   - h_cls128_h8
   - h_cls128_h16
 hierarchy_delta_models:
   - h_cls128_h8
-  - h_grid128_h8
 staged_hierarchy_models:
   - h_cls128_h8
 control_objectives:

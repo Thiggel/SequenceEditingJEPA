@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 20:09 CEST
+Last updated: 2026-07-13 21:08 CEST
 
 ## Controlled-HWM Fidelity Repair
 
@@ -22,8 +22,8 @@ Rollout-4 also passes prediction (minimum gain `+.00097`) but has action top-1
 `.3125` minimum and planning `.00/.09375/.09375`. Lambda
 `.75/.9/.95/1` leaves minimum planning at `0/0/.03125/0`; no weighting repairs
 control. Rollout-8 has only `+.00020` minimum gain, `.1875` minimum action
-top-1, and zero planning. Forty-three jobs are complete, nine are running, two
-are dependency-held, and no job has failed.
+top-1, and zero planning. Forty-four jobs are complete, nine are running, one
+is dependency-held, and no job has failed.
 
 Frozen probe v2 now evaluates every hierarchy level and dense rollout endpoint,
 with matched initialization and raw-grid controls. Preliminary rollout-1/2
@@ -41,8 +41,10 @@ R2 `-.095 -> .171 -> .235`, but the widest flat model plans only `.094` and
 every depth-2 group has zero minimum planning. Shape decreases from
 initialization at every width. Capacity improves spatial coding, not
 hierarchical control. Token and CLS widths co-scale, so encoder and bottleneck
-effects remain confounded. No LDAD row was submitted because Delta pairing
-requires a prohibited full-grid row.
+effects remain confounded. These runs all contain exactly four objects, so the
+result also does not separate representation capacity from object-load
+pressure. No LDAD row was submitted; future LDAD work is now single-CLS only
+and is held until object load is isolated.
 
 All 72 v1 jobs `3849807`-`3849879` completed `0:0`. Every group fails learned
 planning, and standard EMA+VICReg loses to identity across depth, stride,
@@ -345,8 +347,8 @@ raw-grid controls, and geometry-based surprise.
 
 The Delta-JEPA source defines LDAD on adjacent encoded endpoints and one
 executed action. The previous long-horizon sequence-decoder requirement was
-incorrect. Flat and H8 LDAD rows now have paired CLS/full-grid configs, but no
-phase jobs have been submitted.
+incorrect. The retired phase launchers no longer contain full-grid rows and no
+phase jobs have been submitted. Future LDAD rows are single-CLS only.
 
 Probe v4 is implemented and ran over all 26 legacy checkpoints. It adds
 parts/inside, nonlinear controls, rollout count, process labels, train-selected
@@ -383,7 +385,7 @@ scene-local slot IDs, not semantic identities. CLS128/50k gains inside
 decoding (`+.085`) and small-MLP count
 (`+.026`), but with substantial inside variance (`.091`). This is evidence for
 increasing state-manifold/readout organization, not broad object-process
-abstraction, so the 486-job phase remains held.
+abstraction, so the 486-job phase is retired.
 
 The one-seed HWM macro sweep completed `0:0`. Joint d4 is the best combined
 row (macro retrieval `.258`, low-level retrieval and exact retrieved-action

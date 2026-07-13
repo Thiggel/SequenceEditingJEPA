@@ -503,29 +503,6 @@ def test_multistep_ldad_decodes_ordered_actions_from_endpoint_displacement() -> 
     assert float(output.ldad_loss.detach()) >= 0.0
 
 
-def test_full_grid_ldad_decodes_the_complete_displacement_without_pooling() -> None:
-    generator = _generator(horizon=4)
-    batch = build_controlled_dataset(generator, trajectory_count=4, seed=41).sample_batch(
-        np.random.default_rng(43), batch_size=2, horizon=4
-    )
-    model = _model(
-        latent_representation="grid",
-        rollout_steps=4,
-        target_mode="shared",
-        stop_gradient_targets=False,
-        vicreg_weight=0.0,
-        ldad_weight=1.0,
-    )
-    output = model(batch)
-    output.loss.backward()
-
-    assert output.predictions[0].shape == (2, 4, 64, 8)
-    assert model.ldad_decoder is not None
-    assert model.ldad_decoder.input_dim == 64 * 8
-    assert model.ldad_decoder.input_projection.weight.grad is not None
-    assert bool(torch.isfinite(model.ldad_decoder.input_projection.weight.grad).all())
-
-
 def test_recursive_hierarchy_planner_uses_every_level() -> None:
     generator = _generator(horizon=16)
     trajectory = generator.sample_trajectory(np.random.default_rng(44), horizon=16)

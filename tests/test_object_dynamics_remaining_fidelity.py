@@ -24,18 +24,13 @@ def test_prestage_has_three_well_separated_train_lengths() -> None:
     assert max(train_lengths) >= 10 * min(train_lengths)
 
 
-def test_delta_jepa_rows_have_full_grid_partners() -> None:
-    assert (ROOT / "configs/object_dynamics/model/grid128_r8.yaml").exists()
-    assert (ROOT / "configs/object_dynamics/model/h_grid128_h8.yaml").exists()
-    script = (ROOT / "scripts/experiments/submit_object_dynamics_phase1.sh").read_text()
-    assert "grid128_r8" in script
-    assert "h_grid128_h8" in script
-
-
-def test_phase1_includes_full_grid_latent_baseline() -> None:
-    assert (ROOT / "configs/object_dynamics/model/grid128_r8.yaml").exists()
-    script = (ROOT / "scripts/experiments/submit_object_dynamics_phase1.sh").read_text()
-    assert "grid128_r8" in script
+def test_object_experiment_configs_have_no_full_grid_rows() -> None:
+    assert not (ROOT / "configs/object_dynamics/model/grid128_r8.yaml").exists()
+    assert not (ROOT / "configs/object_dynamics/model/h_grid128_h8.yaml").exists()
+    assert not (ROOT / "configs/controlled_objects/model/grid_ldad.yaml").exists()
+    sweep = (ROOT / "configs/object_dynamics/sweep/phase1.yaml").read_text()
+    assert "grid128_r8" not in sweep
+    assert "h_grid128_h8" not in sweep
 
 
 def test_generator_has_pure_random_edit_control() -> None:
@@ -161,10 +156,8 @@ def test_probe_suite_includes_attention_evidence() -> None:
     torch.testing.assert_close(attention.flatten(2).sum(dim=-1), torch.ones(2, 4))
 
 
-def test_phase_sweep_includes_reconstruction_trained_encoder_baseline() -> None:
+def test_reconstruction_trained_encoder_baseline_config_is_preserved() -> None:
     assert (ROOT / "configs/object_dynamics/objective/reconstruction.yaml").exists()
-    script = (ROOT / "scripts/experiments/submit_object_dynamics_phase1.sh").read_text()
-    assert "reconstruction" in script
 
     generator = ObjectDynamicsGenerator(
         ObjectDynamicsSpec(grid_size=8, max_objects=2, max_shape_extent=4, counterfactual_ratio=0.0, wrong_ratio=0.0)
@@ -232,21 +225,15 @@ def test_probe_suite_evaluates_high_level_predictions() -> None:
     assert np.isfinite(metrics["probe_hierarchy_cem_model_bias_l1"])
 
 
-def test_phase_sweep_runs_multiple_seeds() -> None:
-    script = (ROOT / "scripts/experiments/submit_object_dynamics_phase1.sh").read_text()
-    assert "SEEDS=(" in script
-    assert "1707 2707 3707" in script
-    assert 'SEED="${seed}"' in script
-
-
-def test_trajectory_gate_pairs_common_and_in_domain_probes() -> None:
-    script = (ROOT / "scripts/experiments/submit_object_dynamics_trajectory_gate.sh").read_text()
-    assert "object_blocked frontier_build interleaved_build global_random random_off_manifold" in script
-    assert "cls128_r8:ema cls128_r8:reconstruction grid128_r8:ema" in script
-    assert "PROBE_TRAJECTORY_KIND=semantic_mix" in script
-    assert 'PROBE_TRAJECTORY_KIND="${data}"' in script
-    assert "probe_eval_common_v4.json" in script
-    assert "probe_eval_in_domain_v4.json" in script
+def test_retired_object_launchers_contain_no_experiment_rows() -> None:
+    for name in (
+        "submit_object_dynamics_phase1.sh",
+        "submit_object_dynamics_trajectory_gate.sh",
+    ):
+        script = (ROOT / "scripts/experiments" / name).read_text()
+        assert script.index("Retired:") < script.index("exit 2")
+        assert "sbatch" not in script
+        assert "grid128_r8" not in script
 
 
 def _small_hierarchy_probe_run() -> dict[str, float]:
