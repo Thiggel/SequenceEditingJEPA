@@ -1,6 +1,6 @@
 # Results
 
-Last updated: 2026-07-13 10:58 CEST
+Last updated: 2026-07-13 13:14 CEST
 
 ## Corrected Hard-Rate Result
 
@@ -36,6 +36,8 @@ shape, completion, relations, or predictive dynamics.
 Interleaving removes the all-seed position result: z8/q4 and z8/q16 have
 positive means (`.017/.013`) but one negative seed each, and no hard
 factor/dynamics gate passes.
+Global-random q4/q16 have larger positive complete-position means
+(`.041/.033`) but one negative seed each, and no hard gate passes.
 
 ## Corrected Sequence Result
 

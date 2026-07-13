@@ -104,7 +104,7 @@ Control manifest `rate_controls_v1_steps5000.tsv` uses trainers
 Selected transfer manifest `rate_transfer_v1_steps5000.tsv` uses
 dependency-staged trainers `3844843`-`3845004`. Wrapped, rotating,
 object-blocked, frontier, and random-within-object are complete; interleaved
-is also complete; global-random runs. Partial artifact:
+and global-random are also complete; completion runs. Partial artifact:
 `rate_transfer_v1_partial_summary.md`. Transfer has
 dependent dynamics/probes and 20 six-hour watchers.
 Largest sequence GPU smoke is `3836318` (noisy-repair temporal z32/N8),
