@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-13 22:15 CEST
+Last updated: 2026-07-14 08:14 CEST
 
 ## MLP Pixel-Edit HWM Grid
 
@@ -37,15 +37,25 @@ Job manifest:
 Outputs:
 `$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_mlp_hwm_v1_steps20000/`.
 
-At 22:15 CEST, 20 `[1]` checkpoints and their 20 probe evaluations were
-complete, later stages were releasing through `aftercorr`, and active logs had
-no runtime errors. The first complete three-seed cell is Transformer, `[1]`,
-rollout 1, uniform loss, and eight objects. Prediction beats identity by
-`.00241-.00328`, primitive action top-1 is `1.0`, but learned fixed 16-edit
-planning is `0.0` in every seed. Count and motion-policy probes improve from
-initialization in every seed; shape is inconsistent, position/relation R2 are
-negative, and foreground reconstruction worsens. This is an early flat-model
-result, not yet evidence about hierarchy or rollout depth.
+At 08:14 CEST, 1,287/1,440 staged checkpoints and 694/1,152 final probes were
+complete. `[1]` is complete; `[1,4]` has 287/288 checkpoints; deeper schedules
+and their probes are still running. A home-filesystem exhaustion, one node
+failure, and several administrator-canceled tasks broke correlated dependency
+chains. Targeted repair arrays `3854953`-`3854964` and `3855009`-`3855014`
+are running. Hydra metadata now goes into each vault run directory.
+
+Balanced `[1]` versus `[1,4]` results are already negative for hierarchy.
+Mean exact 16-edit planning falls from `.102` to `.041`, while retrieval pixel
+error rises from `.052` to `.100`. At exact loads 1/2/4/8, flat planning is
+`.326/.083/0/0`; `[1,4]` gives `.081/.083/0/0`. Rollout 1/2/4/8 changes flat
+planning only from `.104/.104/.104/.097`; `0.9^i` weighting has no material
+effect. MPPI lowers two-level pixel error but does not improve exact solves.
+
+The 256-wide latent has collapsed to mean probe effective rank `9.4`. Count
+balanced accuracy improves by `.103`, but shape remains at chance (`.201`),
+position R2 is approximately zero, relation R2 is `-.121`, and foreground IoU
+drops by `.080`. Motion-policy accuracy is high but policy ID is deterministically
+tied to visible color, so it is not evidence of inferred dynamics.
 
 The superseded jobs `3850642,3850645,3850648,3850656,3850658,3850660,
 3850668,3850670,3850672` and probe jobs `3850878`-`3850989` in the old

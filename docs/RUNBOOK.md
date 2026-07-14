@@ -2,7 +2,7 @@
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
-Last updated: 2026-07-13 22:15 CEST
+Last updated: 2026-07-14 08:14 CEST
 
 ## Active Controlled Grid
 
@@ -35,3 +35,8 @@ python scripts/analysis/analyze_controlled_objects_mlp_grid.py \
 The Gated DeltaNet uses `fla-core`'s chunk kernel in FP32 inside an
 autocast-disabled boundary; removing that boundary reproduces a Triton
 FP32/BF16 dot-product compilation failure on RTX Pro 6000.
+
+Targeted repair arrays `3854953`-`3854964` and `3855009`-`3855014` cover
+filesystem-, node-, cancellation-, and stuck-dependency gaps. Do not resubmit
+their task IDs again. Hydra metadata is redirected to
+`${OUTPUT_ROOT}/${RUN_NAME}/hydra` to avoid filling the home filesystem.

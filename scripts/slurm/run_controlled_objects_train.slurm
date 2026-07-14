@@ -57,6 +57,7 @@ python -m puzzle_jepa.train.controlled_objects \
   "data.object_count=${OBJECT_COUNT:-4}" \
   "eval.planning_episodes=${PLANNING_EPISODES:-8}" \
   "eval.planning_candidates=${PLANNING_CANDIDATES:-32}" \
+  "hydra.run.dir=${OUTPUT_ROOT}/${RUN_NAME}/hydra" \
   "output_dir=${OUTPUT_ROOT}/${RUN_NAME}" \
   "${MODEL_ARGS[@]}" \
   "${OBJECTIVE_ARGS[@]}" \

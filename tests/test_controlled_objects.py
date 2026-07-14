@@ -357,6 +357,14 @@ def test_new_grid_has_exact_axis_product_and_no_transformer_encoder() -> None:
     assert {row[5] for row in values} == {"1", "2", "4", "8"}
 
 
+def test_slurm_training_keeps_hydra_metadata_off_home_filesystem() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    script = (repo / "scripts/slurm/run_controlled_objects_train.slurm").read_text(
+        encoding="utf-8"
+    )
+    assert '"hydra.run.dir=${OUTPUT_ROOT}/${RUN_NAME}/hydra"' in script
+
+
 def test_checkpoint_config_is_json_serializable() -> None:
     model = _model(spans=[1, 2, 4], rollout=8)
     payload = {
