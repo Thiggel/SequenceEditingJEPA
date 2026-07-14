@@ -10,6 +10,13 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$PWD}"
 mkdir -p logs
+unset VIRTUAL_ENV
+export PATH="/usr/local/bin:/usr/bin:/bin"
+unset XDG_CACHE_HOME HF_HOME HF_DATASETS_CACHE HUGGINGFACE_HUB_CACHE
+unset TORCH_HOME TORCHINDUCTOR_CACHE_DIR TRITON_CACHE_DIR UV_CACHE_DIR
+unset TMPDIR TMP TEMP
+export PUZZLE_JEPA_WORK_ROOT="${PUZZLE_JEPA_WORK_ROOT:-/home/vault/$(id -gn)/${USER}/sequence-editing}"
+export PUZZLE_JEPA_SCRATCH_ROOT="${PUZZLE_JEPA_WORK_ROOT}/scratch"
 source scripts/env.sh
 
 RUN_NAME="${RUN_NAME:?RUN_NAME is required}"
@@ -39,6 +46,12 @@ OBJECTIVE_ARGS=()
 if [[ -n "${LDAD_WEIGHT:-}" ]]; then
   OBJECTIVE_ARGS+=("objective.ldad_weight=${LDAD_WEIGHT}")
 fi
+if [[ -n "${VICREG_VARIANCE_WEIGHT:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.vicreg_variance_weight=${VICREG_VARIANCE_WEIGHT}")
+fi
+if [[ -n "${VICREG_COVARIANCE_WEIGHT:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.vicreg_covariance_weight=${VICREG_COVARIANCE_WEIGHT}")
+fi
 
 python -m puzzle_jepa.train.controlled_objects \
   "model=${MODEL_CONFIG}" \
@@ -54,7 +67,10 @@ python -m puzzle_jepa.train.controlled_objects \
   "training.max_steps=${MAX_STEPS:-20000}" \
   "training.eval_every_steps=${EVAL_EVERY_STEPS:-5000}" \
   "training.batch_size=${BATCH_SIZE:-64}" \
+  "training.train_trajectories=${TRAIN_TRAJECTORIES:-512}" \
   "data.object_count=${OBJECT_COUNT:-4}" \
+  "data.trajectory_length=${TRAJECTORY_LENGTH:-512}" \
+  "eval.trajectories=${EVAL_TRAJECTORIES:-128}" \
   "eval.planning_episodes=${PLANNING_EPISODES:-8}" \
   "eval.planning_candidates=${PLANNING_CANDIDATES:-32}" \
   "hydra.run.dir=${OUTPUT_ROOT}/${RUN_NAME}/hydra" \

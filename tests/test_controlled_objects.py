@@ -12,7 +12,7 @@ from torch import nn
 
 from puzzle_jepa.controlled_objects import evaluation as controlled_evaluation
 from puzzle_jepa.controlled_objects.batching import build_controlled_dataset
-from puzzle_jepa.controlled_objects.domain import PixelEdit
+from puzzle_jepa.controlled_objects.domain import RigidTransform
 from puzzle_jepa.controlled_objects.generator import (
     ControlledObjectGenerator,
     ControlledObjectSpec,
@@ -62,7 +62,7 @@ def _model(
 
 
 @pytest.mark.parametrize("object_count", [1, 2, 4, 8])
-def test_deterministic_object_trajectory_uses_atomic_pixel_edits(
+def test_deterministic_object_trajectory_uses_valid_rigid_motion_frames(
     object_count: int,
 ) -> None:
     generator = _generator(objects=object_count, horizon=32)
@@ -70,30 +70,46 @@ def test_deterministic_object_trajectory_uses_atomic_pixel_edits(
 
     assert trajectory.scene.object_count == object_count
     assert len(set(trajectory.scene.colors.tolist())) == object_count
-    assert len(set(trajectory.scene.motion_ids.tolist())) == object_count
     changed = (trajectory.states[1:] != trajectory.states[:-1]).reshape(32, -1)
-    assert np.all(changed.sum(axis=1) == 1)
+    assert np.all(changed.sum(axis=1) >= 2)
+    initial_areas = {
+        int(color): int(np.count_nonzero(trajectory.states[0] == color))
+        for color in trajectory.scene.colors
+    }
+    for state in trajectory.states:
+        assert {
+            color: int(np.count_nonzero(state == color)) for color in initial_areas
+        } == initial_areas
     for state, action_values, successor in zip(
         trajectory.states[:-1],
         trajectory.actions,
         trajectory.states[1:],
         strict=True,
     ):
-        action = PixelEdit(*(int(value) for value in action_values))
+        action = RigidTransform(*(int(value) for value in action_values))
         replayed, valid = generator.apply_action(state, action)
         assert valid
         np.testing.assert_array_equal(replayed, successor)
 
 
-def test_pixel_edit_rejects_noop_and_changes_exactly_one_cell() -> None:
+def test_rigid_action_rejects_background_and_updates_multiple_pixels() -> None:
     generator = _generator(objects=1, horizon=2)
     state = generator.sample_scene(np.random.default_rng(1)).grid
     row, col = (int(value) for value in np.argwhere(state == 0)[0])
-    edited, valid = generator.apply_action(state, PixelEdit(row, col, 1))
-    assert valid
-    assert np.count_nonzero(edited != state) == 1
-    _, valid = generator.apply_action(edited, PixelEdit(row, col, 1))
+    _, valid = generator.apply_action(state, RigidTransform(row, col, 1))
     assert not valid
+    action = generator.candidate_actions(state)[0]
+    edited, valid = generator.apply_action(state, action)
+    assert valid
+    assert np.count_nonzero(edited != state) >= 2
+
+
+def test_hidden_motion_policy_is_not_a_visible_color_alias() -> None:
+    generator = _generator(objects=4, horizon=2)
+    scenes = [generator.sample_scene(np.random.default_rng(seed)) for seed in range(16)]
+    assert any(
+        not np.array_equal(scene.motion_ids, scene.colors - 1) for scene in scenes
+    )
 
 
 def test_dataset_samples_contiguous_windows() -> None:
@@ -104,7 +120,7 @@ def test_dataset_samples_contiguous_windows() -> None:
     assert batch.states.shape == (3, 9, 16, 16)
     assert batch.actions.shape == (3, 8, 3)
     assert torch.all(
-        (batch.states[:, 1:] != batch.states[:, :-1]).flatten(2).sum(dim=2) == 1
+        (batch.states[:, 1:] != batch.states[:, :-1]).flatten(2).sum(dim=2) >= 2
     )
 
 
@@ -118,13 +134,14 @@ def test_state_encoder_is_only_a_768_to_hidden_mlp() -> None:
     assert output.shape == (2, 32)
 
 
-def test_action_chunk_is_ordered_concat_plus_one_linear_projection() -> None:
+def test_action_chunk_is_ordered_nonlinear_eight_dimensional_bottleneck() -> None:
     torch.manual_seed(2)
     encoder = ActionChunkEncoder(
-        grid_size=16, num_colors=10, chunk_length=4, macro_dim=8
+        grid_size=16, num_action_types=7, chunk_length=4, macro_dim=8
     )
-    assert isinstance(encoder.project, nn.Linear)
-    assert encoder.project.in_features == 4 * (16 + 16 + 10)
+    assert isinstance(encoder.project, nn.Sequential)
+    assert encoder.project[0].in_features == 4 * (16 + 16 + 7)
+    assert encoder.project[-1].out_features == 8
     actions = torch.tensor([[[1, 2, 3], [4, 5, 6], [7, 8, 2], [9, 3, 1]]])
     assert not torch.allclose(encoder(actions), encoder(actions.flip(1)))
 
@@ -156,7 +173,7 @@ def test_predictors_are_causal_and_backpropagate(architecture: str) -> None:
 
 @pytest.mark.parametrize(
     ("spans", "rollout", "required"),
-    [([1], 8, 8), ([1, 4], 8, 32), ([1, 4, 16], 8, 128), ([1, 2, 4], 8, 32)],
+    [([1], 4, 4), ([1, 10], 4, 40), ([1, 10, 100], 4, 400)],
 )
 def test_hierarchy_schedules_have_expected_horizon(
     spans: list[int], rollout: int, required: int
@@ -253,6 +270,50 @@ def test_ema_target_encoder_is_frozen_and_updated() -> None:
     )
 
 
+def test_vicreg_uses_separate_adjusted_variance_and_covariance_coefficients() -> None:
+    model = ControlledObjectJEPA(
+        hidden_dim=16,
+        level_spans=[1],
+        rollout_steps=1,
+        predictor_layers=1,
+        predictor_heads=4,
+        target_mode="ema",
+        stop_gradient_targets=True,
+        vicreg_weight=1.0,
+        vicreg_variance_weight=3.0,
+        vicreg_covariance_weight=5.0,
+        vicreg_adjust_cov=True,
+    )
+    batch = build_controlled_dataset(
+        _generator(horizon=2), trajectory_count=8, seed=10
+    ).sample_batch(np.random.default_rng(11), batch_size=8, horizon=1)
+    output = model(batch)
+    torch.testing.assert_close(
+        output.vicreg_loss,
+        3.0 * output.vicreg_variance_loss + 5.0 * output.vicreg_covariance_loss,
+    )
+
+
+def test_ldad_uses_rigid_transform_action_classes() -> None:
+    model = ControlledObjectJEPA(
+        hidden_dim=16,
+        level_spans=[1],
+        rollout_steps=1,
+        predictor_layers=1,
+        predictor_heads=4,
+        target_mode="ema",
+        stop_gradient_targets=True,
+        vicreg_weight=0.0,
+        ldad_weight=1.0,
+    )
+    batch = build_controlled_dataset(
+        _generator(horizon=2), trajectory_count=2, seed=10
+    ).sample_batch(np.random.default_rng(11), batch_size=2, horizon=1)
+    output = model(batch)
+    assert output.ldad_logits is not None
+    assert output.ldad_logits[2].shape == (2, 7)
+
+
 def test_probe_suite_covers_all_properties_and_pixel_reconstruction() -> None:
     metrics = run_controlled_object_probes(
         _model(architecture="lstm", spans=[1, 4], rollout=2),
@@ -265,7 +326,10 @@ def test_probe_suite_covers_all_properties_and_pixel_reconstruction() -> None:
         steps=1,
         learning_rate=1.0e-3,
     )
-    assert metrics["probe_schema"] == "controlled_objects_v3"
+    assert metrics["probe_schema"] == "controlled_objects_v4"
+    assert metrics["probe_motion_policy_interpretation"] == (
+        "unobservable_single_frame_negative_control"
+    )
     required = {
         "probe_object_count_balanced_acc",
         "probe_object_presence_balanced_acc",
@@ -276,7 +340,7 @@ def test_probe_suite_covers_all_properties_and_pixel_reconstruction() -> None:
         "probe_relation_r2",
         "probe_delta_action_row_balanced_acc",
         "probe_delta_action_col_balanced_acc",
-        "probe_delta_action_color_balanced_acc",
+        "probe_delta_action_transform_balanced_acc",
         "probe_pixel_decoder_acc",
         "probe_pixel_decoder_foreground_iou",
         "probe_level1_rollout2_pixel_decoder_acc",
@@ -325,36 +389,82 @@ def test_hierarchical_planners_return_atomic_actions() -> None:
         device=torch.device("cpu"),
         supports=supports,
     )
-    assert isinstance(action, PixelEdit)
+    assert isinstance(action, RigidTransform)
 
 
-def test_new_grid_has_exact_axis_product_and_no_transformer_encoder() -> None:
+def test_mppi_performs_every_requested_update() -> None:
+    class CountingDynamics:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def rollout(self, initial: torch.Tensor, macros: torch.Tensor) -> torch.Tensor:
+            self.calls += 1
+            padded = torch.nn.functional.pad(macros, (0, initial.shape[-1] - macros.shape[-1]))
+            return initial[:, None] + padded.cumsum(dim=1)
+
+    dynamics = CountingDynamics()
+
+    class FakeModel:
+        def __init__(self) -> None:
+            self.dynamics = [None, dynamics]
+
+    latent_dim = 16
+    macro_dim = 8
+    support = controlled_evaluation.MacroSupport(
+        state_bank=torch.zeros(4, latent_dim),
+        bank=torch.zeros(4, macro_dim),
+        action_bank=torch.zeros(4, 1, 3, dtype=torch.long),
+        lower=torch.full((macro_dim,), -2.0),
+        upper=torch.full((macro_dim,), 2.0),
+        state_mean=torch.zeros(latent_dim),
+        state_std=torch.ones(latent_dim),
+        mean=torch.zeros(macro_dim),
+        std=torch.ones(macro_dim),
+    )
+    controlled_evaluation._mppi_macro_sequence(
+        FakeModel(),
+        torch.zeros(1, latent_dim),
+        torch.ones(1, latent_dim),
+        level=1,
+        transition_count=2,
+        support=support,
+        candidates=8,
+        iterations=3,
+        support_weight=0.0,
+        torch_rng=torch.Generator().manual_seed(3),
+    )
+    assert dynamics.calls == 4
+
+
+def test_vicreg_grid_has_only_two_regularizer_axes_and_three_seeds(
+    tmp_path: Path,
+) -> None:
     repo = Path(__file__).resolve().parents[1]
     env = {
         "SUBMIT": "0",
         "MAX_STEPS": "1",
-        "SWEEP_NAME": "pytest_controlled_mlp_grid",
+        "SWEEP_NAME": "pytest_controlled_vicreg_hwm",
+        "PUZZLE_JEPA_WORK_ROOT": str(tmp_path),
     }
     completed = subprocess.run(
-        ["bash", "scripts/experiments/submit_controlled_objects_mlp_grid.sh"],
+        ["bash", "scripts/experiments/submit_controlled_objects_vicreg_hwm.sh"],
         cwd=repo,
         env={**os.environ, **env},
         check=True,
         capture_output=True,
         text=True,
     )
-    assert "Final comparison cells: 1152" in completed.stdout
+    assert "Final comparison cells: 48" in completed.stdout
     manifest_line = next(
         line for line in completed.stdout.splitlines() if line.startswith("Final comparison")
     )
     manifest = Path(manifest_line.split("Task manifest: ", maxsplit=1)[1])
     rows = manifest.read_text(encoding="utf-8").splitlines()
-    assert len(rows) == 289
+    assert len(rows) == 49
     values = [row.split("\t") for row in rows[1:]]
-    assert {row[1] for row in values} == {"transformer", "gated_deltanet", "lstm"}
-    assert {row[2] for row in values} == {"1", "2", "4", "8"}
-    assert {row[3] for row in values} == {"weighted", "unweighted"}
-    assert {row[5] for row in values} == {"1", "2", "4", "8"}
+    assert {row[1] for row in values} == {"0.05", "1", "10", "29.409"}
+    assert {row[2] for row in values} == {"0.1", "1", "10", "17.866"}
+    assert {row[3] for row in values} == {"1707", "2707", "3707"}
 
 
 def test_slurm_training_keeps_hydra_metadata_off_home_filesystem() -> None:

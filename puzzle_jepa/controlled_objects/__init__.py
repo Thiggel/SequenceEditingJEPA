@@ -1,7 +1,6 @@
-"""Pixel-edit-controlled rigid-object world for hierarchy experiments."""
+"""Valid rigid-object world for hierarchical latent-model experiments."""
 
 from puzzle_jepa.controlled_objects.domain import (
-    PixelEdit,
     RigidObjectScene,
     RigidObjectTrajectory,
 )
@@ -13,7 +12,6 @@ from puzzle_jepa.controlled_objects.generator import (
 __all__ = [
     "ControlledObjectGenerator",
     "ControlledObjectSpec",
-    "PixelEdit",
     "RigidObjectScene",
     "RigidObjectTrajectory",
 ]

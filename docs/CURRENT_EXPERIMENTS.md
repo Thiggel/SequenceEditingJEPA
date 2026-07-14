@@ -2,62 +2,60 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-14 08:14 CEST
+Last updated: 2026-07-14 12:07 CEST
 
-## MLP Pixel-Edit HWM Grid
+## Fixed Valid-Motion HWM VICReg Sweep
 
-The only active controlled-object sweep uses one 768-to-256 RGB MLP latent,
-atomic `(row,col,new_color)` actions, and a causal Transformer, Gated DeltaNet,
-or nonlinear LSTM predictor. It crosses predictor `{transformer,gated_deltanet,lstm}`,
-hierarchy `{[1],[1,4],[1,4,16],[1,2,4]}`, dense rollout `{1,2,4,8}`, loss
-weighting `{uniform,0.9^i}`, exact object count `{1,2,4,8}`, and three seeds.
-This is 1,152 final cells. There is no grid latent and no Transformer encoder.
+This is the only active experiment. It asks whether an EMA target plus the
+right VICReg variance/covariance coefficients can prevent representation
+collapse before hierarchy or planning is judged.
 
-Five correlated train arrays stage and freeze lower levels:
+The world contains exactly two complete rigid objects on `16x16`. One
+primitive `(row,col,transform)` command selects an object and atomically
+translates or rotates it, changing a sparse set of pixels simultaneously. The
+hierarchy counts valid environment actions, not a variable number of changed
+cells: `[1,10,100]`. A shared `768 -> 256` MLP state encoder feeds separate
+causal Transformer predictors; ordered action chunks pass through an 8D
+nonlinear macro-action bottleneck. Every level receives four-step
+teacher-forced and autonomous rollout supervision. EMA is `.99`.
 
-| stage | job | dependency | tasks |
-|---|---:|---:|---:|
-| `[1]` | `3851603` | none | 288 |
-| `[1,4]` | `3851604` | `aftercorr:3851603` | 288 |
-| `[1,4,16]` | `3851605` | `aftercorr:3851604` | 288 |
-| `[1,2]` private stage | `3851606` | `aftercorr:3851603` | 288 |
-| `[1,2,4]` | `3851607` | `aftercorr:3851606` | 288 |
+| stage | job | cells | state |
+| --- | ---: | ---: | --- |
+| `[1]` | `3855790` | 48 | 16 running, remainder array-limited |
+| `[1,10]` | `3855791` | 48 | dependency-held |
+| `[1,10,100]` | `3855792` | 48 | dependency-held |
+| probes and planning | `3855793` | 48 | dependency-held |
 
-Probe arrays `3851608`-`3851611` depend on the four final schedules and contain
-1,152 tasks. Each checkpoint gets matched-initialization linear probes for
-count, presence/color, shape, motion policy, area, position, pair relations,
-and pixel-edit fields, plus a nonlinear pixel decoder trained on frozen
-latents. Planning compares on-support retrieval, bounded CEM,
-support-regularized CEM, and MPPI under recursive shared-latent subgoals.
+The 48 final cells cross variance coefficient `{.05,1,10,29.409}`, adjusted
+covariance coefficient `{.1,1,10,17.866}`, and seeds `{1707,2707,3707}`. No
+other model, trajectory, objective, or capacity axis is active.
+
+## Current Results
+
+No trained cell is complete yet. Prelaunch controls are:
+
+| check | result |
+| --- | --- |
+| full repository tests | pass |
+| three-stage CUDA smoke | job `3855783`, `COMPLETED 0:0` |
+| valid primitive actions | `1.0` fraction |
+| object area preservation | `1.0` fraction |
+| changed cells per action | `2-6` in the smoke sample |
+| symbolic/oracle geometry controls | exact on tested short paths/actions |
+
+Primary evaluation uses exact-N=2 semantic, reconstruction, rollout, rank, and
+planning probes. A separately labeled N=1/2/4/8 suite measures load
+generalization. The random hidden motion-policy label is an intentionally
+unobservable single-frame negative control and must not be read as a semantic
+representation target.
+
+Planning compares action-sequence retrieval, bounded CEM, support-regularized
+CEM, and MPPI. All learned planners recursively pass the first coarse latent
+prediction to the next finer model and replan after each executed primitive
+action. Manual low-level subgoal control gates interpretation of high-level
+planning; macro support and reachability AUROC diagnose off-manifold actions.
 
 Task manifest:
-`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_mlp_hwm_v1_steps20000_tasks.tsv`.
-Job manifest:
-`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/manifests/controlled_mlp_hwm_v1_steps20000_array_jobs.tsv`.
+`$HPCVAULT/sequence-editing/runs/controlled_objects/manifests/controlled_valid_hwm_vicreg_v1_steps20000_tasks.tsv`.
 Outputs:
-`$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_mlp_hwm_v1_steps20000/`.
-
-At 08:14 CEST, 1,287/1,440 staged checkpoints and 694/1,152 final probes were
-complete. `[1]` is complete; `[1,4]` has 287/288 checkpoints; deeper schedules
-and their probes are still running. A home-filesystem exhaustion, one node
-failure, and several administrator-canceled tasks broke correlated dependency
-chains. Targeted repair arrays `3854953`-`3854964` and `3855009`-`3855014`
-are running. Hydra metadata now goes into each vault run directory.
-
-Balanced `[1]` versus `[1,4]` results are already negative for hierarchy.
-Mean exact 16-edit planning falls from `.102` to `.041`, while retrieval pixel
-error rises from `.052` to `.100`. At exact loads 1/2/4/8, flat planning is
-`.326/.083/0/0`; `[1,4]` gives `.081/.083/0/0`. Rollout 1/2/4/8 changes flat
-planning only from `.104/.104/.104/.097`; `0.9^i` weighting has no material
-effect. MPPI lowers two-level pixel error but does not improve exact solves.
-
-The 256-wide latent has collapsed to mean probe effective rank `9.4`. Count
-balanced accuracy improves by `.103`, but shape remains at chance (`.201`),
-position R2 is approximately zero, relation R2 is `-.121`, and foreground IoU
-drops by `.080`. Motion-policy accuracy is high but policy ID is deterministically
-tied to visible color, so it is not evidence of inferred dynamics.
-
-The superseded jobs `3850642,3850645,3850648,3850656,3850658,3850660,
-3850668,3850670,3850672` and probe jobs `3850878`-`3850989` in the old
-controlled grid were explicitly canceled. Historical completed results remain
-in the report repo and are not part of this grid.
+`$HPCVAULT/sequence-editing/runs/controlled_objects/controlled_valid_hwm_vicreg_v1_steps20000/`.

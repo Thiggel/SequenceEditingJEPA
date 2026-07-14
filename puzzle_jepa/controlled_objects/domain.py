@@ -6,20 +6,13 @@ import numpy as np
 
 
 @dataclass(frozen=True, slots=True)
-class PixelEdit:
-    row: int
-    col: int
-    color: int
-
-    def as_array(self) -> np.ndarray:
-        return np.asarray((self.row, self.col, self.color), dtype=np.int64)
-
-
-@dataclass(frozen=True, slots=True)
 class RigidTransform:
     row: int
     col: int
     transform: int
+
+    def as_array(self) -> np.ndarray:
+        return np.asarray((self.row, self.col, self.transform), dtype=np.int64)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +49,7 @@ class RigidObjectTrajectory:
         if self.states.ndim != 3:
             raise ValueError("Trajectory states must be [T+1,H,W].")
         if self.actions.shape != (self.states.shape[0] - 1, 3):
-            raise ValueError("Trajectory actions must be [T,3].")
+            raise ValueError("Rigid-transform trajectory actions must be [T,3].")
         if self.action_validity.shape != self.actions.shape[:1]:
             raise ValueError("Trajectory validity must be [T].")
 

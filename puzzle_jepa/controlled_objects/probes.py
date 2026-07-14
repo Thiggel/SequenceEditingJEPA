@@ -7,7 +7,10 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from puzzle_jepa.controlled_objects.generator import ControlledObjectGenerator
+from puzzle_jepa.controlled_objects.generator import (
+    TRANSFORM_NAMES,
+    ControlledObjectGenerator,
+)
 from puzzle_jepa.controlled_objects.model import ControlledObjectJEPA
 
 
@@ -54,6 +57,7 @@ def run_controlled_object_probes(
     device: torch.device,
     steps: int,
     learning_rate: float,
+    object_counts: tuple[int, ...] | None = None,
 ) -> dict[str, float | str]:
     if min(train_samples, eval_samples, batch_size, steps) < 1:
         raise ValueError("Probe sample, batch, and step counts must be positive.")
@@ -69,6 +73,7 @@ def run_controlled_object_probes(
                 samples=train_samples,
                 device=device,
                 horizons=_rollout_horizons(model),
+                object_counts=object_counts or (1, 2, 4, 8),
             )
             eval_labels = _collect_labels(
                 generator,
@@ -76,6 +81,7 @@ def run_controlled_object_probes(
                 samples=eval_samples,
                 device=device,
                 horizons=_rollout_horizons(model),
+                object_counts=object_counts or (1, 2, 4, 8),
             )
             train = _encode_features(model, train_labels, batch_size=batch_size)
             evaluate = _encode_features(model, eval_labels, batch_size=batch_size)
@@ -91,7 +97,13 @@ def run_controlled_object_probes(
     finally:
         model.train(was_training)
     return {
-        "probe_schema": "controlled_objects_v3",
+        "probe_schema": "controlled_objects_v4",
+        "probe_object_counts": ",".join(
+            str(value) for value in (object_counts or (1, 2, 4, 8))
+        ),
+        "probe_motion_policy_interpretation": (
+            "unobservable_single_frame_negative_control"
+        ),
         **metrics,
     }
 
@@ -103,13 +115,14 @@ def _collect_labels(
     samples: int,
     device: torch.device,
     horizons: tuple[int, ...],
+    object_counts: tuple[int, ...],
 ) -> _ProbeLabels:
     rng = np.random.default_rng(seed)
     color_slots = generator.spec.num_colors - 1
     pair_ids = [(left, right) for left in range(color_slots) for right in range(left + 1, color_slots)]
     states = []
     actions = []
-    object_counts = []
+    object_count_labels = []
     selected_colors = []
     shape_families = []
     motion_policies = []
@@ -127,14 +140,17 @@ def _collect_labels(
             f"Probe requires horizon {max_horizon}, but data has "
             f"{generator.spec.trajectory_length}."
         )
+    invalid_counts = set(object_counts) - {1, 2, 4, 8}
+    if not object_counts or invalid_counts:
+        raise ValueError(f"Probe object counts must come from 1,2,4,8; got {object_counts}.")
     object_count_generators = {
         object_count: ControlledObjectGenerator(
             replace(generator.spec, object_count=object_count)
         )
-        for object_count in (1, 2, 4, 8)
+        for object_count in object_counts
     }
     for sample in range(samples):
-        object_count = (1, 2, 4, 8)[sample % 4]
+        object_count = object_counts[sample % len(object_counts)]
         trajectory = object_count_generators[object_count].sample_trajectory(
             rng, horizon=max_horizon
         )
@@ -164,7 +180,7 @@ def _collect_labels(
         )
         states.append(state)
         actions.append(trajectory.actions)
-        object_counts.append((1, 2, 4, 8).index(object_count))
+        object_count_labels.append((1, 2, 4, 8).index(object_count))
         selected_colors.append(int(state[int(action[0]), int(action[1])]))
         shape_families.append(shapes)
         motion_policies.append(motions)
@@ -193,7 +209,9 @@ def _collect_labels(
             for horizon, items in future_states.items()
         },
         actions=torch.as_tensor(np.stack(actions), dtype=torch.long, device=device),
-        object_count=torch.as_tensor(object_counts, dtype=torch.long, device=device),
+        object_count=torch.as_tensor(
+            object_count_labels, dtype=torch.long, device=device
+        ),
         selected_colors=torch.as_tensor(selected_colors, dtype=torch.long, device=device),
         shape_families=torch.as_tensor(
             np.stack(shape_families), dtype=torch.long, device=device
@@ -428,7 +446,7 @@ def _fit_probe_suite(
         evaluate.latent,
         eval_y.motion_policies,
         eval_y.object_present,
-        num_classes=num_colors - 1,
+        num_classes=len(TRANSFORM_NAMES) - 1,
         transfer_x=evaluate.rollouts,
         transfer_y={name: eval_y.motion_policies for name in evaluate.rollouts},
         transfer_mask=transfer_presence_y,
@@ -442,7 +460,7 @@ def _fit_probe_suite(
         evaluate.raw,
         eval_y.motion_policies,
         eval_y.object_present,
-        num_classes=num_colors - 1,
+        num_classes=len(TRANSFORM_NAMES) - 1,
         transfer_x=None,
         transfer_y=None,
         transfer_mask=None,
@@ -588,23 +606,23 @@ def _fit_probe_suite(
         learning_rate=learning_rate,
         standardize_inputs=False,
     )
-    action_color, predicted_action_color = _fit_classifier(
+    action_transform, predicted_action_transform = _fit_classifier(
         train.delta,
         train_y.actions[:, 0, 2],
         evaluate.delta,
         eval_y.actions[:, 0, 2],
-        num_classes=num_colors,
+        num_classes=7,
         transfer_x=evaluate.predicted_delta,
         transfer_y=eval_y.actions[:, 0, 2],
         steps=steps,
         learning_rate=learning_rate,
     )
-    raw_action_color, _ = _fit_classifier(
+    raw_action_transform, _ = _fit_classifier(
         train.raw_delta,
         train_y.actions[:, 0, 2],
         evaluate.raw_delta,
         eval_y.actions[:, 0, 2],
-        num_classes=num_colors,
+        num_classes=7,
         transfer_x=None,
         transfer_y=None,
         steps=steps,
@@ -679,9 +697,9 @@ def _fit_probe_suite(
         "probe_delta_action_col_balanced_acc": action_col,
         "probe_predicted_delta_action_col_balanced_acc": predicted_action_col,
         "raw_probe_delta_action_col_balanced_acc": raw_action_col,
-        "probe_delta_action_color_balanced_acc": action_color,
-        "probe_predicted_delta_action_color_balanced_acc": predicted_action_color,
-        "raw_probe_delta_action_color_balanced_acc": raw_action_color,
+        "probe_delta_action_transform_balanced_acc": action_transform,
+        "probe_predicted_delta_action_transform_balanced_acc": predicted_action_transform,
+        "raw_probe_delta_action_transform_balanced_acc": raw_action_transform,
         "probe_delta_selected_color_balanced_acc": selected,
         "probe_predicted_delta_selected_color_balanced_acc": predicted_selected,
         "raw_probe_delta_selected_color_balanced_acc": raw_selected,

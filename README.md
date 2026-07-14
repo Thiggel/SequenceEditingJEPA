@@ -1,15 +1,29 @@
 # Puzzle JEPA
 
 This repo is focused on JEPA-style latent world models for objective puzzle and
-grid-edit reasoning. The current new branch is a synthetic object-dynamics
-testbed: the model sees only grids and low-level edit actions, while hidden
-objects generate trajectories and are used only for probes.
+grid-edit reasoning. The current experiment uses valid rigid-object motion,
+one MLP-compressed state latent, and a fixed `[1,10,100]` latent-world-model
+hierarchy. Only the EMA+VICReg coefficient sweep is active.
 
 Long-form status, backlog, results, and the ongoing LaTeX report live in
-`../sequence-editing-report`. The `docs/` files in this repo are compact
-operational pointers only.
+`../sequence-editing-report`. In-repo operational state is in
+`docs/CURRENT_EXPERIMENTS.md`, the staged backlog is `docs/BACKLOG.md`, and all
+historical waves are indexed by `docs/experiments/README.md`.
 
-## Object Dynamics Branch
+## Current Controlled HWM
+
+Core files:
+
+- `puzzle_jepa.controlled_objects`: valid rigid-object domain, trajectories,
+  MLP JEPA, hierarchy, probes, and planners.
+- `puzzle_jepa.train.controlled_objects`: staged Hydra trainer.
+- `configs/controlled_objects`: fixed valid-motion model/objective configs.
+- `scripts/experiments/submit_controlled_objects_vicreg_hwm.sh`: dry-run by
+  default; the active arrays are already submitted and must not be duplicated.
+
+See `docs/experiments/WAVE-14-VALID-HWM-VICREG.md` for the exact contract.
+
+## Historical Object Dynamics Branch
 
 Purpose: test whether a compressed single-CLS LeWM/JEPA model trained on
 low-level grid edit dynamics can recover object/process abstractions without
@@ -42,14 +56,14 @@ python -m puzzle_jepa.train.object_dynamics \
   eval.probe_train_samples=8 eval.probe_eval_samples=6 eval.probe_steps=2
 ```
 
-Prepared job grids are dry-run by default:
+These historical job grids remain reproducible but are superseded:
 
 ```bash
 scripts/experiments/submit_object_dynamics_prestage.sh
 scripts/experiments/submit_object_dynamics_phase1.sh
 ```
 
-Set `SUBMIT=1` explicitly to submit them.
+Do not submit them while the controlled HWM sweep is active.
 
 ## Legacy Puzzle Surfaces
 

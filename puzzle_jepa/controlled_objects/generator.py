@@ -6,7 +6,6 @@ from typing import Iterable
 import numpy as np
 
 from puzzle_jepa.controlled_objects.domain import (
-    PixelEdit,
     RigidObjectScene,
     RigidObjectTrajectory,
     RigidTransform,
@@ -87,12 +86,15 @@ class ControlledObjectGenerator:
                     placed = False
                     break
             if placed:
+                motion_ids = rng.integers(
+                    0, len(TRANSFORM_NAMES) - 1, size=self.spec.object_count
+                )
                 return RigidObjectScene(
                     grid=grid,
                     object_maps=object_map,
                     shape_ids=np.asarray(shape_ids, dtype=np.int64),
                     colors=np.asarray(colors, dtype=np.int64),
-                    motion_ids=np.asarray(colors, dtype=np.int64) - 1,
+                    motion_ids=np.asarray(motion_ids, dtype=np.int64),
                 )
         raise RuntimeError("Could not place a controlled rigid-object scene.")
 
@@ -114,15 +116,10 @@ class ControlledObjectGenerator:
             target, valid = self._apply_rigid_transform(state, transform)
             if not valid or np.array_equal(target, state):
                 continue
-            for action in _pixel_edits(state, target):
-                state, edit_valid = self.apply_action(state, action)
-                if not edit_valid:
-                    raise RuntimeError("Generated rigid motion contained an invalid pixel edit.")
-                actions.append(action.as_array())
-                validity.append(True)
-                states.append(state)
-                if len(actions) == requested_horizon:
-                    break
+            state = target
+            actions.append(transform.as_array())
+            validity.append(True)
+            states.append(state)
             macro_step += 1
         return RigidObjectTrajectory(
             states=np.stack(states).astype(np.int64, copy=False),
@@ -131,7 +128,7 @@ class ControlledObjectGenerator:
             scene=scene,
         )
 
-    def sample_action(self, state: np.ndarray, rng: np.random.Generator) -> PixelEdit:
+    def sample_action(self, state: np.ndarray, rng: np.random.Generator) -> RigidTransform:
         actions = self.candidate_actions(state, state_changing_only=True)
         return actions[int(rng.integers(0, len(actions)))]
 
@@ -141,36 +138,25 @@ class ControlledObjectGenerator:
         *,
         include_invalid: bool = False,
         state_changing_only: bool = False,
-    ) -> tuple[PixelEdit, ...]:
+    ) -> tuple[RigidTransform, ...]:
         del include_invalid, state_changing_only
-        actions = []
-        for row in range(self.spec.grid_size):
-            for col in range(self.spec.grid_size):
-                current = int(state[row, col])
-                actions.extend(
-                    PixelEdit(row, col, color)
-                    for color in range(self.spec.num_colors)
-                    if color != current
-                )
-        return tuple(actions)
+        return self._candidate_rigid_transforms(state)
 
-    def apply_action(self, state: np.ndarray, action: PixelEdit) -> tuple[np.ndarray, bool]:
+    def apply_action(
+        self, state: np.ndarray, action: RigidTransform
+    ) -> tuple[np.ndarray, bool]:
         if state.shape != (self.spec.grid_size, self.spec.grid_size):
             raise ValueError("State has the wrong controlled-object grid size.")
-        if not (0 <= action.color < self.spec.num_colors):
-            return state.copy(), False
         if not (
             0 <= action.row < self.spec.grid_size
             and 0 <= action.col < self.spec.grid_size
         ):
             return state.copy(), False
-        if int(state[action.row, action.col]) == action.color:
+        if not (1 <= action.transform < len(TRANSFORM_NAMES)):
             return state.copy(), False
-        output = state.copy()
-        output[action.row, action.col] = action.color
-        return output, True
+        return self._apply_rigid_transform(state, action)
 
-    def replay(self, state: np.ndarray, actions: Iterable[PixelEdit]) -> np.ndarray:
+    def replay(self, state: np.ndarray, actions: Iterable[RigidTransform]) -> np.ndarray:
         output = state.copy()
         for action in actions:
             output, _ = self.apply_action(output, action)
@@ -269,19 +255,6 @@ class ControlledObjectGenerator:
             return state.copy(), False
         region[target_mask] = color
         return cleared, True
-
-
-def _pixel_edits(state: np.ndarray, target: np.ndarray) -> tuple[PixelEdit, ...]:
-    changed = state != target
-    paint = np.argwhere(changed & (target != 0))
-    erase = np.argwhere(changed & (target == 0))
-    ordered = np.concatenate((paint, erase), axis=0)
-    return tuple(
-        PixelEdit(int(row), int(col), int(target[row, col]))
-        for row, col in ordered
-    )
-
-
 def _is_connected(cells: np.ndarray) -> bool:
     if len(cells) == 0:
         return False

@@ -1,0 +1,10 @@
+name: ema_vicreg_sweep
+target_mode: ema
+stop_gradient_targets: true
+ema_decay: 0.99
+prediction_weight: 1.0
+vicreg_weight: 1.0
+vicreg_variance_weight: 29.409
+vicreg_covariance_weight: 17.866
+vicreg_adjust_cov: true
+ldad_weight: 0.0

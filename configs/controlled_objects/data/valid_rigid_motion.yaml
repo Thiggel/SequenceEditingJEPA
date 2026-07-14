@@ -1,0 +1,9 @@
+name: valid_rigid_motion
+grid_size: 16
+num_colors: 10
+object_count: 2
+trajectory_length: 512
+invalid_action_ratio: 0.0
+noop_ratio: 0.0
+require_state_change: true
+max_scene_retries: 512

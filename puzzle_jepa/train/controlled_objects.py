@@ -178,6 +178,12 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
             ),
             "train_rollout_loss": float(output.rollout_loss.detach().cpu()),
             "train_vicreg_loss": float(output.vicreg_loss.detach().cpu()),
+            "train_vicreg_variance_loss": float(
+                output.vicreg_variance_loss.detach().cpu()
+            ),
+            "train_vicreg_covariance_loss": float(
+                output.vicreg_covariance_loss.detach().cpu()
+            ),
             "train_ldad_loss": float(output.ldad_loss.detach().cpu()),
             "train_level_losses": [
                 float(loss.detach().cpu()) for loss in output.level_losses

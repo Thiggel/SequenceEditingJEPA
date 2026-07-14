@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from puzzle_jepa.controlled_objects.batching import build_controlled_dataset
+from puzzle_jepa.controlled_objects.evaluation import evaluate_controlled_model
 from puzzle_jepa.controlled_objects.generator import (
     ControlledObjectGenerator,
     ControlledObjectSpec,
@@ -27,6 +29,8 @@ def evaluate_checkpoint_probes(
     batch_size: int,
     steps: int,
     learning_rate: float,
+    planning_episodes: int = 0,
+    planning_candidates: int = 512,
 ) -> dict[str, Any]:
     payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     config = dict(payload["config"])
@@ -34,7 +38,7 @@ def evaluate_checkpoint_probes(
         ControlledObjectSpec(**_without_name(dict(config["data"])))
     )
 
-    initial = _build_model(config, generator, device=device, initialize_stage=True)
+    initial = _build_model(config, generator, device=device, initialize_stage=False)
     final = _build_model(config, generator, device=device, initialize_stage=False)
     final.load_state_dict(payload["model"])
 
@@ -47,8 +51,29 @@ def evaluate_checkpoint_probes(
         "steps": steps,
         "learning_rate": learning_rate,
     }
-    initial_metrics = run_controlled_object_probes(initial, generator, **probe_args)
-    final_metrics = run_controlled_object_probes(final, generator, **probe_args)
+    exact_probe_args = {
+        **probe_args,
+        "object_counts": (generator.spec.object_count,),
+    }
+    initial_metrics = run_controlled_object_probes(initial, generator, **exact_probe_args)
+    final_metrics = run_controlled_object_probes(final, generator, **exact_probe_args)
+    initial_mixed_metrics = run_controlled_object_probes(initial, generator, **probe_args)
+    final_mixed_metrics = run_controlled_object_probes(final, generator, **probe_args)
+    eval_dataset = build_controlled_dataset(
+        generator,
+        trajectory_count=int(config["eval"].get("trajectories", 128)),
+        seed=int(config.get("data_seed", 8801)) + 1,
+    )
+    evaluation = evaluate_controlled_model(
+        final,
+        eval_dataset,
+        generator,
+        seed=int(config["seed"]) + 100_003,
+        batch_size=int(config["eval"].get("batch_size", 64)),
+        device=device,
+        planning_episodes=planning_episodes,
+        planning_candidates=planning_candidates,
+    )
     del initial, final
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -61,8 +86,16 @@ def evaluate_checkpoint_probes(
         and np.isfinite(float(final_metrics[name]))
         and np.isfinite(float(initial_metrics[name]))
     }
+    mixed_deltas = {
+        name: float(final_mixed_metrics[name]) - float(initial_mixed_metrics[name])
+        for name in final_mixed_metrics
+        if name != "probe_schema"
+        and isinstance(final_mixed_metrics[name], (float, int))
+        and np.isfinite(float(final_mixed_metrics[name]))
+        and np.isfinite(float(initial_mixed_metrics[name]))
+    }
     return {
-        "probe_schema": "controlled_objects_checkpoint_v3",
+        "probe_schema": "controlled_objects_checkpoint_v4",
         "checkpoint": str(checkpoint_path),
         "step": int(payload["step"]),
         "run_name": str(config["run_name"]),
@@ -71,9 +104,15 @@ def evaluate_checkpoint_probes(
         "train_samples": train_samples,
         "eval_samples": eval_samples,
         "probe_steps": steps,
+        "planning_episodes": planning_episodes,
+        "planning_candidates": planning_candidates,
         "initial": initial_metrics,
         "final": final_metrics,
         "delta": deltas,
+        "initial_mixed_load": initial_mixed_metrics,
+        "final_mixed_load": final_mixed_metrics,
+        "delta_mixed_load": mixed_deltas,
+        "evaluation": evaluation,
     }
 
 
@@ -108,6 +147,8 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--steps", type=int, default=200)
     parser.add_argument("--learning-rate", type=float, default=3.0e-3)
+    parser.add_argument("--planning-episodes", type=int, default=0)
+    parser.add_argument("--planning-candidates", type=int, default=512)
     args = parser.parse_args()
     requested_device = (
         "cuda" if torch.cuda.is_available() else "cpu"
@@ -122,6 +163,8 @@ def main() -> None:
         batch_size=args.batch_size,
         steps=args.steps,
         learning_rate=args.learning_rate,
+        planning_episodes=args.planning_episodes,
+        planning_candidates=args.planning_candidates,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

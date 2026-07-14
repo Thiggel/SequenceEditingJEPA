@@ -8,7 +8,7 @@ import torch
 from torch.nn import functional as F
 
 from puzzle_jepa.controlled_objects.batching import ControlledTrajectoryDataset
-from puzzle_jepa.controlled_objects.domain import PixelEdit
+from puzzle_jepa.controlled_objects.domain import RigidTransform
 from puzzle_jepa.controlled_objects.generator import ControlledObjectGenerator
 from puzzle_jepa.controlled_objects.model import ControlledObjectJEPA
 
@@ -49,14 +49,26 @@ def evaluate_controlled_model(
     )
     output = model(batch)
     current = model.encode(batch.states[:, 0])
+    changed_cells = (batch.states[:, 1:] != batch.states[:, :-1]).flatten(2).sum(dim=2)
+    object_areas = torch.stack(
+        [(batch.states == color).flatten(2).sum(dim=2) for color in range(1, model.num_colors)],
+        dim=-1,
+    )
+    area_preserved = object_areas[:, 1:] == object_areas[:, :-1]
     metrics: dict[str, Any] = {
         "eval_loss": float(output.loss.cpu()),
         "eval_prediction_loss": float(output.prediction_loss.cpu()),
         "eval_teacher_forcing_loss": float(output.teacher_forcing_loss.cpu()),
         "eval_rollout_loss": float(output.rollout_loss.cpu()),
         "eval_vicreg_loss": float(output.vicreg_loss.cpu()),
+        "eval_vicreg_variance_loss": float(output.vicreg_variance_loss.cpu()),
+        "eval_vicreg_covariance_loss": float(output.vicreg_covariance_loss.cpu()),
         "eval_ldad_loss": float(output.ldad_loss.cpu()),
         "eval_action_valid_fraction": float(batch.action_validity.float().mean().cpu()),
+        "eval_changed_cells_per_action_mean": float(changed_cells.float().mean().cpu()),
+        "eval_changed_cells_per_action_min": float(changed_cells.min().cpu()),
+        "eval_changed_cells_per_action_max": float(changed_cells.max().cpu()),
+        "eval_object_area_preserved_fraction": float(area_preserved.float().mean().cpu()),
         "eval_latent_std": float(_pooled(current).std(dim=0, unbiased=False).mean().cpu()),
         "eval_latent_effective_rank": _effective_rank(_pooled(current)),
     }
@@ -86,7 +98,7 @@ def evaluate_controlled_model(
             correct = predictions[effective] == targets
             metrics["eval_ldad_row_accuracy"] = float(correct[..., 0].float().mean().cpu())
             metrics["eval_ldad_col_accuracy"] = float(correct[..., 1].float().mean().cpu())
-            metrics["eval_ldad_color_accuracy"] = float(
+            metrics["eval_ldad_transform_accuracy"] = float(
                 correct[..., 2].float().mean().cpu()
             )
             per_action = correct.all(dim=-1)
@@ -164,7 +176,7 @@ def _action_ranking_diagnostics(
         actions = _candidate_subset(
             generator.candidate_actions(state, state_changing_only=True),
             limit=256,
-            required=PixelEdit(*actual_values),
+            required=RigidTransform(*actual_values),
         )
         action_values = [tuple(int(value) for value in action.as_array()) for action in actions]
         if actual_values not in action_values:
@@ -241,6 +253,10 @@ def _hierarchy_diagnostics(
             macros.std(dim=0, unbiased=False).mean().cpu()
         )
         diagnostics[f"eval_level{level}_macro_effective_rank"] = _effective_rank(macros)
+        valid_distances = torch.cdist(high_prediction, target).square() / target.shape[-1]
+        diagnostics[f"eval_level{level}_predicted_valid_nn_mse"] = float(
+            valid_distances.min(dim=1).values.mean().cpu()
+        )
         if len(macros) > 2:
             pooled_current = _pooled(current)
             state_mean = pooled_current.mean(dim=0)
@@ -298,7 +314,7 @@ def _planning_diagnostics(
     candidates: int,
     device: torch.device,
 ) -> dict[str, float]:
-    planning_horizon = min(16, dataset.horizon)
+    planning_horizon = min(max(model.level_spans), dataset.horizon)
     replay_successes = 0
     symbolic_successes = 0
     learned_successes = 0
@@ -306,6 +322,7 @@ def _planning_diagnostics(
     bounded_cem_successes = 0
     support_cem_successes = 0
     mppi_successes = 0
+    manual_subgoal_successes = 0
     final_errors: dict[str, list[float]] = {
         "retrieval": [],
         "oracle_candidate": [],
@@ -320,7 +337,7 @@ def _planning_diagnostics(
             dataset,
             level=level,
             seed=int(rng.integers(0, 2**31 - 1)),
-            sample_count=max(256, candidates),
+            sample_count=max(1024, candidates),
             device=device,
         )
         for level in range(model.hierarchy_depth)
@@ -331,9 +348,25 @@ def _planning_diagnostics(
         trajectory = generator.sample_trajectory(rng, horizon=planning_horizon)
         initial = trajectory.states[0]
         goal = trajectory.states[-1]
+        manual_horizon = min(10, planning_horizon)
+        manual_subgoal = _manual_low_level_plan(
+            model,
+            generator,
+            initial,
+            trajectory.states[manual_horizon],
+            max_steps=manual_horizon,
+            beam_width=64,
+            device=device,
+        )
+        manual_subgoal_successes += int(
+            np.array_equal(manual_subgoal, trajectory.states[manual_horizon])
+        )
         replayed = generator.replay(
             initial,
-            (PixelEdit(*(int(value) for value in action)) for action in trajectory.actions),
+            (
+                RigidTransform(*(int(value) for value in action))
+                for action in trajectory.actions
+            ),
         )
         replay_successes += int(np.array_equal(replayed, goal))
         short_trajectory = generator.sample_trajectory(rng, horizon=symbolic_horizon)
@@ -351,8 +384,8 @@ def _planning_diagnostics(
             initial,
             goal,
             rng,
-            max_steps=2 * planning_horizon,
-            candidates=candidates,
+            max_steps=planning_horizon,
+            candidates=min(256, candidates),
             device=device,
             oracle_actions=None,
             supports=supports,
@@ -365,8 +398,8 @@ def _planning_diagnostics(
             initial,
             goal,
             rng,
-            max_steps=2 * planning_horizon,
-            candidates=candidates,
+            max_steps=planning_horizon,
+            candidates=min(256, candidates),
             device=device,
             oracle_actions=trajectory.actions,
             supports=supports,
@@ -384,8 +417,8 @@ def _planning_diagnostics(
                 rng,
                 torch_rng,
                 supports=supports,
-                max_steps=2 * planning_horizon,
-                candidates=max(64, candidates),
+                max_steps=planning_horizon,
+                candidates=max(512, candidates),
                 support_weight=0.0,
                 planner="cem",
                 device=device,
@@ -400,8 +433,8 @@ def _planning_diagnostics(
                 rng,
                 torch_rng,
                 supports=supports,
-                max_steps=2 * planning_horizon,
-                candidates=max(64, candidates),
+                max_steps=planning_horizon,
+                candidates=max(512, candidates),
                 support_weight=0.1,
                 planner="cem",
                 device=device,
@@ -416,8 +449,8 @@ def _planning_diagnostics(
                 rng,
                 torch_rng,
                 supports=supports,
-                max_steps=2 * planning_horizon,
-                candidates=max(64, candidates),
+                max_steps=planning_horizon,
+                candidates=max(1000, candidates),
                 support_weight=0.1,
                 planner="mppi",
                 device=device,
@@ -426,6 +459,9 @@ def _planning_diagnostics(
             final_errors["mppi"].append(float(np.mean(mppi != goal)))
     return {
         "eval_oracle_replay_success_rate": replay_successes / episodes,
+        "eval_manual_low_level_subgoal_success_rate": (
+            manual_subgoal_successes / episodes
+        ),
         "eval_symbolic_receding_success_rate": symbolic_successes / episodes,
         "eval_symbolic_planning_horizon": float(symbolic_horizon),
         "eval_learned_receding_success_rate": learned_successes / episodes,
@@ -448,6 +484,40 @@ def _planning_diagnostics(
         },
         "eval_planning_horizon": float(planning_horizon),
     }
+
+
+def _manual_low_level_plan(
+    model: ControlledObjectJEPA,
+    generator: ControlledObjectGenerator,
+    initial: np.ndarray,
+    goal: np.ndarray,
+    *,
+    max_steps: int,
+    beam_width: int,
+    device: torch.device,
+) -> np.ndarray:
+    state = initial.copy()
+    target = model.encode(
+        torch.as_tensor(goal[None], dtype=torch.long, device=device), target=True
+    )
+    for executed in range(max_steps):
+        if np.array_equal(state, goal):
+            break
+        state_latent = model.encode(
+            torch.as_tensor(state[None], dtype=torch.long, device=device)
+        )
+        action = _best_flat_plan_action(
+            model,
+            generator,
+            state,
+            state_latent,
+            target,
+            horizon=max_steps - executed,
+            beam_width=beam_width,
+            device=device,
+        )
+        state, _ = generator.apply_action(state, action)
+    return state
 
 
 def _estimate_macro_support(
@@ -515,17 +585,31 @@ def _symbolic_beam_search(
     *,
     max_depth: int,
     beam_width: int,
-) -> tuple[PixelEdit, ...]:
-    del generator, beam_width
+) -> tuple[RigidTransform, ...]:
     if np.array_equal(initial, goal):
         return ()
-    mismatched = np.argwhere(initial != goal)
-    if len(mismatched) > max_depth:
-        return ()
-    return tuple(
-        PixelEdit(int(row), int(col), int(goal[row, col]))
-        for row, col in mismatched
-    )
+    beam: list[tuple[np.ndarray, tuple[RigidTransform, ...]]] = [(initial.copy(), ())]
+    seen = {initial.tobytes()}
+    for _ in range(max_depth):
+        proposals: list[tuple[int, np.ndarray, tuple[RigidTransform, ...]]] = []
+        for state, path in beam:
+            for action in generator.candidate_actions(state, state_changing_only=True):
+                successor, valid = generator.apply_action(state, action)
+                if not valid:
+                    continue
+                key = successor.tobytes()
+                if key in seen:
+                    continue
+                next_path = (*path, action)
+                if np.array_equal(successor, goal):
+                    return next_path
+                seen.add(key)
+                proposals.append((int(np.count_nonzero(successor != goal)), successor, next_path))
+        proposals.sort(key=lambda item: item[0])
+        beam = [(state, path) for _, state, path in proposals[:beam_width]]
+        if not beam:
+            break
+    return ()
 
 
 def _receding_on_support_plan(
@@ -560,6 +644,7 @@ def _receding_on_support_plan(
             device=device,
             oracle_actions=oracle_suffix,
             supports=supports,
+            max_primitive_horizon=max_steps - executed,
         )
         state, _ = generator.apply_action(state, action)
     return state
@@ -583,7 +668,7 @@ def _receding_cem_plan(
     state = initial.copy()
     goal_tensor = torch.as_tensor(goal[None], dtype=torch.long, device=device)
     goal_latent = model.encode(goal_tensor, target=True)
-    for _ in range(max_steps):
+    for executed in range(max_steps):
         if np.array_equal(state, goal):
             break
         action = _recursive_cem_action(
@@ -598,6 +683,7 @@ def _receding_cem_plan(
             support_weight=support_weight,
             planner=planner,
             device=device,
+            max_primitive_horizon=max_steps - executed,
         )
         state, _ = generator.apply_action(state, action)
     return state
@@ -616,10 +702,16 @@ def _recursive_cem_action(
     support_weight: float,
     planner: str,
     device: torch.device,
-) -> PixelEdit:
+    max_primitive_horizon: int,
+) -> RigidTransform:
     state_tensor = torch.as_tensor(state[None], dtype=torch.long, device=device)
     state_latent = model.encode(state_tensor)
     top_level = model.hierarchy_depth - 1
+    while (
+        top_level > 0
+        and model.level_spans[top_level] > max_primitive_horizon
+    ):
+        top_level -= 1
     return _plan_cem_level(
         model,
         generator,
@@ -629,7 +721,9 @@ def _recursive_cem_action(
         rng,
         torch_rng,
         level=top_level,
-        transition_count=_planning_transition_count(model, top_level),
+        transition_count=_planning_transition_count(
+            model, top_level, max_primitive_horizon=max_primitive_horizon
+        ),
         supports=supports,
         candidates=candidates,
         support_weight=support_weight,
@@ -654,7 +748,7 @@ def _plan_cem_level(
     support_weight: float,
     planner: str,
     device: torch.device,
-) -> PixelEdit:
+) -> RigidTransform:
     if level == 0:
         return _best_flat_plan_action(
             model,
@@ -663,7 +757,7 @@ def _plan_cem_level(
             state_latent,
             target_latent,
             horizon=transition_count,
-            beam_width=candidates,
+            beam_width=min(64, candidates),
             device=device,
         )
     sequence_planner = _cem_macro_sequence if planner == "cem" else _mppi_macro_sequence
@@ -675,7 +769,7 @@ def _plan_cem_level(
         transition_count=transition_count,
         support=supports[level],
         candidates=candidates,
-        iterations=3,
+        iterations=10,
         support_weight=support_weight,
         torch_rng=torch_rng,
     )
@@ -713,6 +807,7 @@ def _cem_macro_sequence(
     support_weight: float,
     torch_rng: torch.Generator,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    variance_ema = 0.7
     mean = support.mean.expand(transition_count, -1).clone()
     std = support.std.expand(transition_count, -1).clone()
     elite_count = max(2, candidates // 8)
@@ -743,8 +838,10 @@ def _cem_macro_sequence(
         elite_ids = costs.topk(elite_count, largest=False).indices
         elites = macro_candidates[elite_ids]
         mean = elites.mean(dim=0)
+        elite_variance = elites.var(dim=0, unbiased=False)
+        variance = variance_ema * std.square() + (1.0 - variance_ema) * elite_variance
         std = torch.maximum(
-            elites.std(dim=0, unbiased=False), 0.05 * support.std
+            variance.clamp_min(1.0e-6).sqrt(), 0.05 * support.std
         )
         chosen = int(costs.argmin())
         best_macros = macro_candidates[chosen]
@@ -765,30 +862,39 @@ def _mppi_macro_sequence(
     support_weight: float,
     torch_rng: torch.Generator,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    del iterations
-    mean = support.mean.expand(transition_count, -1)
-    noise = torch.randn(
-        candidates,
-        transition_count,
-        support.mean.numel(),
-        device=state_latent.device,
-        generator=torch_rng,
-    )
-    candidates_macro = mean.unsqueeze(0) + support.std * noise
-    candidates_macro = torch.maximum(
-        torch.minimum(candidates_macro, support.upper), support.lower
-    )
-    initial = state_latent.expand(candidates, -1)
-    rollout = model.dynamics[level].rollout(initial, candidates_macro)
-    support_states = torch.cat((initial[:, None], rollout[:, :-1]), dim=1)
-    costs = _latent_distance(rollout[:, -1], target_latent.expand(candidates, -1))
-    if support_weight > 0.0:
-        costs = costs + support_weight * _macro_support_energy(
-            candidates_macro, support_states, support
+    mean = support.mean.expand(transition_count, -1).clone()
+    std = support.std.expand(transition_count, -1).clone()
+    for _ in range(iterations):
+        noise = torch.randn(
+            candidates,
+            transition_count,
+            support.mean.numel(),
+            device=state_latent.device,
+            generator=torch_rng,
         )
-    temperature = costs.std(unbiased=False).clamp_min(1.0e-4)
-    weights = torch.softmax(-(costs - costs.min()) / temperature, dim=0)
-    selected = torch.einsum("b,btd->td", weights, candidates_macro)
+        candidates_macro = mean.unsqueeze(0) + std.unsqueeze(0) * noise
+        candidates_macro = torch.maximum(
+            torch.minimum(candidates_macro, support.upper), support.lower
+        )
+        initial = state_latent.expand(candidates, -1)
+        rollout = model.dynamics[level].rollout(initial, candidates_macro)
+        support_states = torch.cat((initial[:, None], rollout[:, :-1]), dim=1)
+        costs = _latent_distance(
+            rollout[:, -1], target_latent.expand(candidates, -1)
+        )
+        if support_weight > 0.0:
+            costs = costs + support_weight * _macro_support_energy(
+                candidates_macro, support_states, support
+            )
+        temperature = costs.std(unbiased=False).clamp_min(1.0e-4)
+        weights = torch.softmax(-(costs - costs.min()) / temperature, dim=0)
+        mean = torch.einsum("b,btd->td", weights, candidates_macro)
+        centered = candidates_macro - mean
+        std = torch.sqrt(
+            torch.einsum("b,btd->td", weights, centered.square()) + 1.0e-6
+        )
+        std = torch.maximum(std, 0.05 * support.std)
+    selected = mean
     selected_rollout = model.dynamics[level].rollout(state_latent, selected[None])
     return selected, selected_rollout[:, 0]
 
@@ -826,14 +932,24 @@ def _recursive_on_support_action(
     device: torch.device,
     oracle_actions: np.ndarray | None = None,
     supports: dict[int, MacroSupport] | None = None,
-) -> PixelEdit:
+    max_primitive_horizon: int | None = None,
+) -> RigidTransform:
     state_tensor = torch.as_tensor(state[None], dtype=torch.long, device=device)
     state_latent = model.encode(state_tensor)
     top_level = model.hierarchy_depth - 1
+    available_horizon = (
+        max(model.level_spans)
+        if max_primitive_horizon is None
+        else max_primitive_horizon
+    )
+    while top_level > 0 and model.level_spans[top_level] > available_horizon:
+        top_level -= 1
     if oracle_actions is not None:
         while top_level > 0 and model.level_spans[top_level] > len(oracle_actions):
             top_level -= 1
-    transition_count = _planning_transition_count(model, top_level)
+    transition_count = _planning_transition_count(
+        model, top_level, max_primitive_horizon=available_horizon
+    )
     if oracle_actions is not None:
         transition_count = min(
             transition_count,
@@ -869,7 +985,7 @@ def _plan_on_support_level(
     device: torch.device,
     oracle_actions: np.ndarray | None,
     supports: dict[int, MacroSupport],
-) -> PixelEdit:
+) -> RigidTransform:
     if level == 0 and oracle_actions is None:
         return _best_flat_plan_action(
             model,
@@ -904,7 +1020,7 @@ def _plan_on_support_level(
     )
     chosen = int(scores.argmin())
     if level == 0:
-        return PixelEdit(*(int(value) for value in sequences[chosen, 0]))
+        return RigidTransform(*(int(value) for value in sequences[chosen, 0]))
     chosen_subgoal = rollouts[chosen : chosen + 1, 0]
     lower_span = model.level_spans[level - 1]
     return _plan_on_support_level(
@@ -934,10 +1050,10 @@ def _best_flat_plan_action(
     horizon: int,
     beam_width: int,
     device: torch.device,
-) -> PixelEdit:
+) -> RigidTransform:
     if horizon < 1 or beam_width < 1:
         raise ValueError("Latent beam planning requires positive horizon and width.")
-    beam: list[tuple[np.ndarray, tuple[PixelEdit, ...]]] = [(state.copy(), ())]
+    beam: list[tuple[np.ndarray, tuple[RigidTransform, ...]]] = [(state.copy(), ())]
     best_score = float("inf")
     best_action = None
     for _ in range(horizon):
@@ -995,7 +1111,7 @@ def _best_primitive_action(
     target_latent: torch.Tensor,
     *,
     device: torch.device,
-) -> PixelEdit:
+) -> RigidTransform:
     actions = _candidate_subset(
         generator.candidate_actions(state, state_changing_only=True), limit=256
     )
@@ -1045,11 +1161,11 @@ def _candidate_action_sequences(
 
 
 def _candidate_subset(
-    actions: tuple[PixelEdit, ...],
+    actions: tuple[RigidTransform, ...],
     *,
     limit: int,
-    required: PixelEdit | None = None,
-) -> tuple[PixelEdit, ...]:
+    required: RigidTransform | None = None,
+) -> tuple[RigidTransform, ...]:
     if len(actions) <= limit:
         return actions
     indices = np.linspace(0, len(actions) - 1, num=limit, dtype=np.int64)
@@ -1059,8 +1175,18 @@ def _candidate_subset(
     return tuple(selected)
 
 
-def _planning_transition_count(model: ControlledObjectJEPA, level: int) -> int:
-    return max(1, min(8, 16 // model.level_spans[level]))
+def _planning_transition_count(
+    model: ControlledObjectJEPA,
+    level: int,
+    *,
+    max_primitive_horizon: int | None = None,
+) -> int:
+    horizon = (
+        max(model.level_spans)
+        if max_primitive_horizon is None
+        else max_primitive_horizon
+    )
+    return max(1, min(8, horizon // model.level_spans[level]))
 
 
 def _latent_distance(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:

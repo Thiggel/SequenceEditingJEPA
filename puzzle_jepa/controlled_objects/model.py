@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from puzzle_jepa.controlled_objects.batching import ControlledObjectBatch
-from puzzle_jepa.object_dynamics.losses import vicreg_regularizer
+from puzzle_jepa.object_dynamics.losses import covariance_loss, variance_loss
 
 
 RGB_PALETTE = torch.tensor(
@@ -34,6 +34,8 @@ class ControlledObjectOutput:
     teacher_forcing_loss: torch.Tensor
     rollout_loss: torch.Tensor
     vicreg_loss: torch.Tensor
+    vicreg_variance_loss: torch.Tensor
+    vicreg_covariance_loss: torch.Tensor
     ldad_loss: torch.Tensor
     level_losses: tuple[torch.Tensor, ...]
     predictions: tuple[torch.Tensor, ...]
@@ -79,22 +81,27 @@ class ControlledStateEncoder(nn.Module):
 
 
 class ActionChunkEncoder(nn.Module):
-    """Ordered one-hot pixel edits followed by one learned linear projection."""
+    """Nonlinear bottleneck over an ordered chunk of rigid pixel-delta commands."""
 
     def __init__(
         self,
         *,
         grid_size: int,
-        num_colors: int,
+        num_action_types: int,
         chunk_length: int,
         macro_dim: int,
+        hidden_dim: int = 64,
     ):
         super().__init__()
         self.grid_size = int(grid_size)
-        self.num_colors = int(num_colors)
+        self.num_action_types = int(num_action_types)
         self.chunk_length = int(chunk_length)
-        self.action_dim = 2 * self.grid_size + self.num_colors
-        self.project = nn.Linear(self.chunk_length * self.action_dim, macro_dim)
+        self.action_dim = 2 * self.grid_size + self.num_action_types
+        self.project = nn.Sequential(
+            nn.Linear(self.chunk_length * self.action_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, macro_dim),
+        )
 
     def forward(self, actions: torch.Tensor) -> torch.Tensor:
         if actions.ndim != 3 or actions.shape[1:] != (self.chunk_length, 3):
@@ -105,10 +112,10 @@ class ActionChunkEncoder(nn.Module):
             (
                 F.one_hot(actions[..., 0], self.grid_size),
                 F.one_hot(actions[..., 1], self.grid_size),
-                F.one_hot(actions[..., 2], self.num_colors),
+                F.one_hot(actions[..., 2], self.num_action_types),
             ),
             dim=-1,
-        ).to(dtype=self.project.weight.dtype)
+        ).to(dtype=self.project[0].weight.dtype)
         return self.project(encoded.flatten(1))
 
 
@@ -281,7 +288,7 @@ class CausalLatentPredictor(nn.Module):
 
 
 class CategoricalLDAD(nn.Module):
-    def __init__(self, *, input_dim: int, grid_size: int, num_colors: int):
+    def __init__(self, *, input_dim: int, grid_size: int, num_action_types: int):
         super().__init__()
         hidden_dim = max(64, 2 * input_dim)
         self.trunk = nn.Sequential(
@@ -292,13 +299,13 @@ class CategoricalLDAD(nn.Module):
         )
         self.row = nn.Linear(hidden_dim, grid_size)
         self.col = nn.Linear(hidden_dim, grid_size)
-        self.color = nn.Linear(hidden_dim, num_colors)
+        self.action_type = nn.Linear(hidden_dim, num_action_types)
 
     def forward(
         self, delta: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         hidden = self.trunk(delta)
-        return self.row(hidden), self.col(hidden), self.color(hidden)
+        return self.row(hidden), self.col(hidden), self.action_type(hidden)
 
 
 class ControlledObjectJEPA(nn.Module):
@@ -333,6 +340,9 @@ class ControlledObjectJEPA(nn.Module):
         ema_decay: float = 0.99,
         prediction_weight: float = 1.0,
         vicreg_weight: float = 0.05,
+        vicreg_variance_weight: float = 1.0,
+        vicreg_covariance_weight: float = 0.04,
+        vicreg_adjust_cov: bool = False,
         ldad_weight: float = 0.0,
         ldad_horizon: int = 1,
     ):
@@ -348,6 +358,8 @@ class ControlledObjectJEPA(nn.Module):
             raise ValueError("target_mode must be 'shared' or 'ema'.")
         if target_mode == "ema" and not stop_gradient_targets:
             raise ValueError("EMA targets are necessarily stop-gradient targets.")
+        if min(vicreg_weight, vicreg_variance_weight, vicreg_covariance_weight) < 0.0:
+            raise ValueError("VICReg weights must be non-negative.")
         resolved_spans = (
             tuple(int(span) for span in level_spans)
             if level_spans is not None
@@ -376,6 +388,9 @@ class ControlledObjectJEPA(nn.Module):
         self.ema_decay = float(ema_decay)
         self.prediction_weight = float(prediction_weight)
         self.vicreg_weight = float(vicreg_weight)
+        self.vicreg_variance_weight = float(vicreg_variance_weight)
+        self.vicreg_covariance_weight = float(vicreg_covariance_weight)
+        self.vicreg_adjust_cov = bool(vicreg_adjust_cov)
         self.ldad_weight = float(ldad_weight)
         self.ldad_horizon = int(ldad_horizon)
         self.predictor_architecture = predictor_architecture
@@ -400,7 +415,7 @@ class ControlledObjectJEPA(nn.Module):
             [
                 ActionChunkEncoder(
                     grid_size=grid_size,
-                    num_colors=num_colors,
+                    num_action_types=7,
                     chunk_length=span,
                     macro_dim=macro_dim,
                 )
@@ -424,7 +439,7 @@ class ControlledObjectJEPA(nn.Module):
             CategoricalLDAD(
                 input_dim=state_dim,
                 grid_size=grid_size,
-                num_colors=num_colors,
+                num_action_types=7,
             )
             if ldad_weight > 0.0
             else None
@@ -536,8 +551,8 @@ class ControlledObjectJEPA(nn.Module):
                 [self.rollout_lambda**index for index in range(rollout_count)]
             )
             weights = weights / weights.sum()
-            teacher_per_step = (teacher_predictions - targets).abs().mean(dim=-1)
-            rollout_per_step = (predictions - targets).abs().mean(dim=-1)
+            teacher_per_step = (teacher_predictions - targets).square().mean(dim=-1)
+            rollout_per_step = (predictions - targets).square().mean(dim=-1)
             teacher_loss = (teacher_per_step * weights).sum(dim=1).mean()
             rollout_loss = (rollout_per_step * weights).sum(dim=1).mean()
             level_loss = (
@@ -559,12 +574,18 @@ class ControlledObjectJEPA(nn.Module):
         autonomous_rollout_loss = torch.stack(rollout_losses[selected]).mean()
 
         if self.vicreg_weight > 0.0:
-            online_future = self.encoder(batch.states[:, self.required_horizon])
-            vicreg_loss = 0.5 * (
-                vicreg_regularizer(current) + vicreg_regularizer(online_future)
+            vicreg_variance = variance_loss(current)
+            vicreg_covariance = covariance_loss(
+                current, adjust_cov=self.vicreg_adjust_cov
+            )
+            vicreg_loss = (
+                self.vicreg_variance_weight * vicreg_variance
+                + self.vicreg_covariance_weight * vicreg_covariance
             )
         else:
             vicreg_loss = prediction_loss.detach() * 0.0
+            vicreg_variance = vicreg_loss
+            vicreg_covariance = vicreg_loss
 
         ldad_logits = None
         if self.ldad_decoder is not None:
@@ -587,6 +608,8 @@ class ControlledObjectJEPA(nn.Module):
             teacher_forcing_loss=teacher_forcing_loss,
             rollout_loss=autonomous_rollout_loss,
             vicreg_loss=vicreg_loss,
+            vicreg_variance_loss=vicreg_variance,
+            vicreg_covariance_loss=vicreg_covariance,
             ldad_loss=ldad_loss,
             level_losses=tuple(level_losses),
             predictions=tuple(all_predictions),

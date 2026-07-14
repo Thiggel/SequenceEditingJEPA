@@ -1,7 +1,7 @@
 defaults:
-  - data: rigid_transform
-  - model: mlp_causal_hwm
-  - objective: ema_vicreg
+  - data: valid_rigid_motion
+  - model: mlp_hwm_1_10_100
+  - objective: ema_vicreg_sweep
   - _self_
 
 seed: 1707
@@ -12,7 +12,7 @@ output_dir: ${oc.env:PUZZLE_JEPA_WORK_ROOT}/runs/controlled_objects/${run_name}
 
 training:
   deterministic: true
-  train_trajectories: 1024
+  train_trajectories: 512
   max_steps: 20000
   batch_size: 64
   learning_rate: 3.0e-4
@@ -26,7 +26,7 @@ training:
   train_from_level: 0
 
 eval:
-  trajectories: 256
+  trajectories: 128
   batch_size: 64
-  planning_episodes: 4
-  planning_candidates: 32
+  planning_episodes: 0
+  planning_candidates: 512

@@ -9,17 +9,28 @@ def variance_loss(z: torch.Tensor, *, eps: float = 1.0e-4, target_std: float = 1
     return F.relu(target_std - std).mean()
 
 
-def covariance_loss(z: torch.Tensor) -> torch.Tensor:
+def covariance_loss(z: torch.Tensor, *, adjust_cov: bool = False) -> torch.Tensor:
     if z.shape[0] <= 1:
         return z.sum() * 0.0
     centered = z - z.mean(dim=0, keepdim=True)
     cov = centered.T @ centered / (z.shape[0] - 1)
     off_diag = cov - torch.diag(torch.diag(cov))
-    return off_diag.pow(2).sum() / z.shape[1]
+    denominator = z.shape[1]
+    if adjust_cov and z.shape[1] > 1:
+        denominator *= z.shape[1] - 1
+    return off_diag.pow(2).sum() / denominator
 
 
-def vicreg_regularizer(z: torch.Tensor, *, variance_weight: float = 1.0, covariance_weight: float = 0.04) -> torch.Tensor:
-    return variance_weight * variance_loss(z) + covariance_weight * covariance_loss(z)
+def vicreg_regularizer(
+    z: torch.Tensor,
+    *,
+    variance_weight: float = 1.0,
+    covariance_weight: float = 0.04,
+    adjust_cov: bool = False,
+) -> torch.Tensor:
+    return variance_weight * variance_loss(z) + covariance_weight * covariance_loss(
+        z, adjust_cov=adjust_cov
+    )
 
 
 def sigreg_regularizer(
