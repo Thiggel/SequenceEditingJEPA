@@ -2,33 +2,22 @@
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
-Last updated: 2026-07-15 14:41 CEST
+Last updated: 2026-07-15 18:04 CEST
 
-Wave 15 trainer array `3858542` and correlated probe array `3858543` both
-completed 36/36 tasks with exit `0:0`. Check the archived state with:
-
-```bash
-squeue -j 3858542,3858543
-sacct -j 3858542,3858543 --format=JobID,State,ExitCode,Elapsed
-```
-
-Task and job manifests:
-`$HPCVAULT/sequence-editing/runs/controlled_objects/manifests/controlled_joint_hwm_objectives_v1_steps20000_{tasks,jobs}.tsv`.
-Output root:
-`$HPCVAULT/sequence-editing/runs/controlled_objects/controlled_joint_hwm_objectives_v1_steps20000/`.
-Each successful trainer writes `checkpoint.pt` and `metrics.json`; its matching
-probe writes `probe_eval_v5.json`.
-
-After all probes finish, run:
+Inspect the active jobs with:
 
 ```bash
-source scripts/env.sh
-ROOT="$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects"
-python scripts/analysis/analyze_controlled_objects_joint.py \
-  "$ROOT/manifests/controlled_joint_hwm_objectives_v1_steps20000_tasks.tsv" \
-  "$ROOT/controlled_joint_hwm_objectives_v1_steps20000" \
-  --output "$ROOT/controlled_joint_hwm_objectives_v1_steps20000/summary.json"
+squeue -j 3860384,3860385,3860420,3860421,3860422
+sacct -j 3860384,3860385,3860420,3860421,3860422 \
+  --format=JobID,JobName,State,ExitCode,Elapsed
 ```
 
-The representation gate failed. Do not launch planning or broader axes
-automatically.
+Task/job manifests are under
+`$HPCVAULT/sequence-editing/runs/controlled_objects/manifests/` with prefixes
+`controlled_objective_weights_v1_steps20000`,
+`controlled_dense_trajectories_v1`, and `controlled_planner_interfaces_v1`.
+
+After a complete gate, use `scripts/analysis/analyze_controlled_objects_gates.py`
+with mode `objective`, `dense`, or `planner`, its task manifest, output root,
+and `--output <root>/summary.json`. Treat any listed missing run as an
+incomplete result; do not average partial arrays into the report.

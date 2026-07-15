@@ -40,6 +40,7 @@ def evaluate_controlled_model(
     device: torch.device,
     planning_episodes: int = 0,
     planning_candidates: int = 16,
+    horizon: int | None = None,
 ) -> dict[str, Any]:
     was_training = model.training
     model.eval()
@@ -47,7 +48,7 @@ def evaluate_controlled_model(
     batch = dataset.sample_batch(
         rng,
         batch_size=batch_size,
-        horizon=model.required_horizon,
+        horizon=model.required_horizon if horizon is None else horizon,
         device=device,
     )
     output = model(batch)
@@ -68,6 +69,9 @@ def evaluate_controlled_model(
         "eval_vicreg_covariance_loss": float(output.vicreg_covariance_loss.cpu()),
         "eval_sigreg_loss": float(output.sigreg_loss.cpu()),
         "eval_ldad_loss": float(output.ldad_loss.cpu()),
+        "eval_cross_level_consistency_loss": float(
+            output.cross_level_consistency_loss.cpu()
+        ),
         "eval_action_valid_fraction": float(batch.action_validity.float().mean().cpu()),
         "eval_changed_cells_per_action_mean": float(changed_cells.float().mean().cpu()),
         "eval_changed_cells_per_action_min": float(changed_cells.min().cpu()),
@@ -114,12 +118,17 @@ def evaluate_controlled_model(
                 if horizon > 1
                 else per_action.float().mean().cpu()
             )
-    for level, (predicted, targets) in enumerate(
-        zip(output.predictions, output.targets, strict=True)
+    for level, (predicted, targets, rollout_initial) in enumerate(
+        zip(
+            output.predictions,
+            output.targets,
+            output.rollout_initials,
+            strict=True,
+        )
     ):
         reduce_dims = tuple(range(2, predicted.ndim))
         per_step = (predicted - targets).square().mean(dim=reduce_dims).mean(dim=0)
-        identity = current.unsqueeze(1).expand_as(targets)
+        identity = rollout_initial.unsqueeze(1).expand_as(targets)
         identity_per_step = (identity - targets).square().mean(dim=reduce_dims).mean(dim=0)
         for step, (mse, identity_mse) in enumerate(
             zip(per_step, identity_per_step, strict=True), start=1
@@ -131,8 +140,17 @@ def evaluate_controlled_model(
             metrics[f"eval_level{level}_rollout{step}_gain"] = float(
                 (identity_mse - mse).cpu()
             )
-            endpoint = step * model.level_spans[level]
-            changed = (batch.states[:, endpoint] != batch.states[:, 0]).flatten(1).any(dim=1)
+            span = model.level_spans[level]
+            if model.dense_trajectory_training:
+                anchor_count = predicted.shape[0] // len(batch.states)
+                starts = batch.states[:, : anchor_count * span : span]
+                endpoints = batch.states[
+                    :, step * span : (step + anchor_count) * span : span
+                ]
+                changed = (endpoints != starts).flatten(2).any(dim=2).flatten()
+            else:
+                endpoint = step * span
+                changed = (batch.states[:, endpoint] != batch.states[:, 0]).flatten(1).any(dim=1)
             if bool(changed.any()):
                 changed_mse = (predicted[changed, step - 1] - targets[changed, step - 1]).square()
                 changed_identity = (
@@ -488,6 +506,78 @@ def _planning_diagnostics(
     }
 
 
+@torch.no_grad()
+def evaluate_planner_interface(
+    model: ControlledObjectJEPA,
+    dataset: ControlledTrajectoryDataset,
+    generator: ControlledObjectGenerator,
+    *,
+    seed: int,
+    episodes: int,
+    candidates: int,
+    device: torch.device,
+    hard_project_support: bool,
+    reachability_weight: float,
+    reachability_candidates: int = 64,
+) -> dict[str, float]:
+    if episodes < 1 or candidates < 2 or reachability_candidates < 1:
+        raise ValueError("Planner evaluation budgets must be positive.")
+    was_training = model.training
+    model.eval()
+    rng = np.random.default_rng(seed)
+    torch_rng = torch.Generator(device=device)
+    torch_rng.manual_seed(seed + 1)
+    supports = {
+        level: _estimate_macro_support(
+            model,
+            dataset,
+            level=level,
+            seed=seed + 100 + level,
+            sample_count=max(1024, candidates),
+            device=device,
+        )
+        for level in range(model.hierarchy_depth)
+    }
+    planning_horizon = min(max(model.level_spans), dataset.horizon)
+    successes = 0
+    pixel_errors = []
+    for _ in range(episodes):
+        trajectory = generator.sample_trajectory(rng, horizon=planning_horizon)
+        planned = _receding_cem_plan(
+            model,
+            generator,
+            trajectory.states[0],
+            trajectory.states[-1],
+            rng,
+            torch_rng,
+            supports=supports,
+            max_steps=planning_horizon,
+            candidates=candidates,
+            support_weight=0.0,
+            planner="cem",
+            device=device,
+            hard_project_support=hard_project_support,
+            reachability_weight=reachability_weight,
+            reachability_candidates=reachability_candidates,
+        )
+        successes += int(np.array_equal(planned, trajectory.states[-1]))
+        pixel_errors.append(float(np.mean(planned != trajectory.states[-1])))
+    lower, upper = _wilson_interval(successes, episodes)
+    model.train(was_training)
+    return {
+        "planning_episodes": float(episodes),
+        "planning_candidates": float(candidates),
+        "planning_horizon": float(planning_horizon),
+        "planning_hard_project_support": float(hard_project_support),
+        "planning_reachability_weight": float(reachability_weight),
+        "planning_reachability_candidates": float(reachability_candidates),
+        "planning_success_rate": successes / episodes,
+        "planning_success_ci95_lower": lower,
+        "planning_success_ci95_upper": upper,
+        "planning_final_pixel_error": float(np.mean(pixel_errors)),
+    }
+
+
 def _manual_low_level_plan(
     model: ControlledObjectJEPA,
     generator: ControlledObjectGenerator,
@@ -666,6 +756,9 @@ def _receding_cem_plan(
     support_weight: float,
     planner: str,
     device: torch.device,
+    hard_project_support: bool = False,
+    reachability_weight: float = 0.0,
+    reachability_candidates: int = 64,
 ) -> np.ndarray:
     state = initial.copy()
     goal_tensor = torch.as_tensor(goal[None], dtype=torch.long, device=device)
@@ -686,6 +779,9 @@ def _receding_cem_plan(
             planner=planner,
             device=device,
             max_primitive_horizon=max_steps - executed,
+            hard_project_support=hard_project_support,
+            reachability_weight=reachability_weight,
+            reachability_candidates=reachability_candidates,
         )
         state, _ = generator.apply_action(state, action)
     return state
@@ -705,6 +801,9 @@ def _recursive_cem_action(
     planner: str,
     device: torch.device,
     max_primitive_horizon: int,
+    hard_project_support: bool = False,
+    reachability_weight: float = 0.0,
+    reachability_candidates: int = 64,
 ) -> RigidTransform:
     state_tensor = torch.as_tensor(state[None], dtype=torch.long, device=device)
     state_latent = model.encode(state_tensor)
@@ -731,6 +830,9 @@ def _recursive_cem_action(
         support_weight=support_weight,
         planner=planner,
         device=device,
+        hard_project_support=hard_project_support,
+        reachability_weight=reachability_weight,
+        reachability_candidates=reachability_candidates,
     )
 
 
@@ -750,6 +852,9 @@ def _plan_cem_level(
     support_weight: float,
     planner: str,
     device: torch.device,
+    hard_project_support: bool = False,
+    reachability_weight: float = 0.0,
+    reachability_candidates: int = 64,
 ) -> RigidTransform:
     if level == 0:
         return _best_flat_plan_action(
@@ -763,6 +868,22 @@ def _plan_cem_level(
             device=device,
         )
     sequence_planner = _cem_macro_sequence if planner == "cem" else _mppi_macro_sequence
+    reachability_endpoints = None
+    if reachability_weight > 0.0:
+        span = model.level_spans[level]
+        sequences = _candidate_action_sequences(
+            generator,
+            state,
+            rng,
+            horizon=span,
+            count=reachability_candidates,
+        )
+        action_tensor = torch.as_tensor(sequences, dtype=torch.long, device=device)
+        reachability_endpoints = model.rollout_level(
+            level - 1,
+            state_latent.expand(reachability_candidates, -1),
+            action_tensor,
+        )[:, -1]
     macros, first_subgoal = sequence_planner(
         model,
         state_latent,
@@ -774,6 +895,9 @@ def _plan_cem_level(
         iterations=10,
         support_weight=support_weight,
         torch_rng=torch_rng,
+        hard_project_support=hard_project_support,
+        reachability_weight=reachability_weight,
+        reachability_endpoints=reachability_endpoints,
     )
     del macros
     span = model.level_spans[level]
@@ -793,6 +917,9 @@ def _plan_cem_level(
         support_weight=support_weight,
         planner=planner,
         device=device,
+        hard_project_support=hard_project_support,
+        reachability_weight=reachability_weight,
+        reachability_candidates=reachability_candidates,
     )
 
 
@@ -808,6 +935,9 @@ def _cem_macro_sequence(
     iterations: int,
     support_weight: float,
     torch_rng: torch.Generator,
+    hard_project_support: bool = False,
+    reachability_weight: float = 0.0,
+    reachability_endpoints: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     variance_ema = 0.7
     mean = support.mean.expand(transition_count, -1).clone()
@@ -828,7 +958,12 @@ def _cem_macro_sequence(
             torch.minimum(macro_candidates, support.upper), support.lower
         )
         initial = state_latent.expand(candidates, -1)
-        rollout = model.dynamics[level].rollout(initial, macro_candidates)
+        if hard_project_support:
+            macro_candidates, rollout = _project_and_rollout_macros(
+                model, level, initial, macro_candidates, support
+            )
+        else:
+            rollout = model.dynamics[level].rollout(initial, macro_candidates)
         support_states = torch.cat((initial[:, None], rollout[:, :-1]), dim=1)
         costs = _latent_distance(rollout[:, -1], target_latent.expand(candidates, -1))
         if support_weight > 0.0:
@@ -837,6 +972,17 @@ def _cem_macro_sequence(
                 support_states,
                 support,
             )
+        if reachability_weight > 0.0:
+            if reachability_endpoints is None:
+                raise ValueError("Reachability feedback requires lower-level endpoints.")
+            retained_count = min(max(elite_count, 32), len(costs))
+            retained = costs.topk(retained_count, largest=False).indices
+            residual = torch.cdist(
+                rollout[retained, 0], reachability_endpoints
+            ).square().min(dim=1).values / rollout.shape[-1]
+            rescored = torch.full_like(costs, float("inf"))
+            rescored[retained] = costs[retained] + reachability_weight * residual
+            costs = rescored
         elite_ids = costs.topk(elite_count, largest=False).indices
         elites = macro_candidates[elite_ids]
         mean = elites.mean(dim=0)
@@ -863,7 +1009,12 @@ def _mppi_macro_sequence(
     iterations: int,
     support_weight: float,
     torch_rng: torch.Generator,
+    hard_project_support: bool = False,
+    reachability_weight: float = 0.0,
+    reachability_endpoints: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    if hard_project_support or reachability_weight > 0.0 or reachability_endpoints is not None:
+        raise ValueError("Hard support and reachability feedback currently require CEM.")
     mean = support.mean.expand(transition_count, -1).clone()
     std = support.std.expand(transition_count, -1).clone()
     for _ in range(iterations):
@@ -899,6 +1050,49 @@ def _mppi_macro_sequence(
     selected = mean
     selected_rollout = model.dynamics[level].rollout(state_latent, selected[None])
     return selected, selected_rollout[:, 0]
+
+
+def _project_and_rollout_macros(
+    model: ControlledObjectJEPA,
+    level: int,
+    initial: torch.Tensor,
+    macros: torch.Tensor,
+    support: MacroSupport,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    projected_steps = []
+    rollout = None
+    for step in range(macros.shape[1]):
+        states = initial if rollout is None else rollout[:, -1]
+        projected_steps.append(
+            _project_macros_to_conditional_support(macros[:, step], states, support)
+        )
+        projected = torch.stack(projected_steps, dim=1)
+        rollout = model.dynamics[level].rollout(initial, projected)
+    if rollout is None:
+        raise ValueError("Macro projection requires at least one transition.")
+    return torch.stack(projected_steps, dim=1), rollout
+
+
+def _project_macros_to_conditional_support(
+    macros: torch.Tensor,
+    states: torch.Tensor,
+    support: MacroSupport,
+) -> torch.Tensor:
+    normalized_states = (states - support.state_mean) / support.state_std
+    state_bank = (support.state_bank - support.state_mean) / support.state_std
+    state_distance = torch.cdist(normalized_states, state_bank).square()
+    neighbor_count = min(CONDITIONAL_SUPPORT_NEIGHBORS, len(support.state_bank))
+    neighbor_ids = state_distance.topk(
+        neighbor_count, dim=1, largest=False
+    ).indices
+    normalized_macros = (macros - support.mean) / support.std
+    macro_bank = (support.bank - support.mean) / support.std
+    neighbor_macros = macro_bank[neighbor_ids]
+    macro_distance = (
+        normalized_macros[:, None] - neighbor_macros
+    ).square().mean(dim=-1)
+    selected = macro_distance.argmin(dim=1)
+    return support.bank[neighbor_ids[torch.arange(len(macros), device=macros.device), selected]]
 
 
 def _macro_support_energy(
@@ -1243,3 +1437,19 @@ def _binary_auroc(negative_scores: torch.Tensor, positive_scores: torch.Tensor) 
     return float(
         ((comparisons > 0).float() + 0.5 * (comparisons == 0).float()).mean().cpu()
     )
+
+
+def _wilson_interval(successes: int, trials: int) -> tuple[float, float]:
+    z = 1.959963984540054
+    proportion = successes / trials
+    denominator = 1.0 + z * z / trials
+    center = (proportion + z * z / (2.0 * trials)) / denominator
+    radius = (
+        z
+        * np.sqrt(
+            proportion * (1.0 - proportion) / trials
+            + z * z / (4.0 * trials * trials)
+        )
+        / denominator
+    )
+    return max(0.0, center - radius), min(1.0, center + radius)

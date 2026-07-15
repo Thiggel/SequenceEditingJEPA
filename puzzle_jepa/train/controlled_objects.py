@@ -90,6 +90,9 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
     )
     max_steps = int(training_cfg.get("max_steps", 20_000))
     batch_size = int(training_cfg.get("batch_size", 64))
+    training_horizon = (
+        trajectory_length if model.dense_trajectory_training else model.required_horizon
+    )
     eval_every = int(training_cfg.get("eval_every_steps", max_steps))
     grad_clip = float(training_cfg.get("grad_clip", 1.0))
     warmup_steps = int(training_cfg.get("warmup_steps", 500))
@@ -106,6 +109,7 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
             device=device,
             planning_episodes=(int(eval_cfg.get("planning_episodes", 4)) if planning else 0),
             planning_candidates=int(eval_cfg.get("planning_candidates", 16)),
+            horizon=training_horizon,
         )
         return {
             "step": step,
@@ -127,7 +131,11 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
             "ldad_horizon": model.ldad_horizon,
             "ldad_weight": model.ldad_weight,
             "rollout_steps": model.rollout_steps,
+            "rollout_steps_by_level": list(model.rollout_steps_by_level or ()),
             "rollout_all_levels": model.rollout_all_levels,
+            "dense_trajectory_training": model.dense_trajectory_training,
+            "cross_level_consistency_weight": model.cross_level_consistency_weight,
+            "training_horizon": training_horizon,
             "rollout_lambda": model.rollout_lambda,
             "latent_representation": model.latent_representation,
             "target_mode": model.target_mode,
@@ -146,7 +154,7 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
         batch = train_dataset.sample_batch(
             train_rng,
             batch_size=batch_size,
-            horizon=model.required_horizon,
+            horizon=training_horizon,
             device=device,
         )
         _set_learning_rate(
@@ -185,6 +193,9 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
                 output.vicreg_covariance_loss.detach().cpu()
             ),
             "train_sigreg_loss": float(output.sigreg_loss.detach().cpu()),
+            "train_cross_level_consistency_loss": float(
+                output.cross_level_consistency_loss.detach().cpu()
+            ),
             "train_ldad_loss": float(output.ldad_loss.detach().cpu()),
             "train_level_losses": [
                 float(loss.detach().cpu()) for loss in output.level_losses

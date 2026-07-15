@@ -8,8 +8,11 @@ predictor_layers: 2
 predictor_heads: 4
 predictor_max_context: 128
 rollout_steps: 4
+rollout_steps_by_level: null
 rollout_all_levels: true
 rollout_lambda: 1.0
+dense_trajectory_training: false
+cross_level_consistency_weight: 0.0
 teacher_forcing_weight: 1.0
 autonomous_rollout_weight: 1.0
 ldad_horizon: 1

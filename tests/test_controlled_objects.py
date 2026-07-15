@@ -227,6 +227,82 @@ def test_joint_hierarchy_every_level_backpropagates_into_shared_encoder() -> Non
         assert encoder_gradient > 0.0, f"level {level} did not update the encoder"
 
 
+def test_dense_trajectory_supervises_every_anchor_and_cross_level_consistency() -> None:
+    model = ControlledObjectJEPA(
+        hidden_dim=16,
+        level_spans=[1, 2, 4],
+        macro_dim=8,
+        predictor_layers=1,
+        predictor_heads=4,
+        predictor_max_context=8,
+        rollout_steps=1,
+        rollout_steps_by_level=[2, 2, 2],
+        dense_trajectory_training=True,
+        cross_level_consistency_weight=1.0,
+        target_mode="ema",
+        stop_gradient_targets=True,
+        vicreg_weight=0.0,
+    )
+    assert model.required_horizon == 4
+    generator = _generator(horizon=8)
+    dataset = build_controlled_dataset(generator, trajectory_count=4, seed=41)
+    batch = dataset.sample_batch(np.random.default_rng(42), batch_size=2, horizon=8)
+    output = model(batch)
+    assert [tuple(value.shape[:2]) for value in output.teacher_forced_predictions] == [
+        (2, 8),
+        (2, 4),
+        (2, 2),
+    ]
+    assert [tuple(value.shape[:2]) for value in output.predictions] == [
+        (14, 2),
+        (6, 2),
+        (2, 2),
+    ]
+    assert [tuple(value.shape) for value in output.rollout_initials] == [
+        (14, 16),
+        (6, 16),
+        (2, 16),
+    ]
+    assert len(output.level_consistency_losses) == 2
+    assert torch.isfinite(output.cross_level_consistency_loss)
+    output.loss.backward()
+    assert all(
+        parameter.grad is not None
+        for parameter in model.dynamics.parameters()
+        if parameter.requires_grad
+    )
+    metrics = controlled_evaluation.evaluate_controlled_model(
+        model,
+        dataset,
+        generator,
+        seed=43,
+        batch_size=2,
+        horizon=8,
+        device=torch.device("cpu"),
+    )
+    assert "eval_level0_rollout2_changed_gain" in metrics
+
+
+def test_conditional_projection_selects_macros_from_nearby_states() -> None:
+    state_bank = torch.cat((torch.zeros(16, 2), torch.full((16, 2), 10.0)))
+    macro_bank = torch.cat((torch.zeros(16, 2), torch.full((16, 2), 10.0)))
+    support = controlled_evaluation.MacroSupport(
+        state_bank=state_bank,
+        bank=macro_bank,
+        action_bank=torch.zeros(32, 1, 3, dtype=torch.long),
+        lower=torch.zeros(2),
+        upper=torch.full((2,), 10.0),
+        state_mean=state_bank.mean(dim=0),
+        state_std=state_bank.std(dim=0, unbiased=False),
+        mean=macro_bank.mean(dim=0),
+        std=macro_bank.std(dim=0, unbiased=False),
+    )
+    projected = controlled_evaluation._project_macros_to_conditional_support(
+        torch.full((1, 2), 10.0), torch.zeros(1, 2), support
+    )
+    torch.testing.assert_close(projected, torch.zeros_like(projected))
+
+
 def test_rollout_weighting_is_lambda_power_normalized() -> None:
     model = ControlledObjectJEPA(
         hidden_dim=16,
@@ -600,6 +676,60 @@ def test_joint_objective_gate_has_twelve_objectives_and_three_seeds(
     assert len(values) == 36
     assert len({row[1] for row in values}) == 12
     assert {row[2] for row in values} == {"1707", "2707", "3707"}
+
+
+@pytest.mark.parametrize(
+    ("script", "sweep", "expected", "message"),
+    [
+        (
+            "submit_controlled_objects_objective_weights.sh",
+            "pytest_objective_weights",
+            231,
+            "231 trainers and 231 correlated probes",
+        ),
+        (
+            "submit_controlled_objects_dense_trajectories.sh",
+            "pytest_dense_trajectories",
+            42,
+            "42 dense-trajectory trainers",
+        ),
+        (
+            "submit_controlled_objects_planner_interfaces.sh",
+            "pytest_planner_interfaces",
+            48,
+            "48 planner-interface evaluations",
+        ),
+    ],
+)
+def test_next_controlled_sweep_manifests_have_expected_task_counts(
+    tmp_path: Path,
+    script: str,
+    sweep: str,
+    expected: int,
+    message: str,
+) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        ["bash", f"scripts/experiments/{script}"],
+        cwd=repo,
+        env={
+            **os.environ,
+            "SUBMIT": "0",
+            "SWEEP_NAME": sweep,
+            "PUZZLE_JEPA_WORK_ROOT": str(tmp_path),
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert message in completed.stdout
+    manifest_line = next(
+        line for line in completed.stdout.splitlines() if line.startswith("Task manifest")
+    )
+    rows = Path(manifest_line.split(": ", maxsplit=1)[1]).read_text(
+        encoding="utf-8"
+    ).splitlines()
+    assert len(rows) == expected + 1
 
 
 def test_slurm_training_keeps_hydra_metadata_off_home_filesystem() -> None:

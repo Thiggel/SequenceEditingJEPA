@@ -73,6 +73,11 @@ def evaluate_checkpoint_probes(
         device=device,
         planning_episodes=planning_episodes,
         planning_candidates=planning_candidates,
+        horizon=(
+            generator.spec.trajectory_length
+            if final.dense_trajectory_training
+            else final.required_horizon
+        ),
     )
     del initial, final
     if device.type == "cuda":

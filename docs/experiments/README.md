@@ -21,7 +21,10 @@ truth remains `../../../sequence-editing-report`.
 | [12](WAVE-12-CONTROLLED-HWM.md) | Jul 13 | Controlled Transformer/CLS HWM | complete/superseded |
 | [13](WAVE-13-MLP-PIXEL-HWM.md) | Jul 13-14 | MLP pixel-edit HWM factorial | canceled partial |
 | [14](WAVE-14-VALID-HWM-VICREG.md) | Jul 14-15 | Valid rigid-motion HWM VICReg sweep | complete; gate failed |
-| [15](WAVE-15-JOINT-HWM-OBJECTIVES.md) | Jul 15 | Joint HWM objective gate | active |
+| [15](WAVE-15-JOINT-HWM-OBJECTIVES.md) | Jul 15 | Joint HWM objective gate | complete; gate failed |
+| [16](WAVE-16-OBJECTIVE-WEIGHTS.md) | Jul 15 | LDAD/VICReg/SIGReg weight calibration | active |
+| [17](WAVE-17-DENSE-TRAJECTORIES.md) | Jul 15 | Whole-trajectory dense hierarchy | active |
+| [18](WAVE-18-PLANNER-INTERFACES.md) | Jul 15 | Macro support and reachability planning | active |
 
 Historical checkpoints are not the result archive. Metrics, manifests,
 aggregates, job IDs, code commits, and these records are the durable artifacts.

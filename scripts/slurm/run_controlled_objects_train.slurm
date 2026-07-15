@@ -42,6 +42,18 @@ fi
 if [[ -n "${LDAD_HORIZON:-}" ]]; then
   MODEL_ARGS+=("model.ldad_horizon=${LDAD_HORIZON}")
 fi
+if [[ -n "${ROLLOUT_STEPS_BY_LEVEL:-}" ]]; then
+  MODEL_ARGS+=("model.rollout_steps_by_level=${ROLLOUT_STEPS_BY_LEVEL}")
+fi
+if [[ -n "${PREDICTOR_MAX_CONTEXT:-}" ]]; then
+  MODEL_ARGS+=("model.predictor_max_context=${PREDICTOR_MAX_CONTEXT}")
+fi
+if [[ -n "${DENSE_TRAJECTORY_TRAINING:-}" ]]; then
+  MODEL_ARGS+=("model.dense_trajectory_training=${DENSE_TRAJECTORY_TRAINING}")
+fi
+if [[ -n "${CROSS_LEVEL_CONSISTENCY_WEIGHT:-}" ]]; then
+  MODEL_ARGS+=("model.cross_level_consistency_weight=${CROSS_LEVEL_CONSISTENCY_WEIGHT}")
+fi
 OBJECTIVE_ARGS=()
 if [[ -n "${LDAD_WEIGHT:-}" ]]; then
   OBJECTIVE_ARGS+=("objective.ldad_weight=${LDAD_WEIGHT}")
@@ -87,11 +99,13 @@ python -m puzzle_jepa.train.controlled_objects \
   "training.train_from_level=${TRAIN_FROM_LEVEL}" \
   "training.max_steps=${MAX_STEPS:-20000}" \
   "training.eval_every_steps=${EVAL_EVERY_STEPS:-5000}" \
+  "training.warmup_steps=${WARMUP_STEPS:-500}" \
   "training.batch_size=${BATCH_SIZE:-64}" \
   "training.train_trajectories=${TRAIN_TRAJECTORIES:-512}" \
   "data.object_count=${OBJECT_COUNT:-4}" \
   "data.trajectory_length=${TRAJECTORY_LENGTH:-512}" \
   "eval.trajectories=${EVAL_TRAJECTORIES:-128}" \
+  "eval.batch_size=${EVAL_BATCH_SIZE:-64}" \
   "eval.planning_episodes=${PLANNING_EPISODES:-8}" \
   "eval.planning_candidates=${PLANNING_CANDIDATES:-32}" \
   "hydra.run.dir=${OUTPUT_ROOT}/${RUN_NAME}/hydra" \

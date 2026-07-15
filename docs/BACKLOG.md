@@ -1,7 +1,7 @@
 # Experiment Backlog
 
-Wave 15 is complete and its strict representation gate failed. Later stages
-are gates, not permission to launch broad grids automatically.
+Wave 15 is complete and its strict representation gate failed. Waves 16-18
+are active controlled follow-ups, not permission to launch broader grids.
 
 ## Stage 0: Representation Rescue
 
@@ -13,6 +13,9 @@ are gates, not permission to launch broad grids automatically.
 | P0 | Conditional macro-support diagnostic repair | implemented in Wave 15 | Score macro support conditional on nearby states; require held-out support/reachability AUROC before planning use. |
 | P0 | Planner sample-size repair | blocked: no Wave 15 objective passed | Run only after a representation-qualified objective exists. |
 | P0 | Historical storage cleanup | complete | Historical metrics/manifests/docs retained; obsolete checkpoints and caches removed. Keep only active sweep checkpoints. |
+| P0 | Objective-weight calibration without VISReg | active: trainers `3860384`, probes `3860385` | Require reproducible frozen-property/rank improvement without trading it for collapsed low MSE. |
+| P0 | Whole-trajectory dense joint hierarchy | active: trainers `3860420`, probes `3860421` | Test trajectory length and state-budget effects on representation, rollout, and cross-level reachability. |
+| P0 | Conditional support and lower-level reachability planner ablation | active: `3860422` | Compare eight modes on the same 32 episodes per checkpoint with uncertainty. |
 
 ## Stage 1: Diagnose a Passing Representation
 

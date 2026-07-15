@@ -42,10 +42,13 @@ class ControlledObjectOutput:
     vicreg_covariance_loss: torch.Tensor
     sigreg_loss: torch.Tensor
     ldad_loss: torch.Tensor
+    cross_level_consistency_loss: torch.Tensor
+    level_consistency_losses: tuple[torch.Tensor, ...]
     level_losses: tuple[torch.Tensor, ...]
     predictions: tuple[torch.Tensor, ...]
     teacher_forced_predictions: tuple[torch.Tensor, ...]
     targets: tuple[torch.Tensor, ...]
+    rollout_initials: tuple[torch.Tensor, ...]
     rollout_weights: tuple[torch.Tensor, ...]
     ldad_logits: tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None
 
@@ -336,8 +339,11 @@ class ControlledObjectJEPA(nn.Module):
         predictor_heads: int = 4,
         predictor_max_context: int = 64,
         rollout_steps: int = 1,
+        rollout_steps_by_level: tuple[int, ...] | list[int] | None = None,
         rollout_all_levels: bool = True,
         rollout_lambda: float = 1.0,
+        dense_trajectory_training: bool = False,
+        cross_level_consistency_weight: float = 0.0,
         teacher_forcing_weight: float = 1.0,
         autonomous_rollout_weight: float = 1.0,
         target_mode: str = "ema",
@@ -359,8 +365,8 @@ class ControlledObjectJEPA(nn.Module):
         del encoder_layers, encoder_heads, action_token_dim, action_heads
         if latent_representation != "cls":
             raise ValueError("Controlled experiments support only one learned latent state.")
-        if rollout_steps not in {1, 2, 4, 8}:
-            raise ValueError("rollout_steps must be in {1,2,4,8}.")
+        if rollout_steps < 1:
+            raise ValueError("rollout_steps must be positive.")
         if not (0.0 < rollout_lambda <= 1.0):
             raise ValueError("rollout_lambda must lie in (0,1].")
         if target_mode not in {"shared", "ema"}:
@@ -385,6 +391,20 @@ class ControlledObjectJEPA(nn.Module):
             raise ValueError("level_spans must start at primitive span 1.")
         if any(left >= right for left, right in zip(resolved_spans, resolved_spans[1:])):
             raise ValueError("level_spans must be strictly increasing.")
+        resolved_rollouts = (
+            tuple(int(steps) for steps in rollout_steps_by_level)
+            if rollout_steps_by_level is not None
+            else None
+        )
+        if resolved_rollouts is not None and (
+            len(resolved_rollouts) != len(resolved_spans)
+            or any(steps < 1 for steps in resolved_rollouts)
+        ):
+            raise ValueError(
+                "rollout_steps_by_level must provide one positive value per level."
+            )
+        if cross_level_consistency_weight < 0.0:
+            raise ValueError("cross_level_consistency_weight must be non-negative.")
         state_dim = int(hidden_dim if hidden_dim is not None else latent_dim)
         self.grid_size = int(grid_size)
         self.num_colors = int(num_colors)
@@ -395,8 +415,11 @@ class ControlledObjectJEPA(nn.Module):
         self.hierarchy_depth = len(resolved_spans)
         self.hierarchy_stride = resolved_spans[1] if len(resolved_spans) > 1 else 1
         self.rollout_steps = int(rollout_steps)
+        self.rollout_steps_by_level = resolved_rollouts
         self.rollout_all_levels = bool(rollout_all_levels)
         self.rollout_lambda = float(rollout_lambda)
+        self.dense_trajectory_training = bool(dense_trajectory_training)
+        self.cross_level_consistency_weight = float(cross_level_consistency_weight)
         self.teacher_forcing_weight = float(teacher_forcing_weight)
         self.autonomous_rollout_weight = float(autonomous_rollout_weight)
         self.target_mode = target_mode
@@ -467,12 +490,16 @@ class ControlledObjectJEPA(nn.Module):
 
     @property
     def required_horizon(self) -> int:
+        if self.dense_trajectory_training:
+            return max(self.level_spans)
         return max(
             span * self.level_rollout_steps(level)
             for level, span in enumerate(self.level_spans)
         )
 
     def level_rollout_steps(self, level: int) -> int:
+        if self.rollout_steps_by_level is not None:
+            return self.rollout_steps_by_level[level]
         return self.rollout_steps if level == 0 or self.rollout_all_levels else 1
 
     def encode(self, states: torch.Tensor, *, target: bool = False) -> torch.Tensor:
@@ -535,6 +562,11 @@ class ControlledObjectJEPA(nn.Module):
                 parameter.requires_grad_(False)
 
     def forward(self, batch: ControlledObjectBatch) -> ControlledObjectOutput:
+        if self.dense_trajectory_training:
+            return self._forward_dense_trajectory(batch)
+        return self._forward_sparse(batch)
+
+    def _forward_sparse(self, batch: ControlledObjectBatch) -> ControlledObjectOutput:
         if batch.actions.shape[1] < self.required_horizon:
             raise ValueError(
                 f"Model requires {self.required_horizon} actions, got {batch.actions.shape[1]}."
@@ -628,6 +660,7 @@ class ControlledObjectJEPA(nn.Module):
             ldad_loss = sum(field_losses) / len(field_losses)
         else:
             ldad_loss = prediction_loss.detach() * 0.0
+        cross_level_consistency_loss = prediction_loss.detach() * 0.0
         return ControlledObjectOutput(
             loss=(
                 self.prediction_weight * prediction_loss
@@ -643,10 +676,213 @@ class ControlledObjectJEPA(nn.Module):
             vicreg_covariance_loss=vicreg_covariance,
             sigreg_loss=sigreg_loss,
             ldad_loss=ldad_loss,
+            cross_level_consistency_loss=cross_level_consistency_loss,
+            level_consistency_losses=(),
             level_losses=tuple(level_losses),
             predictions=tuple(all_predictions),
             teacher_forced_predictions=tuple(all_teacher_predictions),
             targets=tuple(all_targets),
+            rollout_initials=tuple(current for _ in self.level_spans),
+            rollout_weights=tuple(all_weights),
+            ldad_logits=ldad_logits,
+        )
+
+    def _forward_dense_trajectory(
+        self, batch: ControlledObjectBatch
+    ) -> ControlledObjectOutput:
+        horizon = int(batch.actions.shape[1])
+        if horizon < self.required_horizon:
+            raise ValueError(
+                f"Model requires at least {self.required_horizon} actions, got {horizon}."
+            )
+        batch_size = len(batch.states)
+        online_states = self.encode(batch.states.flatten(0, 1)).reshape(
+            batch_size, horizon + 1, self.latent_dim
+        )
+        target_states = self.encode(
+            batch.states.flatten(0, 1), target=True
+        ).reshape(batch_size, horizon + 1, self.latent_dim)
+
+        level_losses = []
+        teacher_losses = []
+        rollout_losses = []
+        all_predictions = []
+        all_teacher_predictions = []
+        all_targets = []
+        all_rollout_initials = []
+        all_weights = []
+        level_online_states = []
+        level_macros = []
+        for level, span in enumerate(self.level_spans):
+            segment_count = horizon // span
+            endpoint_indices = torch.arange(
+                0,
+                (segment_count + 1) * span,
+                span,
+                device=batch.states.device,
+            )
+            current_endpoints = online_states.index_select(1, endpoint_indices[:-1])
+            target_endpoints = target_states.index_select(1, endpoint_indices[1:])
+            action_segments = batch.actions[:, : segment_count * span].reshape(
+                batch_size * segment_count, span, 3
+            )
+            macros = self.encode_action_chunk(level, action_segments).reshape(
+                batch_size, segment_count, -1
+            )
+            teacher_predictions = self.dynamics[level](current_endpoints, macros)
+            teacher_loss = F.mse_loss(teacher_predictions, target_endpoints)
+
+            rollout_count = min(self.level_rollout_steps(level), segment_count)
+            anchor_count = segment_count - rollout_count + 1
+            macro_windows = torch.stack(
+                [
+                    macros[:, offset : offset + anchor_count]
+                    for offset in range(rollout_count)
+                ],
+                dim=2,
+            )
+            target_windows = torch.stack(
+                [
+                    target_endpoints[:, offset : offset + anchor_count]
+                    for offset in range(rollout_count)
+                ],
+                dim=2,
+            )
+            rollout_initial = current_endpoints[:, :anchor_count].reshape(
+                batch_size * anchor_count, self.latent_dim
+            )
+            flat_macro_windows = macro_windows.reshape(
+                batch_size * anchor_count, rollout_count, -1
+            )
+            flat_targets = target_windows.reshape(
+                batch_size * anchor_count, rollout_count, self.latent_dim
+            )
+            predictions = self.dynamics[level].rollout(
+                rollout_initial, flat_macro_windows
+            )
+            weights = predictions.new_tensor(
+                [self.rollout_lambda**index for index in range(rollout_count)]
+            )
+            weights = weights / weights.sum()
+            rollout_per_step = (predictions - flat_targets).square().mean(dim=-1)
+            rollout_loss = (rollout_per_step * weights).sum(dim=1).mean()
+            level_loss = (
+                self.teacher_forcing_weight * teacher_loss
+                + self.autonomous_rollout_weight * rollout_loss
+            ) / max(
+                1.0, self.teacher_forcing_weight + self.autonomous_rollout_weight
+            )
+
+            level_losses.append(level_loss)
+            teacher_losses.append(teacher_loss)
+            rollout_losses.append(rollout_loss)
+            all_predictions.append(predictions)
+            all_teacher_predictions.append(teacher_predictions)
+            all_targets.append(flat_targets)
+            all_rollout_initials.append(rollout_initial)
+            all_weights.append(weights)
+            level_online_states.append(current_endpoints)
+            level_macros.append(macros)
+
+        selected = slice(self.train_from_level, None)
+        prediction_loss = torch.stack(level_losses[selected]).mean()
+        teacher_forcing_loss = torch.stack(teacher_losses[selected]).mean()
+        autonomous_rollout_loss = torch.stack(rollout_losses[selected]).mean()
+
+        level_consistency_losses = []
+        for level in range(1, self.hierarchy_depth):
+            ratio, remainder = divmod(
+                self.level_spans[level], self.level_spans[level - 1]
+            )
+            if remainder:
+                raise ValueError("Adjacent hierarchy spans must divide exactly.")
+            high_macros = level_macros[level]
+            high_initial = level_online_states[level]
+            high_segments = high_macros.shape[1]
+            lower_macros = level_macros[level - 1][
+                :, : high_segments * ratio
+            ].reshape(batch_size * high_segments, ratio, -1)
+            flat_initial = high_initial.reshape(
+                batch_size * high_segments, self.latent_dim
+            )
+            high_prediction = self.predict_from_macro(
+                level,
+                flat_initial,
+                high_macros.reshape(batch_size * high_segments, -1),
+            )
+            lower_prediction = self.dynamics[level - 1].rollout(
+                flat_initial, lower_macros
+            )[:, -1]
+            level_consistency_losses.append(
+                F.mse_loss(high_prediction, lower_prediction)
+            )
+        cross_level_consistency_loss = (
+            torch.stack(level_consistency_losses).mean()
+            if level_consistency_losses
+            else prediction_loss.detach() * 0.0
+        )
+
+        regularization_latents = online_states[:, :-1].flatten(0, 1)
+        if self.vicreg_weight > 0.0:
+            vicreg_variance = variance_loss(regularization_latents)
+            vicreg_covariance = covariance_loss(
+                regularization_latents, adjust_cov=self.vicreg_adjust_cov
+            )
+            vicreg_loss = (
+                self.vicreg_variance_weight * vicreg_variance
+                + self.vicreg_covariance_weight * vicreg_covariance
+            )
+        else:
+            vicreg_loss = prediction_loss.detach() * 0.0
+            vicreg_variance = vicreg_loss
+            vicreg_covariance = vicreg_loss
+
+        if self.sigreg_weight > 0.0:
+            sigreg_loss = sigreg_regularizer(
+                regularization_latents,
+                num_slices=self.sigreg_num_slices,
+                t_max=self.sigreg_t_max,
+                num_points=self.sigreg_num_points,
+            )
+        else:
+            sigreg_loss = prediction_loss.detach() * 0.0
+
+        ldad_logits = None
+        if self.ldad_decoder is not None:
+            current = online_states[:, 0]
+            endpoint = target_states[:, 1]
+            ldad_logits = self.ldad_decoder(endpoint - current)
+            ldad_loss = sum(
+                F.cross_entropy(logits, batch.actions[:, 0, index])
+                for index, logits in enumerate(ldad_logits)
+            ) / len(ldad_logits)
+        else:
+            ldad_loss = prediction_loss.detach() * 0.0
+
+        total_loss = (
+            self.prediction_weight * prediction_loss
+            + self.vicreg_weight * vicreg_loss
+            + self.sigreg_weight * sigreg_loss
+            + self.ldad_weight * ldad_loss
+            + self.cross_level_consistency_weight * cross_level_consistency_loss
+        )
+        return ControlledObjectOutput(
+            loss=total_loss,
+            prediction_loss=prediction_loss,
+            teacher_forcing_loss=teacher_forcing_loss,
+            rollout_loss=autonomous_rollout_loss,
+            vicreg_loss=vicreg_loss,
+            vicreg_variance_loss=vicreg_variance,
+            vicreg_covariance_loss=vicreg_covariance,
+            sigreg_loss=sigreg_loss,
+            ldad_loss=ldad_loss,
+            cross_level_consistency_loss=cross_level_consistency_loss,
+            level_consistency_losses=tuple(level_consistency_losses),
+            level_losses=tuple(level_losses),
+            predictions=tuple(all_predictions),
+            teacher_forced_predictions=tuple(all_teacher_predictions),
+            targets=tuple(all_targets),
+            rollout_initials=tuple(all_rollout_initials),
             rollout_weights=tuple(all_weights),
             ldad_logits=ldad_logits,
         )

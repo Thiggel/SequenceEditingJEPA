@@ -3,23 +3,15 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Wave 15 is complete. It corrected Wave 14's staged encoder freeze by training
-all three hierarchy levels and the shared encoder jointly from step 0.
+The active plan has three independent gates:
 
-The corrected bounded experiment keeps data, model, `[1,10,100]` spans,
-rollout supervision, bottleneck, and capacity fixed. Every level, action
-encoder, predictor, and the shared state encoder trains jointly from step 0.
-At three seeds, compare:
+1. Calibrate no-VISReg LDAD, VICReg, and SIGReg recipes over multipliers
+   `{1,10,100}` and online/stop-gradient/EMA target contracts.
+2. Test whole trajectories and dense joint hierarchy supervision at
+   `T={100,300,500}`, including a constant-processed-state batch axis.
+3. Diagnose retained VICReg/EMA+VICReg planners with conditional support
+   projection and lower-level reachability feedback over 32 shared episodes.
 
-1. bare online JEPA and EMA-only controls;
-2. SIGReg and EMA+SIGReg;
-3. VICReg and EMA+VICReg using the selected Wave 14 coefficient pair;
-4. paper-style online LDAD, EMA+LDAD, and LDAD combined separately with
-   VICReg or SIGReg, with and without EMA.
-
-This is a 12-objective, 36-run training gate, not another coefficient grid.
-SIGReg, per-level encoder-gradient tests, standardized regression probes, and
-conditional macro support are implemented. Trainers `3858542` and probes
-`3858543` completed, but no objective passed the representation gate. Planning,
-predictor, capacity, object-load, and trajectory grids remain blocked pending
-an explicit next decision.
+Do not combine winners or open broader predictor, capacity, object-load, or
+trajectory-type axes until these three manifests are complete and compared
+over all seeds. Never add a full-grid latent row.
