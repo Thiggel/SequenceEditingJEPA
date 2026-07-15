@@ -20,7 +20,7 @@ truth remains `../../../sequence-editing-report`.
 | [11](WAVE-11-HARD-RATE-TRAJECTORIES.md) | Jul 12-13 | Exact load, hard rate, trajectory transfer | complete |
 | [12](WAVE-12-CONTROLLED-HWM.md) | Jul 13 | Controlled Transformer/CLS HWM | complete/superseded |
 | [13](WAVE-13-MLP-PIXEL-HWM.md) | Jul 13-14 | MLP pixel-edit HWM factorial | canceled partial |
-| [14](WAVE-14-VALID-HWM-VICREG.md) | Jul 14 onward | Valid rigid-motion HWM VICReg sweep | active |
+| [14](WAVE-14-VALID-HWM-VICREG.md) | Jul 14-15 | Valid rigid-motion HWM VICReg sweep | complete; gate failed |
 
 Historical checkpoints are not the result archive. Metrics, manifests,
 aggregates, job IDs, code commits, and these records are the durable artifacts.

@@ -3,26 +3,21 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Only Wave 14 is active. It fixes every factor except the two VICReg
-regularization coefficients and seed:
+Wave 14 is complete and its representation gate failed. No new training sweep
+is active or authorized.
 
-- exact N=2 valid rigid-object motion on `16x16`;
-- one `768 -> 256` MLP latent, never a grid latent;
-- hierarchy `[1,10,100]` in valid environment-action time;
-- separate causal Transformer predictors with four-step dense supervision;
-- ordered nonlinear 8D macro actions;
-- EMA `.99`, stop-gradient, and no LDAD/SIGReg;
-- variance `{.05,1,10,29.409}` by adjusted covariance
-  `{.1,1,10,17.866}` by three seeds.
+The next bounded work is evaluation repair on retained checkpoints:
 
-The first gate is representation: latent rank/std, exact-N=2 shape, position,
-area, relation, foreground reconstruction, and rollout transfer must improve
-consistently over matched random initialization. Mixed object-count probes are
-reported separately as OOD load generalization.
+1. Calibrate frozen property probes with standardized regression targets or a
+   closed-form ridge baseline and verify convergence against raw and matched
+   initialization controls.
+2. Replace the joint 256D-state/8D-macro nearest-neighbor support score with a
+   conditional macro-support diagnostic that can separate held-out valid from
+   synthetic off-support chunks.
+3. Only for a cell surviving those checks, rerun enough planning episodes to
+   report uncertainty rather than three binary trials.
 
-Only passing representation cells are interpreted for planning. Manual
-low-level subgoal control must work; then retrieval, CEM, support CEM, and MPPI
-test recursive HWM planning. Macro support/reachability metrics determine
-whether continuous actions leave the learned action manifold.
-
-Do not launch any backlog stage without the gate and an explicit decision.
+A later training ablation may compare staged encoder freezing with joint
+high-level gradients. That is required before claiming hierarchy itself induces
+abstract state features. Predictor, capacity, LDAD, SIGReg, object-load, and
+trajectory grids remain blocked.

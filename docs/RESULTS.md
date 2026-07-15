@@ -2,20 +2,26 @@
 
 Long-form results: `../sequence-editing-report/RESULTS.md`.
 
-Last updated: 2026-07-14 12:07 CEST
+Last updated: 2026-07-15 09:58 CEST
 
-The active valid-motion HWM VICReg sweep has no completed trained cells yet.
-Its prelaunch three-stage CUDA smoke passed in job `3855783`; valid-action and
-object-area-preservation fractions were both `1.0`, with `2-6` pixels changed
-simultaneously per primitive action.
+Wave 14 completed all 192 jobs `3855790`-`3855793` with exit `0:0` and
+48/48 final evaluations. No VICReg pair passes the representation gate.
+Covariance pressure raises effective rank as high as `94.3/256`, but that row
+has poor prediction and semantics. The best compromise, variance `.05` and
+covariance `17.866`, has rank `60.1`, presence BA `.751`, shape BA `.275`,
+position R2 `-.211`, relation R2 `-.979`, foreground IoU `.166`, and
+prediction/rollout MSE `.017/.021`. Foreground reconstruction is worse than
+matched initialization in every seed.
 
-The superseded MLP pixel-edit factorial was canceled after 1,419 staged
-checkpoints and 752 final probes. Its balanced flat versus `[1,4]` comparison
-was negative for hierarchy: exact planning `.102` versus `.041`, with pixel
-error `.052` versus `.100`. Mean effective rank was only `9.4/256`; count
-improved, while shape, position, relation, and foreground reconstruction did
-not. Those trajectories passed through partial erase/paint states and are not
-evidence about valid rigid-motion HWM.
+For that row, direct 10/100-action endpoint MSE is `.018/.024`, versus
+primitive realization MSE `.139/5.491`. Level-2 reachability is chance and the
+joint state/macro support score is invalid as an off-manifold detector. Planner
+success used one episode per seed and is not promoted. Area R2 is also excluded
+because its unstandardized tiny targets make the gradient probe numerically
+invalid.
 
-Per-wave run surfaces, results, and conclusions are indexed in
-`docs/experiments/README.md`. The current backlog is `docs/BACKLOG.md`.
+The staged encoder is frozen after `[1]`; Wave 14 therefore evaluates
+low-level VICReg representation rescue and higher-level prediction/planning,
+but not hierarchy-induced changes to the representation. Per-wave history is
+indexed in `docs/experiments/README.md`; staged decisions are in
+`docs/BACKLOG.md`.

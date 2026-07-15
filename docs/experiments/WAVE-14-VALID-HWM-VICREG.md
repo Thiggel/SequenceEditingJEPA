@@ -45,19 +45,53 @@ actions produce off-manifold or low-level-unreachable subgoals.
 
 ## Status
 
-Submitted 2026-07-14 after the full repository test suite and three-stage CUDA
-smoke `3855783` passed. Train arrays are `3855790` (`[1]`), `3855791`
-(`[1,10]`), and `3855792` (`[1,10,100]`); probe/planner array `3855793`
-depends on the final stage. Sixteen low-level tasks are currently running.
+Complete. All 48 tasks in each of train arrays `3855790` (`[1]`), `3855791`
+(`[1,10]`), and `3855792` (`[1,10,100]`) and probe/planner array `3855793`
+completed with exit `0:0`. The output contains 48/48 final probes and no
+missing cell.
 
 ## Results
 
-No trained final cell is complete at this snapshot. The CUDA smoke verifies
-execution only: valid-action and object-area-preservation fractions are `1.0`,
-and sampled actions change `2-6` cells simultaneously.
+| representative variance / covariance | rank `/256` | presence BA | shape BA | position R2 | foreground IoU | prediction / rollout MSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `.05 / .1` | 15.9 | .699 | .293 | .238 | .063 | .061 / .079 |
+| `.05 / 17.866` | 60.1 | .751 | .275 | -.211 | .166 | .017 / .021 |
+| `1 / 17.866` | 94.3 | .665 | .235 | -2.170 | .146 | .297 / .344 |
+| `29.409 / 17.866` | 61.7 | .610 | .252 | -1.788 | .098 | .330 / .386 |
+
+Covariance weight monotonically raises rank within each variance row, but
+higher variance weights sharply damage prediction and semantic readout. The
+best dynamics/semantic compromise is `.05 / 17.866`: all seeds have rank
+`59.7-60.7`, presence BA `.748-.757`, positive shape gain, and prediction MSE
+`.015-.021`. It still loses roughly 71 effective dimensions from initialization,
+has negative position/relation R2, and lowers foreground IoU from initialization
+in every seed. The highest-rank row (`1 / 17.866`, rank 94.3) has much worse
+prediction, position, shape, and reconstruction. Mixed-load object-count BA is
+`.684` for the compromise row versus `.599` at matched initialization.
+
+Action-delta probes in the compromise row decode row `.250`, column `.187`,
+transform `.476`, and selected color `.170`; predicted-delta transfer retains
+row `.236`, column `.175`, transform `.590`, and color `.149`. The latent
+therefore carries action effects more clearly than object geometry.
+
+Direct level-1/2 endpoint MSE is `.018/.024`, but realizing those endpoints by
+primitive rollout gives `.139/5.491`. Reachability AUROC is `.680/.509` and
+support AUROC `.184/.188`. The support diagnostic and support-CEM penalty use a
+joint 256D state plus 8D macro nearest-neighbor distance; state distance
+dominates and the measured support score is not a valid off-manifold detector.
+
+Two evaluation caveats prevent stronger claims. Area R2 uses tiny unstandardized
+targets and produces nonsensical large negative values, so it is excluded.
+Planning used one episode per seed, so success rates have only three trials per
+coefficient pair. Staged training also freezes the shared encoder after `[1]`;
+this wave tests low-level VICReg representation rescue, not whether higher-level
+losses induce abstraction.
 
 ## Conclusion
 
-Pending all three seeds for every coefficient pair. Do not interpret hierarchy
-or planner differences until the representation and manual-subgoal gates are
-evaluated.
+The representation gate fails. VICReg prevents total constant collapse and
+exposes a reproducible rank/dynamics tradeoff, but no coefficient pair jointly
+preserves rank and improves semantic and foreground reconstruction in all
+three seeds. Planning numbers are not promoted. No further training wave is
+active; the next decision should first repair/recalibrate the frozen probes and
+conditional macro-support diagnostic on retained checkpoints.
