@@ -97,7 +97,7 @@ def run_controlled_object_probes(
     finally:
         model.train(was_training)
     return {
-        "probe_schema": "controlled_objects_v4",
+        "probe_schema": "controlled_objects_v5",
         "probe_object_counts": ",".join(
             str(value) for value in (object_counts or (1, 2, 4, 8))
         ),
@@ -904,26 +904,46 @@ def _fit_masked_regressor(
     else:
         transfer_x = transfer_x or {}
     output_shape = train_y.shape[1:]
+    standardized_y, target_mean, target_std = _standardize_masked_targets(
+        train_y, train_mask
+    )
     head = nn.Linear(train_x.shape[1], int(np.prod(output_shape))).to(train_x.device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=learning_rate, weight_decay=1.0e-4)
     expanded_mask = train_mask.unsqueeze(-1).expand_as(train_y)
     for _ in range(steps):
         optimizer.zero_grad(set_to_none=True)
         predicted = head(train_x).reshape(len(train_x), *output_shape)
-        loss = (predicted[expanded_mask] - train_y[expanded_mask]).square().mean()
+        loss = (
+            predicted[expanded_mask] - standardized_y[expanded_mask]
+        ).square().mean()
         loss.backward()
         optimizer.step()
     with torch.no_grad():
         predicted = head(eval_x).reshape(len(eval_x), *output_shape)
+        predicted = predicted * target_std + target_mean
         value = _masked_r2(predicted, eval_y, eval_mask)
         transfer = {}
         if transfer_y is not None and transfer_mask is not None:
             for name, values in transfer_x.items():
                 transfer_predicted = head(values).reshape(len(values), *output_shape)
+                transfer_predicted = transfer_predicted * target_std + target_mean
                 transfer[name] = _masked_r2(
                     transfer_predicted, transfer_y[name], transfer_mask[name]
                 )
     return value, transfer
+
+
+def _standardize_masked_targets(
+    targets: torch.Tensor, mask: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if targets.ndim != mask.ndim + 1 or targets.shape[:-1] != mask.shape:
+        raise ValueError("Regression targets must add one feature axis to the mask.")
+    expanded = mask.unsqueeze(-1).to(targets.dtype)
+    count = expanded.sum(dim=0).clamp_min(1.0)
+    mean = (targets * expanded).sum(dim=0) / count
+    variance = ((targets - mean).square() * expanded).sum(dim=0) / count
+    std = variance.sqrt().clamp_min(1.0e-4)
+    return (targets - mean) / std, mean, std
 
 
 def _fit_grid_decoder(

@@ -184,6 +184,7 @@ def run_controlled_object_training(config: dict[str, Any]) -> dict[str, Any]:
             "train_vicreg_covariance_loss": float(
                 output.vicreg_covariance_loss.detach().cpu()
             ),
+            "train_sigreg_loss": float(output.sigreg_loss.detach().cpu()),
             "train_ldad_loss": float(output.ldad_loss.detach().cpu()),
             "train_level_losses": [
                 float(loss.detach().cpu()) for loss in output.level_losses

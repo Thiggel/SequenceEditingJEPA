@@ -1,0 +1,14 @@
+name: joint_objective
+target_mode: shared
+stop_gradient_targets: false
+ema_decay: 0.99
+prediction_weight: 1.0
+vicreg_weight: 0.0
+vicreg_variance_weight: 0.05
+vicreg_covariance_weight: 17.866
+vicreg_adjust_cov: true
+sigreg_weight: 0.0
+sigreg_num_slices: 1024
+sigreg_t_max: 3.0
+sigreg_num_points: 17
+ldad_weight: 0.0

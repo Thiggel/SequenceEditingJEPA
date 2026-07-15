@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 from puzzle_jepa.controlled_objects import evaluation as controlled_evaluation
+from puzzle_jepa.controlled_objects import probes as controlled_probes
 from puzzle_jepa.controlled_objects.batching import build_controlled_dataset
 from puzzle_jepa.controlled_objects.domain import RigidTransform
 from puzzle_jepa.controlled_objects.generator import (
@@ -209,6 +210,23 @@ def test_every_hierarchy_level_gets_teacher_forcing_and_dense_rollout_loss(
     )
 
 
+def test_joint_hierarchy_every_level_backpropagates_into_shared_encoder() -> None:
+    model = _model(spans=[1, 2, 4], rollout=1, target_mode="ema")
+    batch = build_controlled_dataset(
+        _generator(horizon=4), trajectory_count=4, seed=18
+    ).sample_batch(np.random.default_rng(19), batch_size=2, horizon=4)
+    output = model(batch)
+    for level, loss in enumerate(output.level_losses):
+        model.zero_grad(set_to_none=True)
+        loss.backward(retain_graph=level + 1 < len(output.level_losses))
+        encoder_gradient = sum(
+            float(parameter.grad.abs().sum())
+            for parameter in model.encoder.parameters()
+            if parameter.grad is not None
+        )
+        assert encoder_gradient > 0.0, f"level {level} did not update the encoder"
+
+
 def test_rollout_weighting_is_lambda_power_normalized() -> None:
     model = ControlledObjectJEPA(
         hidden_dim=16,
@@ -294,6 +312,30 @@ def test_vicreg_uses_separate_adjusted_variance_and_covariance_coefficients() ->
     )
 
 
+def test_sigreg_is_finite_and_updates_the_encoder() -> None:
+    model = ControlledObjectJEPA(
+        hidden_dim=16,
+        level_spans=[1, 2],
+        rollout_steps=1,
+        predictor_layers=1,
+        predictor_heads=4,
+        target_mode="shared",
+        stop_gradient_targets=False,
+        vicreg_weight=0.0,
+        sigreg_weight=0.05,
+        sigreg_num_slices=8,
+        sigreg_num_points=5,
+    )
+    batch = build_controlled_dataset(
+        _generator(horizon=2), trajectory_count=8, seed=20
+    ).sample_batch(np.random.default_rng(21), batch_size=8, horizon=2)
+    output = model(batch)
+    assert torch.isfinite(output.sigreg_loss)
+    assert float(output.sigreg_loss.detach()) > 0.0
+    output.loss.backward()
+    assert all(parameter.grad is not None for parameter in model.encoder.parameters())
+
+
 def test_ldad_uses_rigid_transform_action_classes() -> None:
     model = ControlledObjectJEPA(
         hidden_dim=16,
@@ -326,7 +368,7 @@ def test_probe_suite_covers_all_properties_and_pixel_reconstruction() -> None:
         steps=1,
         learning_rate=1.0e-3,
     )
-    assert metrics["probe_schema"] == "controlled_objects_v4"
+    assert metrics["probe_schema"] == "controlled_objects_v5"
     assert metrics["probe_motion_policy_interpretation"] == (
         "unobservable_single_frame_negative_control"
     )
@@ -347,6 +389,43 @@ def test_probe_suite_covers_all_properties_and_pixel_reconstruction() -> None:
     }
     assert required <= metrics.keys()
     assert all(np.isfinite(float(metrics[name])) for name in required)
+
+
+def test_masked_regression_standardizes_tiny_targets_before_optimization() -> None:
+    torch.manual_seed(22)
+    train_x = torch.randn(128, 4)
+    train_y = torch.stack(
+        (
+            0.02 + 0.001 * train_x[:, 0],
+            0.03 - 0.002 * train_x[:, 1],
+        ),
+        dim=1,
+    ).unsqueeze(-1)
+    mask = torch.ones(128, 2, dtype=torch.bool)
+    standardized, _, _ = controlled_probes._standardize_masked_targets(train_y, mask)
+    torch.testing.assert_close(
+        standardized.mean(dim=0), torch.zeros(2, 1), atol=1.0e-5, rtol=0.0
+    )
+    torch.testing.assert_close(
+        standardized.std(dim=0, unbiased=False),
+        torch.ones(2, 1),
+        atol=1.0e-4,
+        rtol=0.0,
+    )
+    value, _ = controlled_probes._fit_masked_regressor(
+        train_x,
+        train_y,
+        mask,
+        train_x,
+        train_y,
+        mask,
+        transfer_x=None,
+        transfer_y=None,
+        transfer_mask=None,
+        steps=200,
+        learning_rate=0.03,
+    )
+    assert value > 0.98
 
 
 def test_symbolic_pixel_planner_exactly_reaches_short_goal() -> None:
@@ -436,6 +515,31 @@ def test_mppi_performs_every_requested_update() -> None:
     assert dynamics.calls == 4
 
 
+def test_conditional_support_energy_scores_macro_not_state_dimension() -> None:
+    torch.manual_seed(23)
+    state_bank = torch.randn(32, 256)
+    macro_bank = torch.randn(32, 8)
+    support = controlled_evaluation.MacroSupport(
+        state_bank=state_bank,
+        bank=macro_bank,
+        action_bank=torch.zeros(32, 1, 3, dtype=torch.long),
+        lower=macro_bank.quantile(0.02, dim=0),
+        upper=macro_bank.quantile(0.98, dim=0),
+        state_mean=state_bank.mean(dim=0),
+        state_std=state_bank.std(dim=0, unbiased=False).clamp_min(1.0e-3),
+        mean=macro_bank.mean(dim=0),
+        std=macro_bank.std(dim=0, unbiased=False).clamp_min(1.0e-3),
+    )
+    on = controlled_evaluation._conditional_macro_energy(
+        macro_bank, state_bank, support
+    )
+    off = controlled_evaluation._conditional_macro_energy(
+        macro_bank + 5.0 * support.std, state_bank, support
+    )
+    torch.testing.assert_close(on, torch.zeros_like(on))
+    assert float(off.mean()) > 4.0
+
+
 def test_vicreg_grid_has_only_two_regularizer_axes_and_three_seeds(
     tmp_path: Path,
 ) -> None:
@@ -465,6 +569,37 @@ def test_vicreg_grid_has_only_two_regularizer_axes_and_three_seeds(
     assert {row[1] for row in values} == {"0.05", "1", "10", "29.409"}
     assert {row[2] for row in values} == {"0.1", "1", "10", "17.866"}
     assert {row[3] for row in values} == {"1707", "2707", "3707"}
+
+
+def test_joint_objective_gate_has_twelve_objectives_and_three_seeds(
+    tmp_path: Path,
+) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        ["bash", "scripts/experiments/submit_controlled_objects_joint_objectives.sh"],
+        cwd=repo,
+        env={
+            **os.environ,
+            "SUBMIT": "0",
+            "MAX_STEPS": "1",
+            "SWEEP_NAME": "pytest_controlled_joint_hwm",
+            "PUZZLE_JEPA_WORK_ROOT": str(tmp_path),
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "36 joint [1,10,100] trainers" in completed.stdout
+    manifest_line = next(
+        line for line in completed.stdout.splitlines() if line.startswith("Task manifest")
+    )
+    rows = Path(manifest_line.split(": ", maxsplit=1)[1]).read_text(
+        encoding="utf-8"
+    ).splitlines()
+    values = [row.split("\t") for row in rows[1:]]
+    assert len(values) == 36
+    assert len({row[1] for row in values}) == 12
+    assert {row[2] for row in values} == {"1707", "2707", "3707"}
 
 
 def test_slurm_training_keeps_hydra_metadata_off_home_filesystem() -> None:

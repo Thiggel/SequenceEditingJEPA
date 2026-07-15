@@ -1,16 +1,16 @@
 # Experiment Backlog
 
-Wave 14 is complete and no training experiment is active. Later stages are
-gates, not permission to launch broad grids automatically.
+Wave 15 is active. Later stages are gates, not permission to launch broad
+grids automatically.
 
 ## Stage 0: Representation Rescue
 
 | Priority | Experiment | Status | Decision gate |
 | --- | --- | --- | --- |
 | P0 | Valid rigid-motion HWM VICReg sweep | complete: 48/48 cells; representation gate failed | No pair jointly preserves rank and improves semantic/foreground transfer across all seeds. |
-| P0 | Correct jointly trained HWM objective comparison | proposed; not submitted | Train `[1,10,100]` together from step 0 and compare bare online JEPA, EMA, SIGReg, VICReg, and LDAD combinations at three seeds. |
-| P0 | Frozen-probe calibration on retained checkpoints | proposed; no job submitted | Standardize regression targets or use ridge probes, verify raw/initial controls, and increase probe convergence before comparing representations. |
-| P0 | Conditional macro-support diagnostic repair | proposed; no job submitted | Remove 256D state-distance domination; demonstrate off-support and reachability AUROC before interpreting support-CEM. |
+| P0 | Correct jointly trained HWM objective comparison | active: trainers `3858542`, dependent probes `3858543` | Train `[1,10,100]` together from step 0; promote only a three-seed representation-qualified objective. |
+| P0 | Frozen-probe calibration | implemented in Wave 15 | Regression targets are standardized during fitting; compare frozen learned, matched-initial, and raw controls. |
+| P0 | Conditional macro-support diagnostic repair | implemented in Wave 15 | Score macro support conditional on nearby states; require held-out support/reachability AUROC before planning use. |
 | P0 | Planner sample-size repair | proposed; no job submitted | Re-evaluate selected retained checkpoints with enough episodes for confidence intervals; current success rates use one episode per seed. |
 | P0 | Historical storage cleanup | complete | Historical metrics/manifests/docs retained; obsolete checkpoints and caches removed. Keep only active sweep checkpoints. |
 

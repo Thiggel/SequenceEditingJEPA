@@ -52,6 +52,27 @@ fi
 if [[ -n "${VICREG_COVARIANCE_WEIGHT:-}" ]]; then
   OBJECTIVE_ARGS+=("objective.vicreg_covariance_weight=${VICREG_COVARIANCE_WEIGHT}")
 fi
+if [[ -n "${VICREG_WEIGHT:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.vicreg_weight=${VICREG_WEIGHT}")
+fi
+if [[ -n "${SIGREG_WEIGHT:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.sigreg_weight=${SIGREG_WEIGHT}")
+fi
+if [[ -n "${SIGREG_NUM_SLICES:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.sigreg_num_slices=${SIGREG_NUM_SLICES}")
+fi
+if [[ -n "${TARGET_MODE:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.target_mode=${TARGET_MODE}")
+fi
+if [[ -n "${STOP_GRADIENT_TARGETS:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.stop_gradient_targets=${STOP_GRADIENT_TARGETS}")
+fi
+if [[ -n "${PREDICTION_WEIGHT:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.prediction_weight=${PREDICTION_WEIGHT}")
+fi
+if [[ -n "${OBJECTIVE_NAME:-}" ]]; then
+  OBJECTIVE_ARGS+=("objective.name=${OBJECTIVE_NAME}")
+fi
 
 python -m puzzle_jepa.train.controlled_objects \
   "model=${MODEL_CONFIG}" \

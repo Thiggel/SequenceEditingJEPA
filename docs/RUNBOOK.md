@@ -2,19 +2,30 @@
 
 Long-form handoff source of truth: `../sequence-editing-report`.
 
-Last updated: 2026-07-15 09:58 CEST
+Last updated: 2026-07-15 10:47 CEST
 
-No controlled-object experiment is active. Wave 14 jobs `3855790`-`3855793`
-completed all 192 tasks with exit `0:0`.
+Active Wave 15 trainer array: `3858542` (`0-35%12`). Dependent correlated
+probe array: `3858543`. Check with:
 
-Task manifest:
-`$HPCVAULT/sequence-editing/runs/controlled_objects/manifests/controlled_valid_hwm_vicreg_v1_steps20000_tasks.tsv`.
+```bash
+squeue -j 3858542,3858543
+sacct -j 3858542,3858543 --format=JobID,State,ExitCode,Elapsed
+```
+
+Task and job manifests:
+`$HPCVAULT/sequence-editing/runs/controlled_objects/manifests/controlled_joint_hwm_objectives_v1_steps20000_{tasks,jobs}.tsv`.
 Output root:
-`$HPCVAULT/sequence-editing/runs/controlled_objects/controlled_valid_hwm_vicreg_v1_steps20000/`.
-The aggregate is `summary.json`; every final run has `probe_eval_v4.json`.
+`$HPCVAULT/sequence-editing/runs/controlled_objects/controlled_joint_hwm_objectives_v1_steps20000/`.
+Each successful trainer writes `checkpoint.pt` and `metrics.json`; its matching
+probe writes `probe_eval_v5.json`.
 
-Forty-eight final `[1,10,100]` checkpoints are retained for evaluation repair.
-The 96 redundant `[1]` and `[1,10]` checkpoints were removed after completion.
-Do not launch a new training grid until the probe calibration and conditional
-macro-support issues in `docs/BACKLOG.md` are resolved and the user selects the
-next gate.
+After all probes finish, run:
+
+```bash
+source scripts/env.sh
+python scripts/analysis/analyze_controlled_objects_joint.py \
+  "$PUZZLE_JEPA_WORK_ROOT/runs/controlled_objects/controlled_joint_hwm_objectives_v1_steps20000"
+```
+
+Do not launch planning or broader axes automatically. First apply the
+three-seed representation gate documented in Wave 15.

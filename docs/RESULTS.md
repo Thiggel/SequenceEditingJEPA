@@ -2,7 +2,11 @@
 
 Long-form results: `../sequence-editing-report/RESULTS.md`.
 
-Last updated: 2026-07-15 09:58 CEST
+Last updated: 2026-07-15 10:47 CEST
+
+Wave 15 joint HWM trainers `3858542` and dependent probes `3858543` are active;
+there are no production results yet. GPU smoke `3858525` completed the online,
+SIGReg, and LDAD paths at batch 64 with exit `0:0`.
 
 Wave 14 completed all 192 jobs `3855790`-`3855793` with exit `0:0` and
 48/48 final evaluations. No VICReg pair passes the representation gate.

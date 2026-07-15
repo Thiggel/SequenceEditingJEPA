@@ -26,6 +26,9 @@ class MacroSupport:
     std: torch.Tensor
 
 
+CONDITIONAL_SUPPORT_NEIGHBORS = 16
+
+
 @torch.no_grad()
 def evaluate_controlled_model(
     model: ControlledObjectJEPA,
@@ -63,6 +66,7 @@ def evaluate_controlled_model(
         "eval_vicreg_loss": float(output.vicreg_loss.cpu()),
         "eval_vicreg_variance_loss": float(output.vicreg_variance_loss.cpu()),
         "eval_vicreg_covariance_loss": float(output.vicreg_covariance_loss.cpu()),
+        "eval_sigreg_loss": float(output.sigreg_loss.cpu()),
         "eval_ldad_loss": float(output.ldad_loss.cpu()),
         "eval_action_valid_fraction": float(batch.action_validity.float().mean().cpu()),
         "eval_changed_cells_per_action_mean": float(changed_cells.float().mean().cpu()),
@@ -259,35 +263,33 @@ def _hierarchy_diagnostics(
         )
         if len(macros) > 2:
             pooled_current = _pooled(current)
-            state_mean = pooled_current.mean(dim=0)
-            state_std = pooled_current.std(dim=0, unbiased=False).clamp_min(1.0e-3)
-            macro_mean = macros.mean(dim=0)
-            feature_std = macros.std(dim=0, unbiased=False).clamp_min(1.0e-3)
-            on_joint = torch.cat(
-                (
-                    (pooled_current - state_mean) / state_std,
-                    (macros - macro_mean) / feature_std,
-                ),
-                dim=-1,
+            macro_support = MacroSupport(
+                state_bank=pooled_current,
+                bank=macros,
+                action_bank=batch.actions[:, :span],
+                lower=torch.quantile(macros, 0.02, dim=0),
+                upper=torch.quantile(macros, 0.98, dim=0),
+                state_mean=pooled_current.mean(dim=0),
+                state_std=pooled_current.std(dim=0, unbiased=False).clamp_min(1.0e-3),
+                mean=macros.mean(dim=0),
+                std=macros.std(dim=0, unbiased=False).clamp_min(1.0e-3),
             )
-            on_distance = torch.cdist(on_joint, on_joint)
-            on_distance.fill_diagonal_(torch.inf)
-            on_nearest = on_distance.min(dim=1).values
-            off = macro_mean + 3.0 * feature_std * torch.randn_like(macros)
-            off_joint = torch.cat(
-                (
-                    (pooled_current - state_mean) / state_std,
-                    (off - macro_mean) / feature_std,
-                ),
-                dim=-1,
+            on_nearest = _conditional_macro_energy(
+                macros,
+                pooled_current,
+                macro_support,
+                exclude_aligned=True,
             )
-            off_distance = torch.cdist(off_joint, on_joint)
-            off_nearest, nearest_index = off_distance.min(dim=1)
+            off = macro_support.mean + 3.0 * macro_support.std * torch.randn_like(macros)
+            off_nearest = _conditional_macro_energy(
+                off,
+                pooled_current,
+                macro_support,
+                exclude_aligned=True,
+            )
             off_prediction = model.predict_from_macro(level, current, off)
             on_reachability = _latent_distance(high_prediction, low_prediction)
-            off_reachability = _latent_distance(
-                off_prediction, low_prediction[nearest_index]
-            )
+            off_reachability = _latent_distance(off_prediction, low_prediction)
             diagnostics[f"eval_level{level}_support_margin"] = float(
                 (off_nearest.mean() - on_nearest.mean()).cpu()
             )
@@ -906,19 +908,49 @@ def _macro_support_energy(
 ) -> torch.Tensor:
     if states.shape[:2] != macros.shape[:2]:
         raise ValueError("Macro support states and actions must share batch/time axes.")
-    normalized = (macros - support.mean) / support.std
-    normalized_states = (states - support.state_mean) / support.state_std
-    queries = torch.cat((normalized_states, normalized), dim=-1)
-    bank = torch.cat(
-        (
-            (support.state_bank - support.state_mean) / support.state_std,
-            (support.bank - support.mean) / support.std,
-        ),
-        dim=-1,
+    energy = _conditional_macro_energy(
+        macros.flatten(0, 1),
+        states.flatten(0, 1),
+        support,
     )
-    distances = torch.cdist(queries.flatten(0, 1), bank)
-    nearest = distances.min(dim=1).values.square()
-    return nearest.view(macros.shape[:2]).mean(dim=1)
+    return energy.view(macros.shape[:2]).mean(dim=1)
+
+
+def _conditional_macro_energy(
+    macros: torch.Tensor,
+    states: torch.Tensor,
+    support: MacroSupport,
+    *,
+    exclude_aligned: bool = False,
+) -> torch.Tensor:
+    """Score macros against those observed at nearby states."""
+    if macros.ndim != 2 or states.ndim != 2 or len(macros) != len(states):
+        raise ValueError("Conditional support expects aligned 2D state/macro batches.")
+    normalized_states = (states - support.state_mean) / support.state_std
+    state_bank = (support.state_bank - support.state_mean) / support.state_std
+    state_distance = (
+        normalized_states[:, None] - state_bank[None]
+    ).square().mean(dim=-1)
+    if exclude_aligned:
+        if len(states) != len(support.state_bank):
+            raise ValueError("Aligned exclusion requires one query per support row.")
+        state_distance.fill_diagonal_(torch.inf)
+    neighbor_count = min(
+        CONDITIONAL_SUPPORT_NEIGHBORS,
+        len(support.state_bank) - int(exclude_aligned),
+    )
+    if neighbor_count < 1:
+        raise ValueError("Conditional support requires at least two aligned samples.")
+    neighbor_ids = state_distance.topk(
+        neighbor_count, dim=1, largest=False
+    ).indices
+    normalized_macros = (macros - support.mean) / support.std
+    macro_bank = (support.bank - support.mean) / support.std
+    neighbor_macros = macro_bank[neighbor_ids]
+    macro_distance = (
+        normalized_macros[:, None] - neighbor_macros
+    ).square().mean(dim=-1)
+    return macro_distance.min(dim=1).values
 
 
 def _recursive_on_support_action(

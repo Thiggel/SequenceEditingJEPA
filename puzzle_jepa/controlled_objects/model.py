@@ -7,7 +7,11 @@ from torch import nn
 from torch.nn import functional as F
 
 from puzzle_jepa.controlled_objects.batching import ControlledObjectBatch
-from puzzle_jepa.object_dynamics.losses import covariance_loss, variance_loss
+from puzzle_jepa.object_dynamics.losses import (
+    covariance_loss,
+    sigreg_regularizer,
+    variance_loss,
+)
 
 
 RGB_PALETTE = torch.tensor(
@@ -36,6 +40,7 @@ class ControlledObjectOutput:
     vicreg_loss: torch.Tensor
     vicreg_variance_loss: torch.Tensor
     vicreg_covariance_loss: torch.Tensor
+    sigreg_loss: torch.Tensor
     ldad_loss: torch.Tensor
     level_losses: tuple[torch.Tensor, ...]
     predictions: tuple[torch.Tensor, ...]
@@ -343,6 +348,10 @@ class ControlledObjectJEPA(nn.Module):
         vicreg_variance_weight: float = 1.0,
         vicreg_covariance_weight: float = 0.04,
         vicreg_adjust_cov: bool = False,
+        sigreg_weight: float = 0.0,
+        sigreg_num_slices: int = 1024,
+        sigreg_t_max: float = 3.0,
+        sigreg_num_points: int = 17,
         ldad_weight: float = 0.0,
         ldad_horizon: int = 1,
     ):
@@ -358,8 +367,15 @@ class ControlledObjectJEPA(nn.Module):
             raise ValueError("target_mode must be 'shared' or 'ema'.")
         if target_mode == "ema" and not stop_gradient_targets:
             raise ValueError("EMA targets are necessarily stop-gradient targets.")
-        if min(vicreg_weight, vicreg_variance_weight, vicreg_covariance_weight) < 0.0:
-            raise ValueError("VICReg weights must be non-negative.")
+        if min(
+            vicreg_weight,
+            vicreg_variance_weight,
+            vicreg_covariance_weight,
+            sigreg_weight,
+        ) < 0.0:
+            raise ValueError("Representation regularizer weights must be non-negative.")
+        if sigreg_num_slices < 1 or sigreg_num_points < 2 or sigreg_t_max <= 0.0:
+            raise ValueError("SIGReg sampling parameters must be positive.")
         resolved_spans = (
             tuple(int(span) for span in level_spans)
             if level_spans is not None
@@ -391,6 +407,10 @@ class ControlledObjectJEPA(nn.Module):
         self.vicreg_variance_weight = float(vicreg_variance_weight)
         self.vicreg_covariance_weight = float(vicreg_covariance_weight)
         self.vicreg_adjust_cov = bool(vicreg_adjust_cov)
+        self.sigreg_weight = float(sigreg_weight)
+        self.sigreg_num_slices = int(sigreg_num_slices)
+        self.sigreg_t_max = float(sigreg_t_max)
+        self.sigreg_num_points = int(sigreg_num_points)
         self.ldad_weight = float(ldad_weight)
         self.ldad_horizon = int(ldad_horizon)
         self.predictor_architecture = predictor_architecture
@@ -587,6 +607,16 @@ class ControlledObjectJEPA(nn.Module):
             vicreg_variance = vicreg_loss
             vicreg_covariance = vicreg_loss
 
+        if self.sigreg_weight > 0.0:
+            sigreg_loss = sigreg_regularizer(
+                current,
+                num_slices=self.sigreg_num_slices,
+                t_max=self.sigreg_t_max,
+                num_points=self.sigreg_num_points,
+            )
+        else:
+            sigreg_loss = prediction_loss.detach() * 0.0
+
         ldad_logits = None
         if self.ldad_decoder is not None:
             endpoint = self.encode(batch.states[:, 1], target=True)
@@ -602,6 +632,7 @@ class ControlledObjectJEPA(nn.Module):
             loss=(
                 self.prediction_weight * prediction_loss
                 + self.vicreg_weight * vicreg_loss
+                + self.sigreg_weight * sigreg_loss
                 + self.ldad_weight * ldad_loss
             ),
             prediction_loss=prediction_loss,
@@ -610,6 +641,7 @@ class ControlledObjectJEPA(nn.Module):
             vicreg_loss=vicreg_loss,
             vicreg_variance_loss=vicreg_variance,
             vicreg_covariance_loss=vicreg_covariance,
+            sigreg_loss=sigreg_loss,
             ldad_loss=ldad_loss,
             level_losses=tuple(level_losses),
             predictions=tuple(all_predictions),
