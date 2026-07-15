@@ -3,21 +3,24 @@
 Source of truth: `../sequence-editing-report/BACKLOG.md` and
 `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Wave 14 is complete and its representation gate failed. No new training sweep
-is active or authorized.
+Wave 14 is complete, but staged encoder freezing made it the wrong protocol for
+the intended hierarchy experiment. No new sweep is active or authorized.
 
-The next bounded work is evaluation repair on retained checkpoints:
+The corrected bounded experiment keeps data, model, `[1,10,100]` spans,
+rollout supervision, bottleneck, and capacity fixed. Every level, action
+encoder, predictor, and the shared state encoder trains jointly from step 0.
+At three seeds, compare:
 
-1. Calibrate frozen property probes with standardized regression targets or a
-   closed-form ridge baseline and verify convergence against raw and matched
-   initialization controls.
-2. Replace the joint 256D-state/8D-macro nearest-neighbor support score with a
-   conditional macro-support diagnostic that can separate held-out valid from
-   synthetic off-support chunks.
-3. Only for a cell surviving those checks, rerun enough planning episodes to
-   report uncertainty rather than three binary trials.
+1. bare online JEPA and EMA-only controls;
+2. SIGReg and EMA+SIGReg;
+3. VICReg and EMA+VICReg using the selected Wave 14 coefficient pair;
+4. paper-style online LDAD, EMA+LDAD, and LDAD combined separately with
+   VICReg or SIGReg, with and without EMA.
 
-A later training ablation may compare staged encoder freezing with joint
-high-level gradients. That is required before claiming hierarchy itself induces
-abstract state features. Predictor, capacity, LDAD, SIGReg, object-load, and
+This is a 12-objective, 36-run training gate, not another coefficient grid.
+Before submission, add SIGReg to the controlled model, test that every level
+backpropagates into the shared encoder, repair regression-probe calibration,
+and replace the state-dominated support score. Planning then runs only on
+representation-qualified cells, on a fixed shared episode set with enough
+episodes for confidence intervals. Predictor, capacity, object-load, and
 trajectory grids remain blocked.

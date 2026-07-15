@@ -8,6 +8,7 @@ gates, not permission to launch broad grids automatically.
 | Priority | Experiment | Status | Decision gate |
 | --- | --- | --- | --- |
 | P0 | Valid rigid-motion HWM VICReg sweep | complete: 48/48 cells; representation gate failed | No pair jointly preserves rank and improves semantic/foreground transfer across all seeds. |
+| P0 | Correct jointly trained HWM objective comparison | proposed; not submitted | Train `[1,10,100]` together from step 0 and compare bare online JEPA, EMA, SIGReg, VICReg, and LDAD combinations at three seeds. |
 | P0 | Frozen-probe calibration on retained checkpoints | proposed; no job submitted | Standardize regression targets or use ridge probes, verify raw/initial controls, and increase probe convergence before comparing representations. |
 | P0 | Conditional macro-support diagnostic repair | proposed; no job submitted | Remove 256D state-distance domination; demonstrate off-support and reachability AUROC before interpreting support-CEM. |
 | P0 | Planner sample-size repair | proposed; no job submitted | Re-evaluate selected retained checkpoints with enough episodes for confidence intervals; current success rates use one episode per seed. |
@@ -20,7 +21,7 @@ gates, not permission to launch broad grids automatically.
 | P1 | Re-run top VICReg cells with five seeds | blocked: Stage 0 gate failed | Confirm only after evaluation repairs identify a cell worth promoting. |
 | P1 | Static versus rollout feature probes by level | already instrumented | Determine whether high-level prediction preserves or destroys the low-level factors. |
 | P1 | Same-color/permutation-aware object probes | proposed | Remove the unique-color object-slot shortcut before claiming object identity. |
-| P1 | Joint encoder training versus staged encoder freeze | proposed | Test hierarchy-induced abstraction; current 10/100-action stages cannot change the frozen encoder. |
+| P1 | Joint encoder training versus staged encoder freeze | folded into corrected P0 experiment | Joint training is the required default; retain staged freezing only as an explicitly labeled later ablation. |
 
 ## Stage 2: Macro Manifold and Reachability
 

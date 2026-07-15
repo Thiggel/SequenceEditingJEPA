@@ -2,7 +2,7 @@
 
 Source of truth: `../sequence-editing-report/CURRENT_EXPERIMENTS.md`.
 
-Last updated: 2026-07-15 09:58 CEST
+Last updated: 2026-07-15 10:14 CEST
 
 ## Fixed Valid-Motion HWM VICReg Sweep
 
@@ -38,7 +38,11 @@ one episode per seed.
 
 The sweep also cannot establish hierarchy-induced abstraction: staged training
 freezes the encoder after `[1]`, so the 10- and 100-action losses cannot change
-the representation. No follow-up training has been submitted.
+the representation. This was the wrong protocol for the intended jointly
+trained HWM experiment. Wave 14 is therefore only a low-level EMA+VICReg
+diagnostic. It does not compare EMA alone, SIGReg, or LDAD; SIGReg is absent
+from this controlled model and LDAD was disabled. No follow-up training has
+been submitted.
 
 Results and retained artifacts:
 `$HPCVAULT/sequence-editing/runs/controlled_objects/controlled_valid_hwm_vicreg_v1_steps20000/`.

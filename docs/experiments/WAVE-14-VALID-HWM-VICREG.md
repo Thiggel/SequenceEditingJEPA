@@ -92,6 +92,8 @@ losses induce abstraction.
 The representation gate fails. VICReg prevents total constant collapse and
 exposes a reproducible rank/dynamics tradeoff, but no coefficient pair jointly
 preserves rank and improves semantic and foreground reconstruction in all
-three seeds. Planning numbers are not promoted. No further training wave is
-active; the next decision should first repair/recalibrate the frozen probes and
-conditional macro-support diagnostic on retained checkpoints.
+three seeds. More importantly, staged encoder freezing means this is not the
+requested jointly trained HWM experiment. It says nothing about EMA alone or
+SIGReg, and LDAD was disabled. Planning numbers are not promoted. No further
+training wave is active; the next decision is a corrected joint objective
+comparison after probe and conditional-support repairs.
