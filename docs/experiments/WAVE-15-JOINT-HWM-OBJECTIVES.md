@@ -44,19 +44,42 @@ variance/covariance pair `.05/17.866`.
 
 ## Status
 
-Submitted 2026-07-15. Trainer array `3858542` has 36 tasks with concurrency
-12. Correlated frozen-probe array `3858543` has 36 tasks and releases each task
-only after its matching trainer succeeds. Output:
+Complete. Trainer array `3858542` and correlated frozen-probe array `3858543`
+both completed 36/36 tasks with exit `0:0`. Output:
 `$HPCVAULT/sequence-editing/runs/controlled_objects/controlled_joint_hwm_objectives_v1_steps20000/`.
 
 GPU smoke array `3858525` ran online, SIGReg, and LDAD at batch 64; all three
 completed `0:0` in 32-52 seconds. Full tests, focused controlled-object tests,
 compileall, shell syntax, and diff checks pass.
 
+## Results
+
+| objective | rank `/256` | presence BA | shape BA | position R2 | relation R2 | foreground IoU | prediction / rollout MSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| online | 1.3 | .777 | .314 | .030 | -.124 | .012 | .0000002 / .0000002 |
+| EMA | 3.2 | .793 | .313 | .468 | .230 | .020 | .0000002 / .0000003 |
+| SIGReg | 9.2 | .657 | .261 | .439 | -2.627 | .042 | .040 / .052 |
+| LDAD | 9.4 | .653 | .241 | .292 | -.925 | .063 | .0045 / .0052 |
+| VICReg | 33.3 | .807 | .304 | .705 | .511 | .116 | .0021 / .0028 |
+| EMA+VICReg | 47.6 | .782 | .279 | .531 | .086 | .155 | .0079 / .0100 |
+
+VICReg is the best semantic/spatial cell and EMA+VICReg retains the most rank
+and foreground information. VICReg position R2 stays positive through four
+rollouts at spans 1/10/100 (`.698/.644/.579`), and predicted deltas decode the
+transform at `.708`. These gains reproduce across all three seeds.
+
+Matched initialization has effective rank about 131 and foreground IoU about
+`.211`. Every objective loses rank and every foreground decoder gets worse.
+Online/EMA prediction collapses almost to a constant state. Direct VICReg
+10/100-action MSE is `.0020/.0030`, but primitive realization MSE is
+`.164/13.315`; level-2 reachability AUROC is `.515`. Conditional support AUROC
+is now `.998`, showing that support detection is repaired but does not imply
+that predicted subgoals are reachable.
+
 ## Gate
 
-Promote only objective cells whose three seeds preserve useful rank and improve
-semantic, spatial, foreground, and rollout readouts over matched initialization.
-Only promoted cells receive fixed, adequately sampled planning evaluation with
-confidence intervals. Capacity, macro-width, trajectory, and object-load axes
-remain blocked.
+The strict gate fails: no objective both preserves representation breadth and
+improves semantic, spatial, foreground, and rollout readouts. No planning jobs
+are submitted. VICReg and EMA+VICReg are retained as diagnostic checkpoints;
+the next experiment requires an explicit decision rather than another broad
+sweep.
