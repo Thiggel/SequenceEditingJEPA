@@ -283,6 +283,25 @@ def test_dense_trajectory_supervises_every_anchor_and_cross_level_consistency() 
     assert "eval_level0_rollout2_changed_gain" in metrics
 
 
+def test_dense_probe_rollouts_are_bounded_by_available_trajectory() -> None:
+    model = ControlledObjectJEPA(
+        hidden_dim=16,
+        level_spans=[1, 10, 100],
+        macro_dim=8,
+        predictor_layers=1,
+        predictor_heads=4,
+        predictor_max_context=128,
+        rollout_steps=4,
+        rollout_steps_by_level=[10, 10, 4],
+        dense_trajectory_training=True,
+        vicreg_weight=0.0,
+    )
+    assert controlled_probes._rollout_horizons(model, max_horizon=100) == tuple(
+        range(1, 11)
+    ) + tuple(range(20, 101, 10))
+    assert max(controlled_probes._rollout_horizons(model, max_horizon=300)) == 300
+
+
 def test_conditional_projection_selects_macros_from_nearby_states() -> None:
     state_bank = torch.cat((torch.zeros(16, 2), torch.full((16, 2), 10.0)))
     macro_bank = torch.cat((torch.zeros(16, 2), torch.full((16, 2), 10.0)))

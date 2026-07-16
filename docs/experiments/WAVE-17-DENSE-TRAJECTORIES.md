@@ -31,11 +31,18 @@ and 42 correlated probes.
 - Trainers: `3860420` (`0-41%6`)
 - Correlated probes: `3860421`, dependency `aftercorr:3860420`
 - Root: `$HPCVAULT/sequence-editing/runs/controlled_objects/controlled_dense_trajectories_v1`
-- Status: active, submitted 2026-07-15
+- Status: active repairs as of 2026-07-16
+
+Original trainers have 27 complete, 6 running, 6 pending, and three
+`T300/B64` failures caused by A40 OOM at about 47.4 GiB allocated. Exact B64
+repairs `3862936` run on 96 GiB RTX Pro GPUs. The original probe array exposed
+a second bug: generic rollout horizons requested 400 actions from `T100` data.
+Probe horizons now match training (`[10,10,1]`, `[10,10,3]`, or `[10,10,4]`
+for `T=100,300,500`). Failed probes rerun as `3862939`; repaired B64 probes are
+dependency-held as `3862940`. No partial dense aggregate is interpreted.
 
 ## Gate
 
 Test whether longer context or batch/state budget improves frozen properties,
 rank, reconstruction, autonomous rollout gains, direct/composed hierarchy
 agreement, and primitive realization across all seeds.
-

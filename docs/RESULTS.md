@@ -2,12 +2,14 @@
 
 Long-form results: `../sequence-editing-report/RESULTS.md`.
 
-Last updated: 2026-07-15 18:04 CEST
+Last updated: 2026-07-16
 
-Waves 16-18 are active under jobs `3860384/3860385`, `3860420/3860421`, and
-`3860422`. They test calibrated no-VISReg objectives, whole-trajectory dense
-hierarchy training, and conditional-support/lower-reachability planning. No
-production aggregate is complete; partial array means are not reported.
+Wave 16 objective jobs `3860384/3860385` and Wave 18 planner job `3860422` are
+complete. Objective weights expose a rank/reconstruction versus semantic
+utility tradeoff; no LDAD, VICReg, or SIGReg recipe passes both sides. Planner
+support projection and lower-level residual feedback consistently hurt the
+unconstrained baseline. Wave 17 dense trajectory results remain pending repairs
+`3862936/3862939/3862940`; partial means are not reported.
 
 Wave 15 joint HWM trainers `3858542` and dependent probes `3858543` completed
 36/36 each with exit `0:0`. VICReg is the strongest semantic/spatial row: rank

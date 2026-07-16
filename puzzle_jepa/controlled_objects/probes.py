@@ -65,6 +65,9 @@ def run_controlled_object_probes(
     cuda_devices = [device.index or 0] if device.type == "cuda" else []
     try:
         model.eval()
+        rollout_horizons = _rollout_horizons(
+            model, max_horizon=generator.spec.trajectory_length
+        )
         with torch.random.fork_rng(devices=cuda_devices):
             torch.manual_seed(seed + 31)
             train_labels = _collect_labels(
@@ -72,7 +75,7 @@ def run_controlled_object_probes(
                 seed=seed,
                 samples=train_samples,
                 device=device,
-                horizons=_rollout_horizons(model),
+                horizons=rollout_horizons,
                 object_counts=object_counts or (1, 2, 4, 8),
             )
             eval_labels = _collect_labels(
@@ -80,11 +83,21 @@ def run_controlled_object_probes(
                 seed=seed + 1,
                 samples=eval_samples,
                 device=device,
-                horizons=_rollout_horizons(model),
+                horizons=rollout_horizons,
                 object_counts=object_counts or (1, 2, 4, 8),
             )
-            train = _encode_features(model, train_labels, batch_size=batch_size)
-            evaluate = _encode_features(model, eval_labels, batch_size=batch_size)
+            train = _encode_features(
+                model,
+                train_labels,
+                batch_size=batch_size,
+                max_horizon=generator.spec.trajectory_length,
+            )
+            evaluate = _encode_features(
+                model,
+                eval_labels,
+                batch_size=batch_size,
+                max_horizon=generator.spec.trajectory_length,
+            )
             metrics = _fit_probe_suite(
                 train,
                 train_labels,
@@ -247,13 +260,22 @@ def _collect_labels(
     )
 
 
-def _rollout_horizons(model: ControlledObjectJEPA) -> tuple[int, ...]:
+def _rollout_horizons(
+    model: ControlledObjectJEPA, *, max_horizon: int | None = None
+) -> tuple[int, ...]:
     return tuple(
         sorted(
             {
                 span * rollout_step
                 for level, span in enumerate(model.level_spans)
-                for rollout_step in range(1, model.level_rollout_steps(level) + 1)
+                for rollout_step in range(
+                    1,
+                    min(
+                        model.level_rollout_steps(level),
+                        (max_horizon // span if max_horizon is not None else 10**9),
+                    )
+                    + 1,
+                )
             }
         )
     )
@@ -283,6 +305,7 @@ def _encode_features(
     labels: _ProbeLabels,
     *,
     batch_size: int,
+    max_horizon: int | None = None,
 ) -> _ProbeFeatures:
     parts: dict[str, list[torch.Tensor]] = {
         "latent": [],
@@ -294,7 +317,14 @@ def _encode_features(
     rollout_specs = [
         (f"level{level}_rollout{rollout_step}", level, rollout_step, span)
         for level, span in enumerate(model.level_spans)
-        for rollout_step in range(1, model.level_rollout_steps(level) + 1)
+        for rollout_step in range(
+            1,
+            min(
+                model.level_rollout_steps(level),
+                (max_horizon // span if max_horizon is not None else 10**9),
+            )
+            + 1,
+        )
     ]
     rollout_parts = {name: [] for name, _, _, _ in rollout_specs}
     rollout_horizons = {
@@ -310,12 +340,16 @@ def _encode_features(
         latent = model.encode(states)
         future = model.encode(futures)
         for level, span in enumerate(model.level_spans):
+            rollout_steps = min(
+                model.level_rollout_steps(level),
+                (max_horizon // span if max_horizon is not None else 10**9),
+            )
             rollout = model.rollout_level(
                 level,
                 latent,
-                actions[:, : span * model.level_rollout_steps(level)],
+                actions[:, : span * rollout_steps],
             )
-            for rollout_step in range(1, model.level_rollout_steps(level) + 1):
+            for rollout_step in range(1, rollout_steps + 1):
                 rollout_parts[f"level{level}_rollout{rollout_step}"].append(
                     rollout[:, rollout_step - 1].detach()
                 )
