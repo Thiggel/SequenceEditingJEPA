@@ -2,14 +2,15 @@
 
 Long-form results: `../sequence-editing-report/RESULTS.md`.
 
-Last updated: 2026-07-16
+Last updated: 2026-07-23
 
 Wave 16 objective jobs `3860384/3860385` and Wave 18 planner job `3860422` are
 complete. Objective weights expose a rank/reconstruction versus semantic
 utility tradeoff; no LDAD, VICReg, or SIGReg recipe passes both sides. Planner
 support projection and lower-level residual feedback consistently hurt the
-unconstrained baseline. Wave 17 dense trajectory results remain pending repairs
-`3862936/3862939/3862940`; partial means are not reported.
+unconstrained baseline. Wave 17 dense trajectory results remain incomplete:
+39/42 checkpoints and bounded-horizon probes exist, while the attempted B64
+repair selected the wrong three manifest rows. Partial means are not reported.
 
 Wave 15 joint HWM trainers `3858542` and dependent probes `3858543` completed
 36/36 each with exit `0:0`. VICReg is the strongest semantic/spatial row: rank
